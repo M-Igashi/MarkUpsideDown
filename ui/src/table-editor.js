@@ -26,7 +26,6 @@ function parseMarkdownTable(text) {
   const rows = lines.slice(2).map(parseRow);
   const colCount = header.length;
 
-  // Normalize row lengths
   const normalize = (row) => {
     while (row.length < colCount) row.push("");
     return row.slice(0, colCount);
@@ -43,7 +42,6 @@ function generateMarkdownTable(table) {
   const { headers, alignments, rows } = table;
   const colCount = headers.length;
 
-  // Calculate column widths
   const widths = Array.from({ length: colCount }, (_, i) => {
     const cells = [headers[i], ...rows.map((r) => r[i] || "")];
     return Math.max(3, ...cells.map((c) => c.length));
@@ -80,45 +78,38 @@ function generateMarkdownTable(table) {
   return [formatRow(headers), sepRow, ...rows.map(formatRow)].join("\n");
 }
 
-// --- Find table range in editor ---
+// --- Find table range in editor (uses CodeMirror line API) ---
 
 function findTableAtCursor(doc, pos) {
-  const text = doc.toString();
-  const lines = text.split("\n");
-  let offset = 0;
-  let cursorLine = 0;
+  const isTableLine = (text) => text.trim().startsWith("|") || /\|.*\|/.test(text);
 
-  for (let i = 0; i < lines.length; i++) {
-    if (offset + lines[i].length >= pos) {
-      cursorLine = i;
-      break;
-    }
-    offset += lines[i].length + 1;
-  }
+  const cursorLine = doc.lineAt(pos);
+  if (!isTableLine(cursorLine.text)) return null;
 
-  // Check if cursor line looks like a table line
-  const isTableLine = (line) => line.trim().startsWith("|") || /\|.*\|/.test(line);
-  if (!isTableLine(lines[cursorLine])) return null;
+  let startLine = cursorLine.number;
+  while (startLine > 1 && isTableLine(doc.line(startLine - 1).text)) startLine--;
 
-  // Find table boundaries
-  let start = cursorLine;
-  while (start > 0 && isTableLine(lines[start - 1])) start--;
+  let endLine = cursorLine.number;
+  while (endLine < doc.lines && isTableLine(doc.line(endLine + 1).text)) endLine++;
 
-  let end = cursorLine;
-  while (end < lines.length - 1 && isTableLine(lines[end + 1])) end++;
+  const tableLines = [];
+  for (let i = startLine; i <= endLine; i++) tableLines.push(doc.line(i).text);
 
-  const tableText = lines.slice(start, end + 1).join("\n");
+  const tableText = tableLines.join("\n");
   const parsed = parseMarkdownTable(tableText);
   if (!parsed) return null;
 
-  let from = 0;
-  for (let i = 0; i < start; i++) from += lines[i].length + 1;
-  let to = from + tableText.length;
+  const from = doc.line(startLine).from;
+  const to = doc.line(endLine).to;
 
   return { table: parsed, from, to };
 }
 
 // --- Spreadsheet UI ---
+
+function escapeAttr(str) {
+  return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
 
 export function showTableEditor(editor, existingTable) {
   document.getElementById("table-editor-dialog")?.remove();
@@ -146,17 +137,23 @@ export function showTableEditor(editor, existingTable) {
     redoStack.length = 0;
   }
 
+  function restoreSnapshot(snap) {
+    table.headers = snap.headers;
+    table.alignments = snap.alignments;
+    table.rows = snap.rows;
+  }
+
   function undo() {
     if (undoStack.length === 0) return;
     redoStack.push(JSON.parse(JSON.stringify(table)));
-    Object.assign(table, undoStack.pop());
+    restoreSnapshot(undoStack.pop());
     renderGrid();
   }
 
   function redo() {
     if (redoStack.length === 0) return;
     undoStack.push(JSON.parse(JSON.stringify(table)));
-    Object.assign(table, redoStack.pop());
+    restoreSnapshot(redoStack.pop());
     renderGrid();
   }
 
@@ -195,6 +192,7 @@ export function showTableEditor(editor, existingTable) {
   const gridEl = overlay.querySelector(".table-editor-grid");
   const alignSelect = overlay.querySelector('[data-action="align"]');
   let activeCol = 0;
+  let focusValueOnEntry = "";
 
   function renderGrid() {
     const colCount = table.headers.length;
@@ -212,32 +210,39 @@ export function showTableEditor(editor, existingTable) {
     }
     html += "</tbody>";
     gridEl.innerHTML = html;
-
-    // Attach input listeners
-    gridEl.querySelectorAll("input").forEach((input) => {
-      input.addEventListener("input", (e) => {
-        const row = parseInt(e.target.dataset.row);
-        const col = parseInt(e.target.dataset.col);
-        if (row === -1) {
-          table.headers[col] = e.target.value;
-        } else {
-          table.rows[row][col] = e.target.value;
-        }
-      });
-
-      input.addEventListener("focus", (e) => {
-        activeCol = parseInt(e.target.dataset.col);
-        alignSelect.value = table.alignments[activeCol] || "left";
-        e.target.select();
-      });
-
-      input.addEventListener("blur", () => {
-        snapshot();
-      });
-
-      input.addEventListener("keydown", handleCellKeydown);
-    });
   }
+
+  // Event delegation on grid
+  gridEl.addEventListener("input", (e) => {
+    if (e.target.tagName !== "INPUT") return;
+    const row = parseInt(e.target.dataset.row);
+    const col = parseInt(e.target.dataset.col);
+    if (row === -1) {
+      table.headers[col] = e.target.value;
+    } else {
+      table.rows[row][col] = e.target.value;
+    }
+  });
+
+  gridEl.addEventListener("focusin", (e) => {
+    if (e.target.tagName !== "INPUT") return;
+    activeCol = parseInt(e.target.dataset.col);
+    alignSelect.value = table.alignments[activeCol] || "left";
+    focusValueOnEntry = e.target.value;
+    e.target.select();
+  });
+
+  gridEl.addEventListener("focusout", (e) => {
+    if (e.target.tagName !== "INPUT") return;
+    if (e.target.value !== focusValueOnEntry) {
+      snapshot();
+    }
+  });
+
+  gridEl.addEventListener("keydown", (e) => {
+    if (e.target.tagName !== "INPUT") return;
+    handleCellKeydown(e);
+  });
 
   function handleCellKeydown(e) {
     const row = parseInt(e.target.dataset.row);
@@ -246,23 +251,19 @@ export function showTableEditor(editor, existingTable) {
     const rowCount = table.rows.length;
 
     const focusCell = (r, c) => {
-      const sel = `input[data-row="${r}"][data-col="${c}"]`;
-      const el = gridEl.querySelector(sel);
+      const el = gridEl.querySelector(`input[data-row="${r}"][data-col="${c}"]`);
       if (el) el.focus();
     };
 
     if (e.key === "Tab") {
       e.preventDefault();
       if (e.shiftKey) {
-        // Previous cell
         if (col > 0) focusCell(row, col - 1);
         else if (row > -1) focusCell(row - 1, colCount - 1);
       } else {
-        // Next cell
         if (col < colCount - 1) focusCell(row, col + 1);
         else if (row < rowCount - 1) focusCell(row + 1, 0);
         else {
-          // Add new row at end
           snapshot();
           table.rows.push(Array(colCount).fill(""));
           renderGrid();
@@ -281,10 +282,6 @@ export function showTableEditor(editor, existingTable) {
       if (row === -1) focusCell(0, col);
       else if (row < rowCount - 1) focusCell(row + 1, col);
     }
-  }
-
-  function escapeAttr(str) {
-    return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   }
 
   // Toolbar actions
@@ -321,7 +318,7 @@ export function showTableEditor(editor, existingTable) {
   // Clipboard paste: TSV/CSV -> table cells
   gridEl.addEventListener("paste", (e) => {
     const text = e.clipboardData?.getData("text/plain");
-    if (!text || !text.includes("\t") && !text.includes(",")) return;
+    if (!text || (!text.includes("\t") && !text.includes(","))) return;
 
     e.preventDefault();
     snapshot();
@@ -337,7 +334,6 @@ export function showTableEditor(editor, existingTable) {
     const focusedRow = parseInt(document.activeElement?.dataset?.row ?? "-1");
     const focusedCol = parseInt(document.activeElement?.dataset?.col ?? "0");
 
-    // Expand table if needed
     const neededCols = focusedCol + pastedRows[0].length;
     while (table.headers.length < neededCols) {
       table.headers.push(`Column ${table.headers.length + 1}`);
@@ -406,7 +402,6 @@ export function showTableEditor(editor, existingTable) {
   });
 
   renderGrid();
-  // Focus first cell
   setTimeout(() => {
     const first = gridEl.querySelector("input");
     if (first) first.focus();
@@ -418,9 +413,5 @@ export function showTableEditor(editor, existingTable) {
 export function editTableAtCursor(editor) {
   const pos = editor.state.selection.main.head;
   const found = findTableAtCursor(editor.state.doc, pos);
-  if (found) {
-    showTableEditor(editor, found);
-  } else {
-    showTableEditor(editor, null);
-  }
+  showTableEditor(editor, found);
 }
