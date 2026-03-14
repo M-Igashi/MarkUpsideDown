@@ -7,6 +7,7 @@ AI-era Markdown editor built with Rust (Tauri v2) and CodeMirror 6.
 - **Live Preview** — Split-pane editor with real-time Markdown rendering
 - **CodeMirror 6** — Syntax highlighting, vim keybindings, IME support, code folding
 - **Cloudflare Markdown for Agents** — Fetch any URL as clean Markdown using `Accept: text/markdown`
+- **Browser Rendering** — Fetch JavaScript-rendered pages (SPAs, dynamic sites) as Markdown via Cloudflare Browser Rendering API
 - **Document Import** — Convert PDF, Office, CSV, XML, and images to Markdown via Workers AI
 - **Drag & Drop** — Drop files onto the editor to import or open them
 - **GitHub Integration** — Read/write Issues, PRs, and Wikis via `gh` CLI
@@ -58,9 +59,9 @@ ui/                  # Frontend (Vite + CodeMirror 6)
 ├── index.html
 └── package.json
 
-worker/              # Cloudflare Worker (document conversion)
+worker/              # Cloudflare Worker (document conversion + rendered fetch)
 ├── src/
-│   └── index.ts     # AI.toMarkdown() endpoint
+│   └── index.ts     # /convert and /render endpoints
 ├── wrangler.jsonc
 └── package.json
 

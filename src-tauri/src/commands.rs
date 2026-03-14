@@ -42,6 +42,45 @@ pub async fn fetch_url_as_markdown(url: String) -> Result<MarkdownResponse, Stri
     })
 }
 
+// --- Browser Rendering (JS-rendered pages) ---
+
+#[derive(Deserialize)]
+struct RenderWorkerResponse {
+    markdown: Option<String>,
+    error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn fetch_rendered_url_as_markdown(
+    url: String,
+    worker_url: String,
+) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&url));
+
+    let response = client
+        .get(&render_url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    let status = response.status();
+    let body: RenderWorkerResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    if !status.is_success() {
+        return Err(body.error.unwrap_or_else(|| format!("Worker returned {status}")));
+    }
+
+    body.markdown.ok_or_else(|| "No markdown in response".to_string())
+}
+
 // --- Document to Markdown via Workers AI ---
 
 #[derive(Deserialize)]
