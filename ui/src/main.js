@@ -291,14 +291,48 @@ async function fetchUrl(url, renderJs) {
 
 // --- Import Document ---
 
+function showPromptDialog({ title, message, placeholder, value }) {
+  return new Promise((resolve) => {
+    document.getElementById("prompt-dialog")?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "prompt-dialog";
+    overlay.className = "dialog-overlay";
+    overlay.innerHTML = `
+      <div class="dialog-box">
+        <div class="dialog-title">${title}</div>
+        ${message ? `<div class="dialog-message">${message}</div>` : ""}
+        <input type="url" id="prompt-dialog-input" placeholder="${placeholder || ""}" value="${value || ""}" />
+        <div class="dialog-actions">
+          <button id="prompt-dialog-cancel">Cancel</button>
+          <button id="prompt-dialog-ok" class="primary">OK</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = document.getElementById("prompt-dialog-input");
+    input.focus();
+    input.select();
+
+    const close = (result) => { overlay.remove(); resolve(result); };
+
+    document.getElementById("prompt-dialog-cancel").addEventListener("click", () => close(null));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+    document.getElementById("prompt-dialog-ok").addEventListener("click", () => close(input.value));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") close(input.value); });
+    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") close(null); });
+  });
+}
+
 async function ensureWorkerUrl() {
   let url = getWorkerUrl();
   if (url) return url;
-  url = prompt(
-    "Enter your Worker URL for document conversion.\n" +
-    "Deploy the worker/ directory first. See docs/worker-deployment.md for details.\n\n" +
-    "Worker URL (e.g. https://markupsidedown-converter.YOUR_SUBDOMAIN.workers.dev):"
-  );
+  url = await showPromptDialog({
+    title: "Worker URL",
+    message: "Deploy the worker/ directory first. See docs/worker-deployment.md for details.",
+    placeholder: "https://markupsidedown-converter.YOUR_SUBDOMAIN.workers.dev",
+  });
   if (!url) return null;
   url = url.replace(/\/+$/, "");
   setWorkerUrl(url);
@@ -446,9 +480,14 @@ document.addEventListener("keydown", (e) => {
 
 // --- Settings ---
 
-document.getElementById("btn-settings").addEventListener("click", () => {
-  const current = getWorkerUrl() || "(not set)";
-  const url = prompt(`Worker URL (current: ${current}):\n\nLeave empty to clear.`);
+document.getElementById("btn-settings").addEventListener("click", async () => {
+  const current = getWorkerUrl();
+  const url = await showPromptDialog({
+    title: "Settings",
+    message: "Leave empty and press OK to clear.",
+    placeholder: "https://markupsidedown-converter.YOUR_SUBDOMAIN.workers.dev",
+    value: current || "",
+  });
   if (url === null) return;
   if (url === "") {
     localStorage.removeItem(STORAGE_KEY_WORKER_URL);

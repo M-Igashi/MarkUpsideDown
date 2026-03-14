@@ -201,6 +201,12 @@ html, body {
   font-weight: 600;
 }
 
+.dialog-message {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 .dialog-box input[type="url"] {
   background: var(--bg);
   color: var(--text);
