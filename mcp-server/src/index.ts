@@ -20,7 +20,7 @@ function getWorkerUrl(bridgeWorkerUrl: string | null): string {
 
 const server = new McpServer({
   name: "markupsidedown",
-  version: "0.1.0",
+  version: "0.1.1",
 });
 
 // --- Editor Tools (require running app) ---
