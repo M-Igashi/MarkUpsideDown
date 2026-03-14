@@ -242,3 +242,103 @@ html, body {
 .dialog-actions button.primary:hover {
   opacity: 0.9;
 }
+
+/* Table Editor */
+.table-editor-box {
+  width: 640px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.table-editor-box .dialog-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.table-editor-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.table-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.table-editor-toolbar button {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.table-editor-toolbar button:hover {
+  background: var(--border);
+}
+
+.table-editor-toolbar select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.table-editor-toolbar .separator {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.table-editor-grid-wrapper {
+  overflow: auto;
+  max-height: 50vh;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.table-editor-grid {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.table-editor-grid th,
+.table-editor-grid td {
+  padding: 0;
+  border: 1px solid var(--border);
+}
+
+.table-editor-grid th {
+  background: var(--surface);
+}
+
+.table-editor-grid input {
+  width: 100%;
+  min-width: 80px;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+}
+
+.table-editor-grid th input {
+  font-weight: 600;
+}
+
+.table-editor-grid input:focus {
+  background: rgba(137, 180, 250, 0.1);
+}

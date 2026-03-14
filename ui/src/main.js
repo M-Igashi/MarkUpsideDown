@@ -9,6 +9,7 @@ import {
   bracketMatching,
 } from "@codemirror/language";
 import { oneDark } from "./theme.js";
+import { editTableAtCursor } from "./table-editor.js";
 import { marked } from "marked";
 
 const { invoke } = window.__TAURI__.core;
@@ -327,6 +328,12 @@ if (window.__TAURI__?.event) {
     }
   });
 }
+
+// --- Table Editor ---
+
+document.getElementById("btn-table").addEventListener("click", () => {
+  editTableAtCursor(editor);
+});
 
 // --- Settings ---
 
