@@ -12,6 +12,37 @@ import { oneDark } from "./theme.js";
 import { editTableAtCursor } from "./table-editor.js";
 import { marked } from "marked";
 
+let mermaidModule = null;
+let mermaidReady = false;
+let mermaidIdCounter = 0;
+
+async function getMermaid() {
+  if (mermaidModule) return mermaidModule;
+  const { default: mermaid } = await import("mermaid");
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: "dark",
+    themeVariables: {
+      primaryColor: "#89b4fa",
+      primaryTextColor: "#cdd6f4",
+      primaryBorderColor: "#3a3a4a",
+      lineColor: "#6c7086",
+      secondaryColor: "#252535",
+      tertiaryColor: "#1e1e2e",
+      background: "#1e1e2e",
+      mainBkg: "#252535",
+      nodeBorder: "#89b4fa",
+      clusterBkg: "#252535",
+      titleColor: "#cdd6f4",
+      edgeLabelBackground: "#252535",
+    },
+    fontFamily: '"SF Mono", "Fira Code", "JetBrains Mono", monospace',
+  });
+  mermaidModule = mermaid;
+  mermaidReady = true;
+  return mermaid;
+}
+
 const { invoke } = window.__TAURI__.core;
 const { open, save, confirm } = window.__TAURI__.dialog;
 const { readTextFile, writeTextFile } = window.__TAURI__.fs;
@@ -72,9 +103,48 @@ const editor = new EditorView({
 
 // --- Preview ---
 
-function renderPreview(source) {
-  const html = marked.parse(source);
-  document.getElementById("preview-pane").innerHTML = html;
+async function renderPreview(source) {
+  const hasMermaid = /```mermaid\b/.test(source);
+
+  if (hasMermaid) {
+    // Custom renderer to replace mermaid code blocks with placeholders
+    const renderer = new marked.Renderer();
+    const originalCode = renderer.code;
+    renderer.code = function ({ text, lang }) {
+      if (lang === "mermaid") {
+        const id = `mermaid-${mermaidIdCounter++}`;
+        return `<div class="mermaid-container" data-mermaid-id="${id}" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
+      }
+      return originalCode.call(this, { text, lang });
+    };
+
+    const html = marked.parse(source, { renderer });
+    document.getElementById("preview-pane").innerHTML = html;
+
+    // Render mermaid diagrams
+    try {
+      const mermaid = await getMermaid();
+      const containers = document.querySelectorAll(".mermaid-container");
+      for (const el of containers) {
+        const src = decodeURIComponent(el.dataset.mermaidSource);
+        const id = el.dataset.mermaidId;
+        try {
+          const { svg } = await mermaid.render(id, src);
+          el.innerHTML = svg;
+          el.classList.add("mermaid-rendered");
+        } catch (err) {
+          el.innerHTML = `<pre class="mermaid-error">${err.message || err}</pre>`;
+          // mermaid.render creates a temp element on error; clean up
+          document.getElementById(id)?.remove();
+        }
+      }
+    } catch (err) {
+      // Mermaid failed to load — leave placeholders as-is
+    }
+  } else {
+    const html = marked.parse(source);
+    document.getElementById("preview-pane").innerHTML = html;
+  }
 }
 
 function updateStatus(state) {
@@ -85,7 +155,7 @@ function updateStatus(state) {
 }
 
 // Initial render
-renderPreview(editor.state.doc.toString());
+renderPreview(editor.state.doc.toString()).catch(() => {});
 updateStatus(editor.state);
 
 // --- Toolbar Actions ---

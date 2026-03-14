@@ -13,11 +13,12 @@
     "@codemirror/language-data": "^6.5.1",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.8",
-    "codemirror": "^6.0.1",
-    "marked": "^17.0.4",
     "@tauri-apps/api": "^2.3.0",
     "@tauri-apps/plugin-dialog": "^2.2.1",
-    "@tauri-apps/plugin-fs": "^2.2.0"
+    "@tauri-apps/plugin-fs": "^2.2.0",
+    "codemirror": "^6.0.1",
+    "marked": "^17.0.4",
+    "mermaid": "^11.13.0"
   },
   "devDependencies": {
     "vite": "^8.0.0"
