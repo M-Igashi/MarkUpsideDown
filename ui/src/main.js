@@ -405,6 +405,42 @@ document.getElementById("btn-table").addEventListener("click", () => {
   editTableAtCursor(editor);
 });
 
+// --- Export PDF ---
+
+document.getElementById("btn-export-pdf").addEventListener("click", () => {
+  window.print();
+});
+
+// --- Copy as Rich Text ---
+
+async function copyRichText() {
+  const preview = document.getElementById("preview-pane");
+  const html = preview.innerHTML;
+  const text = preview.innerText;
+  const statusEl = document.getElementById("status");
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([text], { type: "text/plain" }),
+      }),
+    ]);
+    statusEl.textContent = "Copied as rich text";
+  } catch (e) {
+    statusEl.textContent = `Copy failed: ${e}`;
+  }
+}
+
+document.getElementById("btn-copy-rich").addEventListener("click", copyRichText);
+
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "C") {
+    e.preventDefault();
+    copyRichText();
+  }
+});
+
 // --- Settings ---
 
 document.getElementById("btn-settings").addEventListener("click", () => {
