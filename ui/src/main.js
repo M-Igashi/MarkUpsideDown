@@ -79,6 +79,7 @@ const updatePreview = EditorView.updateListener.of((update) => {
       renderPreview(update.state.doc.toString());
       updateStatus(update.state);
     }, 150);
+    syncEditorState();
   }
 });
 
@@ -477,3 +478,87 @@ document.addEventListener("mousemove", (e) => {
   previewPane.style.flex = `${1 - clamped}`;
 });
 document.addEventListener("mouseup", () => { isDragging = false; });
+
+// --- MCP Bridge: State Sync & Event Listeners ---
+
+let syncTimeout = null;
+
+function syncEditorState() {
+  clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(() => {
+    const content = editor.state.doc.toString();
+    const cursorPos = editor.state.selection.main.head;
+    invoke("sync_editor_state", {
+      content,
+      filePath: currentFilePath,
+      cursorPos: cursorPos,
+      workerUrl: getWorkerUrl() || null,
+    }).catch(() => {});
+  }, 2000);
+}
+
+// Bridge event listeners
+if (window.__TAURI__?.event) {
+  const { listen } = window.__TAURI__.event;
+
+  listen("bridge:set-content", (event) => {
+    const content = event.payload;
+    editor.dispatch({
+      changes: { from: 0, to: editor.state.doc.length, insert: content },
+    });
+    renderPreview(content);
+    updateStatus(editor.state);
+  });
+
+  listen("bridge:insert-text", (event) => {
+    const { text, position } = event.payload;
+    let pos;
+    if (position === "start") {
+      pos = 0;
+    } else if (position === "end") {
+      pos = editor.state.doc.length;
+    } else {
+      pos = editor.state.selection.main.head;
+    }
+    editor.dispatch({ changes: { from: pos, insert: text } });
+    renderPreview(editor.state.doc.toString());
+    updateStatus(editor.state);
+  });
+
+  listen("bridge:open-file", async (event) => {
+    const path = event.payload;
+    try {
+      const content = await readTextFile(path);
+      editor.dispatch({
+        changes: { from: 0, to: editor.state.doc.length, insert: content },
+      });
+      currentFilePath = path;
+      renderPreview(content);
+      updateStatus(editor.state);
+      syncEditorState();
+    } catch (e) {
+      document.getElementById("status").textContent = `Open failed: ${e}`;
+    }
+  });
+
+  listen("bridge:save-file", async (event) => {
+    const path = event.payload || currentFilePath;
+    if (!path) return;
+    try {
+      await writeTextFile(path, editor.state.doc.toString());
+      if (!currentFilePath) {
+        currentFilePath = path;
+        updateStatus(editor.state);
+      }
+    } catch (e) {
+      document.getElementById("status").textContent = `Save failed: ${e}`;
+    }
+  });
+
+  listen("bridge:export-pdf", () => {
+    window.print();
+  });
+}
+
+// Initial sync
+syncEditorState();

@@ -26,7 +26,7 @@ const SUPPORTED_TYPES = new Set([
 ]);
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders() });
     }
@@ -34,7 +34,7 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/render") {
-      return handleRender(url, env);
+      return handleRender(request, url, env, ctx);
     }
 
     if (request.method !== "POST" || url.pathname !== "/convert") {
@@ -87,7 +87,9 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function handleRender(url: URL, env: Env): Promise<Response> {
+const RENDER_CACHE_TTL = 3600; // 1 hour
+
+async function handleRender(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
   const targetUrl = url.searchParams.get("url");
   if (!targetUrl) {
     return new Response(
@@ -101,6 +103,20 @@ async function handleRender(url: URL, env: Env): Promise<Response> {
       JSON.stringify({ error: "CF_ACCOUNT_ID and CF_API_TOKEN secrets are required for rendering" }),
       { status: 500, headers: { ...corsHeaders(), "content-type": "application/json" } }
     );
+  }
+
+  // Cache lookup (skip if ?nocache=1)
+  const skipCache = url.searchParams.get("nocache") === "1";
+  const cacheKey = new Request(`${url.origin}/render?url=${encodeURIComponent(targetUrl)}`);
+  const cache = caches.default;
+
+  if (!skipCache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const headers = new Headers(cached.headers);
+      headers.set("x-cache", "HIT");
+      return new Response(cached.body, { status: cached.status, headers });
+    }
   }
 
   try {
@@ -136,10 +152,29 @@ async function handleRender(url: URL, env: Env): Promise<Response> {
       );
     }
 
-    return new Response(
+    const responseHeaders = {
+      ...corsHeaders(),
+      "content-type": "application/json",
+      "x-cache": "MISS",
+    };
+
+    const response = new Response(
       JSON.stringify({ markdown: data.result }),
-      { status: 200, headers: { ...corsHeaders(), "content-type": "application/json" } }
+      { status: 200, headers: responseHeaders }
     );
+
+    // Store in cache with TTL
+    const cacheResponse = new Response(response.clone().body, {
+      status: 200,
+      headers: {
+        ...corsHeaders(),
+        "content-type": "application/json",
+        "cache-control": `public, max-age=${RENDER_CACHE_TTL}`,
+      },
+    });
+    ctx.waitUntil(cache.put(cacheKey, cacheResponse));
+
+    return response;
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
     return new Response(

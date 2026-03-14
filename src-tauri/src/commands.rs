@@ -1,5 +1,33 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::sync::Mutex;
+
+// --- Shared Editor State (for MCP bridge) ---
+
+#[derive(Default)]
+pub struct EditorState {
+    pub content: Mutex<String>,
+    pub file_path: Mutex<Option<String>>,
+    pub cursor_pos: Mutex<usize>,
+    pub worker_url: Mutex<Option<String>>,
+}
+
+#[tauri::command]
+pub fn sync_editor_state(
+    content: String,
+    file_path: Option<String>,
+    cursor_pos: Option<usize>,
+    worker_url: Option<String>,
+    state: tauri::State<'_, std::sync::Arc<EditorState>>,
+) -> Result<(), String> {
+    *state.content.lock().unwrap() = content;
+    *state.file_path.lock().unwrap() = file_path;
+    if let Some(pos) = cursor_pos {
+        *state.cursor_pos.lock().unwrap() = pos;
+    }
+    *state.worker_url.lock().unwrap() = worker_url;
+    Ok(())
+}
 
 // --- Cloudflare Markdown for Agents ---
 
