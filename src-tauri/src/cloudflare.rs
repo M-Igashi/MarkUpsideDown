@@ -22,10 +22,22 @@ pub struct WranglerStatus {
 }
 
 fn run_wrangler(args: &[&str], cwd: Option<&Path>, timeout_secs: u64) -> Result<String, String> {
+    run_wrangler_with_env(args, cwd, timeout_secs, &[])
+}
+
+fn run_wrangler_with_env(
+    args: &[&str],
+    cwd: Option<&Path>,
+    timeout_secs: u64,
+    env: &[(&str, &str)],
+) -> Result<String, String> {
     let mut cmd = Command::new("wrangler");
     cmd.args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    for &(key, val) in env {
+        cmd.env(key, val);
+    }
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -242,14 +254,12 @@ pub async fn deploy_worker(account_id: Option<String>) -> Result<String, String>
     let result = (|| {
         write_temp_worker_files(&temp_dir)?;
 
-        let mut args = vec!["deploy"];
-        let account_flag;
-        if let Some(ref id) = account_id {
-            account_flag = format!("--account-id={id}");
-            args.push(&account_flag);
-        }
+        let env: Vec<(&str, &str)> = match account_id.as_deref() {
+            Some(id) => vec![("CLOUDFLARE_ACCOUNT_ID", id)],
+            None => vec![],
+        };
 
-        run_wrangler(&args, Some(&temp_dir), 120)
+        run_wrangler_with_env(&["deploy"], Some(&temp_dir), 120, &env)
     })();
 
     // Always clean up temp dir
