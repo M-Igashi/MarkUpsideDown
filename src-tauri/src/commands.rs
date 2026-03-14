@@ -86,24 +86,25 @@ pub async fn test_worker_url(worker_url: String) -> WorkerStatus {
 
     match client.get(&health_url).send().await {
         Ok(resp) if resp.status().is_success() => {
-            if let Ok(body) = resp.json::<HealthResponse>().await {
-                let caps = body.capabilities.unwrap_or(HealthCapabilities {
-                    convert: None,
-                    render: None,
-                });
-                WorkerStatus {
-                    reachable: true,
-                    convert_available: caps.convert.unwrap_or(false),
-                    render_available: caps.render.unwrap_or(false),
-                    error: None,
+            match resp.json::<HealthResponse>().await {
+                Ok(body) => {
+                    let caps = body.capabilities.unwrap_or(HealthCapabilities {
+                        convert: None,
+                        render: None,
+                    });
+                    WorkerStatus {
+                        reachable: true,
+                        convert_available: caps.convert.unwrap_or(false),
+                        render_available: caps.render.unwrap_or(false),
+                        error: None,
+                    }
                 }
-            } else {
-                WorkerStatus {
+                Err(e) => WorkerStatus {
                     reachable: true,
                     convert_available: false,
                     render_available: false,
-                    error: Some("Unexpected response format".to_string()),
-                }
+                    error: Some(format!("Unexpected response format: {e}")),
+                },
             }
         }
         Ok(resp) => WorkerStatus {

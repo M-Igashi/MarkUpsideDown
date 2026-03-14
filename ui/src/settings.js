@@ -385,7 +385,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
         testResult.textContent = "Connected \u2014 Import works, but Render JS needs secrets";
       } else {
         testResult.className = "settings-test-result test-warn";
-        testResult.textContent = "Reachable but returned unexpected response";
+        testResult.textContent = status.error || "Reachable but returned unexpected response";
       }
 
       renderFeatureList(featureList, status);
