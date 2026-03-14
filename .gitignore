@@ -1,0 +1,40 @@
+# Build artifacts
+/target
+dist/
+build/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+credentials.csv
+*-service-account.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Claude
+.claude/
+
+# Logs
+*.log
+
+# Internal docs
+**/OUTREACH.md
+**/outreach*.md
+**/MARKETING.md
+**/marketing*.md
+**/INTERNAL.md
+**/internal*.md
+**/STRATEGY.md
+**/strategy*.md
+**/NOTES.md
+**/notes*.md
+memo.txt
+todo.md
