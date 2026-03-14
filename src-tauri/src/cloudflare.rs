@@ -21,11 +21,7 @@ pub struct WranglerStatus {
     pub accounts: Vec<WranglerAccount>,
 }
 
-fn run_wrangler(args: &[&str], cwd: Option<&Path>, timeout_secs: u64) -> Result<String, String> {
-    run_wrangler_with_env(args, cwd, timeout_secs, &[])
-}
-
-fn run_wrangler_with_env(
+fn run_wrangler(
     args: &[&str],
     cwd: Option<&Path>,
     timeout_secs: u64,
@@ -198,9 +194,9 @@ fn write_temp_worker_files(dir: &Path) -> Result<(), String> {
 #[tauri::command]
 pub async fn check_wrangler_status() -> WranglerStatus {
     let version_handle =
-        tokio::task::spawn_blocking(|| run_wrangler(&["--version"], None, 10));
+        tokio::task::spawn_blocking(|| run_wrangler(&["--version"], None, 10, &[]));
     let whoami_handle =
-        tokio::task::spawn_blocking(|| run_wrangler(&["whoami"], None, 15));
+        tokio::task::spawn_blocking(|| run_wrangler(&["whoami"], None, 15, &[]));
 
     let version = match version_handle.await {
         Ok(Ok(out)) => Some(out.trim().to_string()),
@@ -238,7 +234,7 @@ pub async fn check_wrangler_status() -> WranglerStatus {
 #[tauri::command]
 pub async fn wrangler_login() -> Result<(), String> {
     tokio::task::spawn_blocking(|| {
-        run_wrangler(&["login"], None, 120)?;
+        run_wrangler(&["login"], None, 120, &[])?;
         Ok(())
     })
     .await
@@ -254,12 +250,12 @@ pub async fn deploy_worker(account_id: Option<String>) -> Result<String, String>
     let result = (|| {
         write_temp_worker_files(&temp_dir)?;
 
-        let env: Vec<(&str, &str)> = match account_id.as_deref() {
-            Some(id) => vec![("CLOUDFLARE_ACCOUNT_ID", id)],
-            None => vec![],
-        };
-
-        run_wrangler_with_env(&["deploy"], Some(&temp_dir), 120, &env)
+        if let Some(id) = account_id.as_deref() {
+            let env = [("CLOUDFLARE_ACCOUNT_ID", id)];
+            run_wrangler(&["deploy"], Some(&temp_dir), 120, &env)
+        } else {
+            run_wrangler(&["deploy"], Some(&temp_dir), 120, &[])
+        }
     })();
 
     // Always clean up temp dir
@@ -274,7 +270,7 @@ pub async fn deploy_worker(account_id: Option<String>) -> Result<String, String>
 pub async fn setup_worker_secrets(account_id: String) -> Result<(), String> {
     // Get OAuth token from wrangler
     let oauth_token = tokio::task::spawn_blocking(|| {
-        run_wrangler(&["auth", "token"], None, 10)
+        run_wrangler(&["auth", "token"], None, 10, &[])
             .map(|t| t.trim().to_string())
             .map_err(|e| format!("Failed to get auth token: {e}"))
     })
