@@ -11,6 +11,7 @@
   "dependencies": {
     "@codemirror/lang-markdown": "^6.3.2",
     "@codemirror/language-data": "^6.5.1",
+    "@codemirror/search": "^6.6.0",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.8",
     "@tauri-apps/api": "^2.3.0",

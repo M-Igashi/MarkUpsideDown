@@ -8,6 +8,7 @@ import {
   defaultHighlightStyle,
   bracketMatching,
 } from "@codemirror/language";
+import { search, searchKeymap } from "@codemirror/search";
 import { oneDark } from "./theme.js";
 import { editTableAtCursor } from "./table-editor.js";
 import { marked } from "marked";
@@ -93,7 +94,8 @@ const editor = new EditorView({
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       oneDark,
-      keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+      search(),
+      keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
       updatePreview,
       EditorView.lineWrapping,
     ],

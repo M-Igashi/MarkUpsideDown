@@ -47,6 +47,51 @@ const theme = EditorView.theme(
     ".cm-lineNumbers .cm-gutterElement": {
       padding: "0 8px",
     },
+    ".cm-panels": {
+      backgroundColor: surface,
+      color: text,
+      borderBottom: `1px solid ${border}`,
+    },
+    ".cm-panels.cm-panels-top": {
+      borderBottom: `1px solid ${border}`,
+    },
+    ".cm-search": {
+      padding: "8px 12px",
+      gap: "6px",
+    },
+    ".cm-search label": {
+      color: textMuted,
+      fontSize: "12px",
+    },
+    ".cm-search input, .cm-search select": {
+      backgroundColor: bg,
+      color: text,
+      border: `1px solid ${border}`,
+      borderRadius: "4px",
+      padding: "2px 6px",
+      outline: "none",
+    },
+    ".cm-search input:focus": {
+      borderColor: accent,
+    },
+    ".cm-search button": {
+      backgroundColor: border,
+      color: text,
+      border: "none",
+      borderRadius: "4px",
+      padding: "2px 10px",
+      cursor: "pointer",
+    },
+    ".cm-search button:hover": {
+      backgroundColor: "#4a4a5a",
+    },
+    ".cm-searchMatch": {
+      backgroundColor: "#89b4fa33",
+      outline: `1px solid #89b4fa55`,
+    },
+    ".cm-searchMatch-selected": {
+      backgroundColor: "#89b4fa66",
+    },
   },
   { dark: true }
 );
