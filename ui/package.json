@@ -20,6 +20,6 @@
     "@tauri-apps/plugin-fs": "^2.2.0"
   },
   "devDependencies": {
-    "vite": "^6.3.5"
+    "vite": "^8.0.0"
   }
 }
