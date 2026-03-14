@@ -34,11 +34,11 @@ AI-era Markdown editor built with Rust (Tauri v2) and CodeMirror 6.
 brew install M-Igashi/tap/markupsidedown
 ```
 
-> **Note:** This app is not code-signed. On first launch, right-click the app and select "Open" to bypass Gatekeeper.
-
 ### Manual
 
 Download the `.dmg` from the [latest release](https://github.com/M-Igashi/markupsidedown/releases/latest), open it, and drag **MarkUpsideDown.app** to your Applications folder.
+
+> **Note:** This app is not code-signed. When installing manually, run `xattr -cr /Applications/MarkUpsideDown.app` or right-click the app and select "Open" to bypass Gatekeeper. Homebrew installs handle this automatically.
 
 ## Build from Source
 
