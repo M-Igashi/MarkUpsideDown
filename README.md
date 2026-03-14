@@ -58,7 +58,8 @@ cargo tauri dev
 The Worker powers two features: **Document Import** and **Rendered Fetch (Render JS)**.
 
 ```bash
-# Create an API token from the "Edit Cloudflare Workers" template,
+# Create an API token from the "Edit Cloudflare Workers" template
+# (includes Workers Scripts: Edit for deployment),
 # then add Workers AI: Read and Browser Rendering: Edit permissions.
 export CLOUDFLARE_API_TOKEN="your-token-here"
 cd worker && npm install && wrangler deploy
