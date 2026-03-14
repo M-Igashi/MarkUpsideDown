@@ -268,19 +268,27 @@ pub async fn deploy_worker(account_id: Option<String>) -> Result<String, String>
 
 #[tauri::command]
 pub async fn setup_worker_secrets(account_id: String) -> Result<(), String> {
-    // Prefer CLOUDFLARE_API_TOKEN env var (same token used for `wrangler deploy`).
-    // Fall back to creating a scoped token via the Cloudflare API using wrangler's OAuth token.
-    let api_token = if let Ok(env_token) = std::env::var("CLOUDFLARE_API_TOKEN") {
-        if !env_token.is_empty() {
-            env_token
-        } else {
-            create_api_token_via_oauth(&account_id).await?
-        }
+    // 1. Process env var (works in CLI / CI)
+    // 2. Login shell env var (macOS GUI apps don't inherit shell env)
+    // 3. Create scoped token via OAuth (last resort)
+    let api_token = if let Some(t) = get_env_token().or_else(get_env_token_from_shell) {
+        t
     } else {
         create_api_token_via_oauth(&account_id).await?
     };
 
-    // Set secrets in parallel
+    set_secrets_with_token(account_id, api_token).await
+}
+
+#[tauri::command]
+pub async fn setup_worker_secrets_with_token(
+    account_id: String,
+    api_token: String,
+) -> Result<(), String> {
+    set_secrets_with_token(account_id, api_token).await
+}
+
+async fn set_secrets_with_token(account_id: String, api_token: String) -> Result<(), String> {
     let account_id_clone = account_id.clone();
     let api_token_clone = api_token.clone();
     let (r1, r2) = tokio::join!(
@@ -295,6 +303,29 @@ pub async fn setup_worker_secrets(account_id: String) -> Result<(), String> {
     r2.map_err(|e| format!("Task error: {e}"))??;
 
     Ok(())
+}
+
+fn get_env_token() -> Option<String> {
+    std::env::var("CLOUDFLARE_API_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
+/// Read CLOUDFLARE_API_TOKEN from the user's login shell.
+/// macOS GUI apps don't inherit shell environment variables, so we spawn a
+/// login shell to evaluate the variable.
+fn get_env_token_from_shell() -> Option<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    Command::new(&shell)
+        .args(["-lc", "printf '%s' \"$CLOUDFLARE_API_TOKEN\""])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .and_then(|o| {
+            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if s.is_empty() { None } else { Some(s) }
+        })
 }
 
 fn set_wrangler_secret(name: &str, value: &str) -> Result<(), String> {
@@ -365,9 +396,14 @@ async fn create_scoped_api_token(oauth_token: &str, account_id: &str) -> Result<
         .await
         .map_err(|e| format!("Failed to parse permission groups: {e}"))?;
 
-    let groups = groups_resp["result"]
-        .as_array()
-        .ok_or("Unexpected permission groups response")?;
+    let groups = groups_resp["result"].as_array().ok_or_else(|| {
+        if groups_resp["success"].as_bool() == Some(false) {
+            let errors = &groups_resp["errors"];
+            format!("Permission groups API error: {errors}. Try setting CLOUDFLARE_API_TOKEN env var instead")
+        } else {
+            format!("Unexpected permission groups response: {groups_resp}")
+        }
+    })?;
 
     let browser_rendering_id = groups
         .iter()

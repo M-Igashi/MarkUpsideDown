@@ -165,18 +165,31 @@ async function startAutoSetup(progressContainer, urlInput, onComplete) {
 
   // Step 4: Secrets
   update("secrets", "running");
+  let secretsOk = false;
   try {
     await invoke("setup_worker_secrets", { accountId });
-  } catch (e) {
-    update("secrets", "error");
-    urlInput.value = workerUrl;
-    showSetupError(
-      progressContainer,
-      `Worker deployed at ${workerUrl} but secret setup failed: ${e}\nYou can set secrets manually or use Import without Render JS.`
-    );
-    onComplete(workerUrl, null);
-    return;
+    secretsOk = true;
+  } catch (_autoErr) {
+    // Auto-setup failed — ask user for API token
+    try {
+      const userToken = await showApiTokenInput(progressContainer);
+      await invoke("setup_worker_secrets_with_token", {
+        accountId,
+        apiToken: userToken,
+      });
+      secretsOk = true;
+    } catch (manualErr) {
+      update("secrets", "error");
+      urlInput.value = workerUrl;
+      showSetupError(
+        progressContainer,
+        `Worker deployed at ${workerUrl} but secret setup failed: ${manualErr}\nYou can set secrets manually or use Import without Render JS.`
+      );
+      onComplete(workerUrl, null);
+      return;
+    }
   }
+  if (!secretsOk) return;
   update("secrets", "done");
 
   // Step 5: Verify
@@ -244,6 +257,53 @@ function showAccountPicker(container, accounts) {
 
     pickerDiv.append(label, select, btn);
     container.appendChild(pickerDiv);
+  });
+}
+
+function showApiTokenInput(container) {
+  return new Promise((resolve, reject) => {
+    const div = document.createElement("div");
+    div.className = "setup-token-input";
+    div.innerHTML = `
+      <div class="setup-token-label">
+        Automatic token creation failed.<br>
+        Paste your Cloudflare API token to configure secrets:
+      </div>
+      <input type="password" class="setup-token-field" placeholder="API Token" />
+      <div class="setup-token-actions">
+        <button class="setup-token-skip">Skip</button>
+        <button class="setup-token-confirm primary">Set Secrets</button>
+      </div>
+      <div class="setup-token-hint">
+        Create a token at <em>dash.cloudflare.com/profile/api-tokens</em> with
+        "Edit Cloudflare Workers" template + Workers AI Read + Browser Rendering Edit.
+      </div>
+    `;
+    container.appendChild(div);
+
+    const input = div.querySelector(".setup-token-field");
+    input.focus();
+
+    div.querySelector(".setup-token-confirm").addEventListener("click", () => {
+      const val = input.value.trim();
+      if (!val) return;
+      div.remove();
+      resolve(val);
+    });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const val = input.value.trim();
+        if (!val) return;
+        div.remove();
+        resolve(val);
+      }
+    });
+
+    div.querySelector(".setup-token-skip").addEventListener("click", () => {
+      div.remove();
+      reject("Skipped — secrets not configured");
+    });
   });
 }
 

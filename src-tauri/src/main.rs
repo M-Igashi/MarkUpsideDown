@@ -34,6 +34,7 @@ fn main() {
             cloudflare::wrangler_login,
             cloudflare::deploy_worker,
             cloudflare::setup_worker_secrets,
+            cloudflare::setup_worker_secrets_with_token,
         ])
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
