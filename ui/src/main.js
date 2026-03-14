@@ -18,8 +18,7 @@ const { readTextFile, writeTextFile } = window.__TAURI__.fs;
 let currentFilePath = null;
 let previewTimeout = null;
 
-// Worker URL — update after deploying the Worker
-const WORKER_URL = "https://markupsidedown-converter.<YOUR_SUBDOMAIN>.workers.dev";
+const WORKER_URL = "https://markupsidedown-converter.ravers.workers.dev";
 
 const IMPORT_EXTENSIONS = [
   "pdf", "docx", "xlsx", "pptx", "html", "htm", "csv", "xml",
