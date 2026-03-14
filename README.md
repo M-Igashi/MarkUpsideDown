@@ -8,6 +8,8 @@ AI-era Markdown editor built with Rust (Tauri v2) and CodeMirror 6.
 - **CodeMirror 6** — Syntax highlighting, vim keybindings, IME support, code folding
 - **Cloudflare Markdown for Agents** — Fetch any URL as clean Markdown using `Accept: text/markdown`
 - **GitHub Integration** — Read/write Issues, PRs, and Wikis via `gh` CLI
+- **Document Import** — Convert PDF, Office, CSV, XML, and images to Markdown via Workers AI
+- **Drag & Drop** — Drop files onto the editor to import or open them
 - **Claude Code Integration** — AI-assisted editing and generation (planned)
 - **Dark theme** — Catppuccin-inspired design
 
@@ -16,6 +18,7 @@ AI-era Markdown editor built with Rust (Tauri v2) and CodeMirror 6.
 - Rust 1.85+
 - Node.js 18+
 - [gh CLI](https://cli.github.com/) (for GitHub integration)
+- [wrangler](https://developers.cloudflare.com/workers/wrangler/) (for Worker deployment)
 
 ## Getting Started
 
@@ -23,6 +26,18 @@ AI-era Markdown editor built with Rust (Tauri v2) and CodeMirror 6.
 cd ui && npm install && cd ..
 cargo tauri dev
 ```
+
+## Worker Deployment (Document Import)
+
+The document import feature requires a Cloudflare Worker running `AI.toMarkdown()`.
+
+```bash
+wrangler login
+cd worker && npm install
+wrangler deploy
+```
+
+After deploying, update `WORKER_URL` in `ui/src/main.js` with your Worker URL.
 
 ## Architecture
 
@@ -40,6 +55,12 @@ ui/
 │   ├── theme.js       # Dark theme (Catppuccin-inspired)
 │   └── styles.css     # Layout and preview styles
 ├── index.html
+└── package.json
+
+worker/
+├── src/
+│   └── index.ts       # AI.toMarkdown() conversion endpoint
+├── wrangler.jsonc
 └── package.json
 ```
 

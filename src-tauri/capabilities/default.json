@@ -8,9 +8,11 @@
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",
+    "dialog:allow-confirm",
     "fs:default",
     "fs:allow-read",
     "fs:allow-write",
-    "shell:default"
+    "shell:default",
+    "core:event:allow-listen"
   ]
 }

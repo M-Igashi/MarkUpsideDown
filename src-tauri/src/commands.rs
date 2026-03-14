@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 // --- Cloudflare Markdown for Agents ---
@@ -40,6 +40,93 @@ pub async fn fetch_url_as_markdown(url: String) -> Result<MarkdownResponse, Stri
         token_count,
         is_markdown: content_type.contains("text/markdown"),
     })
+}
+
+// --- Document to Markdown via Workers AI ---
+
+#[derive(Deserialize)]
+struct ConvertWorkerResponse {
+    markdown: Option<String>,
+    is_image: Option<bool>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ConvertResponse {
+    pub markdown: String,
+    pub is_image: bool,
+}
+
+#[tauri::command]
+pub async fn convert_file_to_markdown(
+    file_path: String,
+    worker_url: String,
+) -> Result<ConvertResponse, String> {
+    let path = std::path::Path::new(&file_path);
+    let bytes = std::fs::read(path).map_err(|e| format!("Failed to read file: {e}"))?;
+
+    let mime_type = mime_from_extension(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or(""),
+    )
+    .ok_or_else(|| format!("Unsupported file extension: {}", file_path))?;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{worker_url}/convert"))
+        .header("Content-Type", mime_type)
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    let status = response.status();
+    let body: ConvertWorkerResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    if !status.is_success() {
+        return Err(body.error.unwrap_or_else(|| format!("Worker returned {status}")));
+    }
+
+    Ok(ConvertResponse {
+        markdown: body.markdown.unwrap_or_default(),
+        is_image: body.is_image.unwrap_or(false),
+    })
+}
+
+#[tauri::command]
+pub fn detect_file_is_image(file_path: String) -> Result<bool, String> {
+    let ext = std::path::Path::new(&file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    Ok(matches!(
+        ext.as_str(),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "tif"
+    ))
+}
+
+fn mime_from_extension(ext: &str) -> Option<&'static str> {
+    match ext.to_lowercase().as_str() {
+        "pdf" => Some("application/pdf"),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        "html" | "htm" => Some("text/html"),
+        "csv" => Some("text/csv"),
+        "xml" => Some("application/xml"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "bmp" => Some("image/bmp"),
+        "tiff" | "tif" => Some("image/tiff"),
+        _ => None,
+    }
 }
 
 // --- GitHub via gh CLI ---
