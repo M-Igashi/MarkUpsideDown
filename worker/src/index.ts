@@ -25,6 +25,8 @@ const SUPPORTED_TYPES = new Set([
   ...IMAGE_TYPES,
 ]);
 
+const RENDER_CACHE_TTL = 3600; // 1 hour
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === "OPTIONS") {
@@ -34,78 +36,47 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/render") {
-      return handleRender(request, url, env, ctx);
+      return handleRender(url, env, ctx);
     }
 
-    if (request.method !== "POST" || url.pathname !== "/convert") {
-      return new Response(JSON.stringify({ error: "POST /convert or GET /render?url= only" }), {
-        status: 404,
-        headers: { ...corsHeaders(), "content-type": "application/json" },
-      });
+    if (request.method === "POST" && url.pathname === "/convert") {
+      return handleConvert(request, env);
     }
 
-    try {
-      const contentType = request.headers.get("content-type") || "";
-      const mimeType = contentType.split(";")[0].trim();
-
-      if (!SUPPORTED_TYPES.has(mimeType)) {
-        return new Response(
-          JSON.stringify({
-            error: `Unsupported format: ${mimeType}`,
-            supported: [...SUPPORTED_TYPES],
-          }),
-          {
-            status: 415,
-            headers: { ...corsHeaders(), "content-type": "application/json" },
-          }
-        );
-      }
-
-      const isImage = IMAGE_TYPES.has(mimeType);
-      const body = await request.arrayBuffer();
-      const blob = new Blob([body], { type: mimeType });
-
-      const result = await env.AI.toMarkdown([blob]);
-      const markdown = result
-        .map((r: { data: string }) => r.data)
-        .join("\n\n");
-
-      return new Response(
-        JSON.stringify({ markdown, is_image: isImage }),
-        {
-          status: 200,
-          headers: { ...corsHeaders(), "content-type": "application/json" },
-        }
-      );
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Unknown error";
-      return new Response(JSON.stringify({ error: message }), {
-        status: 500,
-        headers: { ...corsHeaders(), "content-type": "application/json" },
-      });
-    }
+    return jsonResponse({ error: "POST /convert or GET /render?url= only" }, 404);
   },
 } satisfies ExportedHandler<Env>;
 
-const RENDER_CACHE_TTL = 3600; // 1 hour
+async function handleConvert(request: Request, env: Env): Promise<Response> {
+  const contentType = request.headers.get("content-type") || "";
+  const mimeType = contentType.split(";")[0].trim();
 
-async function handleRender(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (!SUPPORTED_TYPES.has(mimeType)) {
+    return jsonResponse({ error: `Unsupported format: ${mimeType}`, supported: [...SUPPORTED_TYPES] }, 415);
+  }
+
+  try {
+    const isImage = IMAGE_TYPES.has(mimeType);
+    const body = await request.arrayBuffer();
+    const blob = new Blob([body], { type: mimeType });
+    const result = await env.AI.toMarkdown([blob]);
+    const markdown = result.map((r: { data: string }) => r.data).join("\n\n");
+    return jsonResponse({ markdown, is_image: isImage });
+  } catch (e) {
+    return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
+  }
+}
+
+async function handleRender(url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
   const targetUrl = url.searchParams.get("url");
   if (!targetUrl) {
-    return new Response(
-      JSON.stringify({ error: "Missing ?url= parameter" }),
-      { status: 400, headers: { ...corsHeaders(), "content-type": "application/json" } }
-    );
+    return jsonResponse({ error: "Missing ?url= parameter" }, 400);
   }
 
   if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) {
-    return new Response(
-      JSON.stringify({ error: "CF_ACCOUNT_ID and CF_API_TOKEN secrets are required for rendering" }),
-      { status: 500, headers: { ...corsHeaders(), "content-type": "application/json" } }
-    );
+    return jsonResponse({ error: "CF_ACCOUNT_ID and CF_API_TOKEN secrets are required for rendering" }, 500);
   }
 
-  // Cache lookup (skip if ?nocache=1)
   const skipCache = url.searchParams.get("nocache") === "1";
   const cacheKey = new Request(`${url.origin}/render?url=${encodeURIComponent(targetUrl)}`);
   const cache = caches.default;
@@ -121,7 +92,6 @@ async function handleRender(request: Request, url: URL, env: Env, ctx: Execution
 
   try {
     const apiUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`;
-
     const apiResponse = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -137,51 +107,36 @@ async function handleRender(request: Request, url: URL, env: Env, ctx: Execution
 
     if (!apiResponse.ok) {
       const errorBody = await apiResponse.text();
-      return new Response(
-        JSON.stringify({ error: `Browser Rendering API error (${apiResponse.status}): ${errorBody}` }),
-        { status: apiResponse.status, headers: { ...corsHeaders(), "content-type": "application/json" } }
-      );
+      return jsonResponse({ error: `Browser Rendering API error (${apiResponse.status}): ${errorBody}` }, apiResponse.status);
     }
 
     const data = await apiResponse.json<{ success: boolean; result: string; errors?: unknown[] }>();
-
     if (!data.success) {
-      return new Response(
-        JSON.stringify({ error: "Browser Rendering API returned failure", details: data.errors }),
-        { status: 500, headers: { ...corsHeaders(), "content-type": "application/json" } }
-      );
+      return jsonResponse({ error: "Browser Rendering API returned failure", details: data.errors }, 500);
     }
 
-    const responseHeaders = {
-      ...corsHeaders(),
-      "content-type": "application/json",
-      "x-cache": "MISS",
-    };
+    const response = jsonResponse({ markdown: data.result }, 200, { "x-cache": "MISS" });
 
-    const response = new Response(
-      JSON.stringify({ markdown: data.result }),
-      { status: 200, headers: responseHeaders }
+    ctx.waitUntil(
+      cache.put(
+        cacheKey,
+        new Response(JSON.stringify({ markdown: data.result }), {
+          headers: { ...corsHeaders(), "content-type": "application/json", "cache-control": `public, max-age=${RENDER_CACHE_TTL}` },
+        })
+      )
     );
-
-    // Store in cache with TTL
-    const cacheResponse = new Response(response.clone().body, {
-      status: 200,
-      headers: {
-        ...corsHeaders(),
-        "content-type": "application/json",
-        "cache-control": `public, max-age=${RENDER_CACHE_TTL}`,
-      },
-    });
-    ctx.waitUntil(cache.put(cacheKey, cacheResponse));
 
     return response;
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return new Response(
-      JSON.stringify({ error: `Render failed: ${message}` }),
-      { status: 500, headers: { ...corsHeaders(), "content-type": "application/json" } }
-    );
+    return jsonResponse({ error: `Render failed: ${e instanceof Error ? e.message : "Unknown error"}` }, 500);
   }
+}
+
+function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders(), "content-type": "application/json", ...extraHeaders },
+  });
 }
 
 function corsHeaders(): Record<string, string> {

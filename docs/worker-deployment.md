@@ -3,7 +3,7 @@
 MarkUpsideDown uses a Cloudflare Worker for two features:
 
 1. **Document Import** — Convert PDF, Office, images, etc. to Markdown via [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/)
-2. **Rendered Fetch** — Fetch JavaScript-rendered pages as Markdown via [Browser Rendering REST API](https://developers.cloudflare.com/browser-rendering/rest-api/)
+2. **Rendered Fetch** — Fetch JavaScript-rendered pages as Markdown via [Browser Rendering `/markdown` REST API](https://developers.cloudflare.com/browser-rendering/rest-api/markdown-endpoint/)
 
 Each user deploys their own Worker instance.
 
@@ -12,10 +12,36 @@ Each user deploys their own Worker instance.
 - A [Cloudflare account](https://dash.cloudflare.com/sign-up) (free tier works for document import)
 - [wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/) CLI installed globally
 
+## API Token Setup
+
+Create a single API token that covers both Worker deployment and Browser Rendering:
+
+1. Go to [API Tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Token** → **Custom Token**
+2. Set permissions:
+   - `Account` → `Workers Scripts` → `Edit` (deploy Workers)
+   - `Account` → `Browser Rendering` → `Edit` (rendered fetch)
+3. Account Resources: select your account
+4. Create the token and save it
+
+### Set Worker secrets
+
+Get your **Account ID** from [Cloudflare Dashboard](https://dash.cloudflare.com/) → Workers & Pages → right sidebar.
+
+```bash
+cd worker
+wrangler secret put CF_ACCOUNT_ID
+# Paste your Account ID
+
+wrangler secret put CF_API_TOKEN
+# Paste the API token created above
+```
+
+> **Note**: If you only need Document Import (not Rendered Fetch), you can skip the secrets. The `Browser Rendering - Edit` permission and secrets are only required for the "Render JS" feature.
+
 ## Deploy
 
 ```bash
-# Authenticate with Cloudflare
+# Authenticate with Cloudflare (or use the API token)
 wrangler login
 
 # Install dependencies and deploy
@@ -40,43 +66,7 @@ Deployed markupsidedown-converter triggers
 
 The URL is saved in localStorage and persists across sessions.
 
-## Enable Rendered Fetch (Optional)
-
-The "Render JS" feature in the Fetch URL dialog uses Cloudflare's [Browser Rendering `/markdown` REST API](https://developers.cloudflare.com/browser-rendering/rest-api/markdown-endpoint/) to render JavaScript-heavy pages (SPAs, React/Vue apps, dynamic dashboards) and convert them to Markdown.
-
-### Setup
-
-The Worker needs a Cloudflare API token and account ID to call the Browser Rendering API:
-
-1. **Get your Account ID**: Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) → any domain or Workers & Pages → copy the Account ID from the right sidebar.
-
-2. **Create an API Token**: Go to [API Tokens](https://dash.cloudflare.com/profile/api-tokens) → Create Token → Custom Token:
-   - Permissions: `Account` → `Browser Rendering` → `Edit`
-   - Account Resources: select your account
-
-3. **Set Worker secrets**:
-
-```bash
-cd worker
-wrangler secret put CF_ACCOUNT_ID
-# Paste your Account ID
-
-wrangler secret put CF_API_TOKEN
-# Paste your API Token
-```
-
-That's it. The "Render JS" checkbox in the Fetch URL dialog will now work.
-
-### Browser Rendering Pricing
-
-| Plan | Browser Time | Rate Limit | Cost |
-|------|-------------|------------|------|
-| **Free** | 10 min/day | 6 req/min | Free |
-| **Paid** | 10 hrs/month | 600 req/min | $5/month |
-
-The free tier is sufficient for occasional use. See [Browser Rendering Pricing](https://developers.cloudflare.com/browser-rendering/pricing/) for details.
-
-### When to Use Rendered Fetch
+## When to Use Rendered Fetch
 
 | Scenario | Use |
 |----------|-----|
@@ -85,7 +75,18 @@ The free tier is sufficient for occasional use. See [Browser Rendering Pricing](
 | Pages behind JS-based loading | **Render JS** |
 | Dynamic dashboards | **Render JS** |
 
-## Document Import Cost
+## Pricing
+
+### Browser Rendering
+
+| Plan | Browser Time | Rate Limit | Cost |
+|------|-------------|------------|------|
+| **Free** | 10 min/day | 6 req/min | Free |
+| **Paid** | 10 hrs/month | 600 req/min | $5/month |
+
+The free tier is sufficient for occasional use. See [Browser Rendering Pricing](https://developers.cloudflare.com/browser-rendering/pricing/) for details.
+
+### Document Import
 
 | Format | Cost |
 |--------|------|
@@ -109,11 +110,11 @@ The app shows a confirmation dialog before processing images.
 
 ### Authentication error on deploy
 
-Ensure your API token has **Workers Scripts - Edit** permission, or use `wrangler login` for OAuth.
+Run `wrangler login` or set `CLOUDFLARE_API_TOKEN` env var with a token that has `Workers Scripts - Edit` permission.
 
 ### "CF_ACCOUNT_ID and CF_API_TOKEN secrets are required" error
 
-Set the secrets as described in the [Enable Rendered Fetch](#enable-rendered-fetch-optional) section. This is only required for the "Render JS" feature.
+Set the secrets as described in [API Token Setup](#api-token-setup). This is only required for the "Render JS" feature.
 
 ### Browser Rendering API errors
 

@@ -1,9 +1,11 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "markupsidedown-converter",
   "main": "src/index.ts",
-  "compatibility_date": "2025-01-01",
+  "compatibility_date": "2025-03-14",
   "ai": {
     "binding": "AI"
+  },
+  "observability": {
+    "enabled": true
   }
 }
