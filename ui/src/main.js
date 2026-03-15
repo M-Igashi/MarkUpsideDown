@@ -110,7 +110,6 @@ const SCROLL_COOLDOWN = 50; // ms to ignore scroll events after programmatic scr
 function annotateSourceLines(previewEl, source) {
   const tokens = marked.lexer(source);
   let offset = 0;
-  let lineNum = 1;
   const lines = [];
   for (const token of tokens) {
     if (!token.raw) continue;
@@ -120,9 +119,7 @@ function annotateSourceLines(previewEl, source) {
     }
     const idx = source.indexOf(token.raw, offset);
     if (idx >= 0) {
-      for (let j = offset; j < idx; j++) {
-        if (source.charCodeAt(j) === 10) lineNum++;
-      }
+      const lineNum = source.substring(0, idx).split("\n").length;
       lines.push(lineNum);
       offset = idx + token.raw.length;
     }
