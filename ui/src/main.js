@@ -118,6 +118,8 @@ let editorScrolledAt = 0; // timestamp of last programmatic editor scroll
 let previewScrolledAt = 0; // timestamp of last programmatic preview scroll
 let cursorSyncRAF = 0;
 let anchorsRAF = 0;
+let editorScrollRAF = 0;
+let previewScrollRAF = 0;
 let previewClickedAt = 0; // timestamp of last preview click (suppress cursor→preview sync)
 const SCROLL_COOLDOWN = 50; // ms to ignore scroll events after programmatic scroll
 
@@ -274,7 +276,12 @@ function syncPreviewToCursor() {
   const preview = document.getElementById("preview-pane");
   const scrollTarget = previewTarget - lineVisibleY;
 
-  previewScrolledAt = performance.now();
+  // Suppress competing scroll sync handlers
+  const now = performance.now();
+  editorScrolledAt = now;
+  previewScrolledAt = now;
+  cancelAnimationFrame(editorScrollRAF);
+  cancelAnimationFrame(previewScrollRAF);
   preview.scrollTo({ top: Math.max(0, scrollTarget), behavior: "instant" });
 }
 
@@ -321,7 +328,13 @@ function syncPreviewClickToEditor(event) {
   const cmScroller = editor.dom.querySelector(".cm-scroller");
   const block = editor.lineBlockAt(line.from);
   const editorTarget = block.top - clickVisibleY;
-  editorScrolledAt = performance.now();
+
+  // Suppress competing scroll sync handlers
+  const now = performance.now();
+  editorScrolledAt = now;
+  previewScrolledAt = now;
+  cancelAnimationFrame(editorScrollRAF);
+  cancelAnimationFrame(previewScrollRAF);
   cmScroller.scrollTo({ top: Math.max(0, editorTarget), behavior: "instant" });
 
   editor.focus();
@@ -851,8 +864,6 @@ syncEditorState();
 
 // --- Scroll Sync Event Listeners ---
 
-let editorScrollRAF = 0;
-let previewScrollRAF = 0;
 const cmScroller = editor.dom.querySelector(".cm-scroller");
 cmScroller.addEventListener(
   "scroll",
