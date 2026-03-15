@@ -136,6 +136,11 @@ function annotateSourceLines(previewEl, source) {
   }
 }
 
+// Scroll offset of el within its scroll container, immune to offsetParent/CSS containment.
+function scrollOffsetIn(el, container) {
+  return el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+}
+
 function buildScrollAnchors() {
   const preview = document.getElementById("preview-pane");
   const cmScroller = editor.dom.querySelector(".cm-scroller");
@@ -143,18 +148,13 @@ function buildScrollAnchors() {
 
   const anchors = [{ editorY: 0, previewY: 0 }];
 
-  // Use getBoundingClientRect() to compute positions relative to the scroll
-  // container, immune to offsetParent/CSS containment issues.
-  const previewRect = preview.getBoundingClientRect();
-
   for (const el of elements) {
     const lineNum = parseInt(el.dataset.sourceLine, 10);
     if (lineNum < 1 || lineNum > editor.state.doc.lines) continue;
     const line = editor.state.doc.line(lineNum);
     const block = editor.lineBlockAt(line.from);
     const editorY = block.top;
-    const elRect = el.getBoundingClientRect();
-    const previewY = elRect.top - previewRect.top + preview.scrollTop;
+    const previewY = scrollOffsetIn(el, preview);
     anchors.push({ editorY, previewY });
   }
 
@@ -235,9 +235,7 @@ function syncPreviewToCursor() {
   }
 
   if (best) {
-    const previewRect = preview.getBoundingClientRect();
-    const bestRect = best.getBoundingClientRect();
-    const target = bestRect.top - previewRect.top + preview.scrollTop - preview.clientHeight / 3;
+    const target = scrollOffsetIn(best, preview) - preview.clientHeight / 3;
     previewScrolledAt = performance.now();
     preview.scrollTo({ top: Math.max(0, target), behavior: "instant" });
   }

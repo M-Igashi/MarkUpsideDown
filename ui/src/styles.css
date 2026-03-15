@@ -262,8 +262,6 @@ html, body {
   margin: 1.2em 0;
   border: 1px solid var(--border);
   contain: content;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px;
 }
 
 #preview-pane pre code {
@@ -350,8 +348,6 @@ html, body {
   margin: 0.8em 0;
   text-align: center;
   contain: content;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 300px;
 }
 
 .mermaid-container svg {
