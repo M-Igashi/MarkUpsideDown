@@ -13,9 +13,10 @@ import { editorTheme } from "./theme.js";
 import { editTableAtCursor } from "./table-editor.js";
 import { showSettings, ensureWorkerUrl, getWorkerUrl, isImageConversionAllowed, checkFirstRun } from "./settings.js";
 import { marked } from "marked";
-import hljs from "highlight.js";
+import hljs from "highlight.js/lib/common";
 import katex from "katex";
 import "katex/dist/katex.min.css";
+import DOMPurify from "dompurify";
 
 // KaTeX math extension for marked
 const mathExtension = {
@@ -69,7 +70,7 @@ async function getMermaid() {
   const { default: mermaid } = await import("mermaid");
   mermaid.initialize({
     startOnLoad: false,
-    securityLevel: "loose",
+    securityLevel: "strict",
     theme: "default",
     themeVariables: {
       primaryColor: "#dce4f0",
@@ -255,15 +256,12 @@ function syncPreviewClickToEditor(event) {
   const line = editor.state.doc.line(lineNum);
   editor.dispatch({ selection: { anchor: line.from } });
 
-  // Use anchor interpolation to scroll editor to match preview position
-  if (scrollAnchors.length >= 2) {
-    const preview = document.getElementById("preview-pane");
-    const cmScroller = editor.dom.querySelector(".cm-scroller");
-    const block = editor.lineBlockAt(line.from);
-    const editorTarget = block.top - cmScroller.clientHeight / 3;
-    editorScrolledAt = performance.now();
-    cmScroller.scrollTo({ top: Math.max(0, editorTarget), behavior: "instant" });
-  }
+  // Scroll editor to show the clicked line near the top third of the viewport
+  const cmScroller = editor.dom.querySelector(".cm-scroller");
+  const block = editor.lineBlockAt(line.from);
+  const editorTarget = block.top - cmScroller.clientHeight / 3;
+  editorScrolledAt = performance.now();
+  cmScroller.scrollTo({ top: Math.max(0, editorTarget), behavior: "instant" });
 
   editor.focus();
 }
@@ -389,7 +387,7 @@ async function renderPreview(source) {
   };
   const html = marked.parse(source, { renderer });
 
-  preview.innerHTML = `<article class="preview-page" lang="en">${html}</article>`;
+  preview.innerHTML = DOMPurify.sanitize(`<article class="preview-page" lang="en">${html}</article>`, { ADD_TAGS: ["foreignObject"], ADD_ATTR: ["data-mermaid-source"] });
 
   // Optimize image loading (Safari Reader-style)
   for (const img of preview.querySelectorAll(".preview-page img")) {

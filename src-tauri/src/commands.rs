@@ -133,7 +133,10 @@ pub struct MarkdownResponse {
 
 #[tauri::command]
 pub async fn fetch_url_as_markdown(url: String) -> Result<MarkdownResponse, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
     let response = client
         .get(&url)
         .header("Accept", "text/markdown")
@@ -224,7 +227,7 @@ pub async fn convert_file_to_markdown(
     worker_url: String,
 ) -> Result<ConvertResponse, String> {
     let path = std::path::Path::new(&file_path);
-    let bytes = std::fs::read(path).map_err(|e| format!("Failed to read file: {e}"))?;
+    let bytes = tokio::fs::read(path).await.map_err(|e| format!("Failed to read file: {e}"))?;
     let original_size = bytes.len();
 
     let mime_type = mime_from_extension(
@@ -234,7 +237,10 @@ pub async fn convert_file_to_markdown(
     )
     .ok_or_else(|| format!("Unsupported file extension: {}", file_path))?;
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
     let response = client
         .post(format!("{worker_url}/convert"))
         .header("Content-Type", mime_type)
@@ -370,34 +376,32 @@ fn run_gh(args: &[&str]) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn github_fetch_issue(owner: String, repo: String, number: u64) -> Result<String, String> {
-    let num = number.to_string();
-    let repo_arg = format!("{owner}/{repo}");
-    run_gh(&["issue", "view", &num, "--repo", &repo_arg, "--json", "body", "--jq", ".body"])
+    tokio::task::spawn_blocking(move || {
+        let num = number.to_string();
+        let repo_arg = format!("{owner}/{repo}");
+        run_gh(&["issue", "view", &num, "--repo", &repo_arg, "--json", "body", "--jq", ".body"])
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
 }
 
 #[tauri::command]
 pub async fn github_fetch_pr(owner: String, repo: String, number: u64) -> Result<String, String> {
-    let num = number.to_string();
-    let repo_arg = format!("{owner}/{repo}");
-    run_gh(&["pr", "view", &num, "--repo", &repo_arg, "--json", "body", "--jq", ".body"])
+    tokio::task::spawn_blocking(move || {
+        let num = number.to_string();
+        let repo_arg = format!("{owner}/{repo}");
+        run_gh(&["pr", "view", &num, "--repo", &repo_arg, "--json", "body", "--jq", ".body"])
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
 }
 
 #[tauri::command]
 pub async fn github_list_repos() -> Result<Vec<String>, String> {
-    let output = Command::new("gh")
-        .args(["repo", "list", "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    let repos = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    Ok(repos)
+    tokio::task::spawn_blocking(|| {
+        let output = run_gh(&["repo", "list", "--json", "nameWithOwner", "--jq", ".[].nameWithOwner"])?;
+        Ok(output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
 }
