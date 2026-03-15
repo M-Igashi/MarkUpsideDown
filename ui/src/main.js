@@ -56,6 +56,7 @@ let previewTimeout = null;
 let scrollAnchors = []; // [{ editorY, previewY }]
 let editorScrolledAt = 0; // timestamp of last programmatic editor scroll
 let previewScrolledAt = 0; // timestamp of last programmatic preview scroll
+let cursorSyncRAF = 0;
 const SCROLL_COOLDOWN = 80; // ms to ignore scroll events after programmatic scroll
 
 function annotateSourceLines(previewEl, source) {
@@ -132,14 +133,13 @@ function interpolate(anchors, fromKey, toKey, value) {
 
 function syncEditorToPreview() {
   const now = performance.now();
-  // Ignore if this scroll was caused by our own programmatic scroll
   if (now - editorScrolledAt < SCROLL_COOLDOWN) return;
+  if (scrollAnchors.length < 2) return;
 
   const preview = document.getElementById("preview-pane");
   const cmScroller = editor.dom.querySelector(".cm-scroller");
   const target = Math.round(interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop));
 
-  // Only apply if the difference is meaningful (avoids sub-pixel jitter)
   if (Math.abs(preview.scrollTop - target) < 1) return;
 
   previewScrolledAt = now;
@@ -149,6 +149,7 @@ function syncEditorToPreview() {
 function syncPreviewToEditor() {
   const now = performance.now();
   if (now - previewScrolledAt < SCROLL_COOLDOWN) return;
+  if (scrollAnchors.length < 2) return;
 
   const preview = document.getElementById("preview-pane");
   const cmScroller = editor.dom.querySelector(".cm-scroller");
@@ -177,10 +178,7 @@ function syncPreviewToCursor() {
   }
 
   if (best) {
-    const previewRect = preview.getBoundingClientRect();
-    const elRect = best.getBoundingClientRect();
-    // Scroll so the element is roughly centered
-    const target = best.offsetTop - previewRect.height / 3;
+    const target = best.offsetTop - preview.clientHeight / 3;
     previewScrolledAt = performance.now();
     preview.scrollTo({ top: Math.max(0, target), behavior: "instant" });
   }
@@ -204,7 +202,8 @@ const updatePreview = EditorView.updateListener.of((update) => {
   }
   // Sync preview when cursor moves (click, arrow keys, selection)
   if (update.selectionSet && !update.docChanged) {
-    syncPreviewToCursor();
+    cancelAnimationFrame(cursorSyncRAF);
+    cursorSyncRAF = requestAnimationFrame(syncPreviewToCursor);
   }
 });
 
@@ -320,10 +319,9 @@ async function renderPreview(source) {
     }
     // Rebuild anchors after Mermaid changes element heights
     buildScrollAnchors();
+  } else {
+    buildScrollAnchors();
   }
-
-  // Build scroll anchors from annotated elements
-  buildScrollAnchors();
 
   // Inline SVG images (runs after initial HTML is set)
   inlineSvgImages(preview).catch(() => {});
@@ -677,9 +675,17 @@ syncEditorState();
 
 // --- Scroll Sync Event Listeners ---
 
+let editorScrollRAF = 0;
+let previewScrollRAF = 0;
 const cmScroller = editor.dom.querySelector(".cm-scroller");
-cmScroller.addEventListener("scroll", syncEditorToPreview, { passive: true });
-document.getElementById("preview-pane").addEventListener("scroll", syncPreviewToEditor, { passive: true });
+cmScroller.addEventListener("scroll", () => {
+  cancelAnimationFrame(editorScrollRAF);
+  editorScrollRAF = requestAnimationFrame(syncEditorToPreview);
+}, { passive: true });
+document.getElementById("preview-pane").addEventListener("scroll", () => {
+  cancelAnimationFrame(previewScrollRAF);
+  previewScrollRAF = requestAnimationFrame(syncPreviewToEditor);
+}, { passive: true });
 window.addEventListener("resize", buildScrollAnchors);
 
 // First-run: show settings if Worker not configured
