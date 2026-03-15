@@ -157,6 +157,9 @@ html, body {
   overflow-y: auto;
   padding: 32px;
   background: var(--bg);
+  overscroll-behavior: contain;
+  will-change: scroll-position;
+  contain: strict;
 }
 
 /* CodeMirror overrides */
@@ -185,6 +188,23 @@ html, body {
   font-family: var(--font-sans);
   line-height: 1.8;
   min-height: 100%;
+  contain: layout style;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-kerning: normal;
+  hanging-punctuation: first allow-end last;
+  overflow-wrap: break-word;
+  word-break: auto-phrase;
+  line-break: strict;
+  text-wrap: pretty;
+}
+
+#preview-pane h1,
+#preview-pane h2,
+#preview-pane h3,
+#preview-pane h4 {
+  text-wrap: balance;
 }
 
 #preview-pane h1 {
@@ -202,8 +222,6 @@ html, body {
   font-weight: 600;
   margin: 1.2em 0 0.4em;
   color: var(--text);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.3em;
 }
 
 #preview-pane h3 {
@@ -243,6 +261,9 @@ html, body {
   overflow-x: auto;
   margin: 1.2em 0;
   border: 1px solid var(--border);
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
 }
 
 #preview-pane pre code {
@@ -274,6 +295,7 @@ html, body {
   margin: 1.2em 0;
   text-align: center;
   overflow-x: auto;
+  contain: content;
 }
 
 .math-error {
@@ -327,6 +349,9 @@ html, body {
 .mermaid-container {
   margin: 0.8em 0;
   text-align: center;
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
 }
 
 .mermaid-container svg {
@@ -976,7 +1001,6 @@ html, body {
   }
 
   #preview-pane h1, #preview-pane h2, #preview-pane h3 { color: #1a1a1a; }
-  #preview-pane h2 { border-bottom-color: #ccc; }
   #preview-pane a { color: #0066cc; }
   #preview-pane code { background: #f0f0f0; color: #1a1a1a; }
   #preview-pane pre { background: #f5f5f5; color: #1a1a1a; border-color: #ddd; }

@@ -104,7 +104,7 @@ let scrollAnchors = []; // [{ editorY, previewY }]
 let editorScrolledAt = 0; // timestamp of last programmatic editor scroll
 let previewScrolledAt = 0; // timestamp of last programmatic preview scroll
 let cursorSyncRAF = 0;
-const SCROLL_COOLDOWN = 80; // ms to ignore scroll events after programmatic scroll
+const SCROLL_COOLDOWN = 50; // ms to ignore scroll events after programmatic scroll
 
 function annotateSourceLines(previewEl, source) {
   const tokens = marked.lexer(source);
@@ -250,7 +250,7 @@ const updatePreview = EditorView.updateListener.of((update) => {
     previewTimeout = setTimeout(() => {
       renderPreview(update.state.doc.toString());
       updateStatus(update.state);
-    }, 150);
+    }, 100);
     syncEditorState();
   }
   // Sync preview when cursor moves (click, arrow keys, selection)
@@ -342,7 +342,13 @@ async function renderPreview(source) {
   };
   const html = marked.parse(source, { renderer });
 
-  preview.innerHTML = `<div class="preview-page">${html}</div>`;
+  preview.innerHTML = `<article class="preview-page">${html}</article>`;
+
+  // Optimize image loading (Safari Reader-style)
+  for (const img of preview.querySelectorAll(".preview-page img")) {
+    img.loading = "lazy";
+    img.decoding = "async";
+  }
 
   // Annotate elements with source line numbers for scroll sync
   annotateSourceLines(preview, source);
