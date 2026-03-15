@@ -104,23 +104,35 @@ let scrollAnchors = []; // [{ editorY, previewY }]
 let editorScrolledAt = 0; // timestamp of last programmatic editor scroll
 let previewScrolledAt = 0; // timestamp of last programmatic preview scroll
 let cursorSyncRAF = 0;
+let anchorsRAF = 0;
 let previewClickedAt = 0; // timestamp of last preview click (suppress cursor→preview sync)
 const SCROLL_COOLDOWN = 50; // ms to ignore scroll events after programmatic scroll
+
+function countNewlines(str, from, to) {
+  let n = 0;
+  for (let i = from; i < to; i++) {
+    if (str.charCodeAt(i) === 10) n++;
+  }
+  return n;
+}
 
 function annotateSourceLines(previewEl, source) {
   const tokens = marked.lexer(source);
   let offset = 0;
+  let lineNum = 1;
   const lines = [];
   for (const token of tokens) {
     if (!token.raw) continue;
     if (token.type === "space") {
+      lineNum += countNewlines(token.raw, 0, token.raw.length);
       offset += token.raw.length;
       continue;
     }
     const idx = source.indexOf(token.raw, offset);
     if (idx >= 0) {
-      const lineNum = source.substring(0, idx).split("\n").length;
+      lineNum += countNewlines(source, offset, idx);
       lines.push(lineNum);
+      lineNum += countNewlines(source, idx, idx + token.raw.length);
       offset = idx + token.raw.length;
     }
   }
@@ -229,7 +241,8 @@ function syncPreviewToCursor() {
   }
 
   if (best) {
-    const target = best.getBoundingClientRect().top - preview.getBoundingClientRect().top + preview.scrollTop - preview.clientHeight / 3;
+    const previewRect = preview.getBoundingClientRect();
+    const target = best.getBoundingClientRect().top - previewRect.top + preview.scrollTop - preview.clientHeight / 3;
     previewScrolledAt = performance.now();
     preview.scrollTo({ top: Math.max(0, target), behavior: "instant" });
   }
@@ -421,7 +434,8 @@ async function renderPreview(source) {
   }
 
   // Build scroll anchors after layout is computed
-  requestAnimationFrame(buildScrollAnchors);
+  cancelAnimationFrame(anchorsRAF);
+  anchorsRAF = requestAnimationFrame(buildScrollAnchors);
 
   // Inline SVG images (runs after initial HTML is set)
   inlineSvgImages(preview).catch(() => {});
