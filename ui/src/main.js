@@ -223,32 +223,23 @@ function syncPreviewToEditor() {
   cmScroller.scrollTop = target;
 }
 
-// Sync preview to editor cursor/selection position
+// Sync preview to editor cursor position using anchor interpolation
 function syncPreviewToCursor() {
   if (performance.now() - previewClickedAt < 100) return;
+  if (scrollAnchors.length < 2) return;
+
   const pos = editor.state.selection.main.head;
-  const line = editor.state.doc.lineAt(pos);
-  const lineNum = line.number;
+  const block = editor.lineBlockAt(pos);
+  const previewTarget = Math.round(interpolate(scrollAnchors, "editorY", "previewY", block.top));
 
   const preview = document.getElementById("preview-pane");
-  // Find the closest annotated element at or before this line
-  const elements = preview.querySelectorAll("[data-source-line]");
-  let best = null;
-  for (const el of elements) {
-    const elLine = parseInt(el.dataset.sourceLine, 10);
-    if (elLine <= lineNum) best = el;
-    else break;
-  }
+  const scrollTarget = previewTarget - preview.clientHeight / 3;
 
-  if (best) {
-    const previewRect = preview.getBoundingClientRect();
-    const target = best.getBoundingClientRect().top - previewRect.top + preview.scrollTop - preview.clientHeight / 3;
-    previewScrolledAt = performance.now();
-    preview.scrollTo({ top: Math.max(0, target), behavior: "instant" });
-  }
+  previewScrolledAt = performance.now();
+  preview.scrollTo({ top: Math.max(0, scrollTarget), behavior: "instant" });
 }
 
-// Sync editor cursor to clicked preview element
+// Sync editor cursor to clicked preview element using anchor interpolation
 function syncPreviewClickToEditor(event) {
   let el = event.target;
   while (el && el !== event.currentTarget) {
@@ -262,10 +253,18 @@ function syncPreviewClickToEditor(event) {
 
   previewClickedAt = performance.now();
   const line = editor.state.doc.line(lineNum);
-  editor.dispatch({
-    selection: { anchor: line.from },
-    scrollIntoView: true,
-  });
+  editor.dispatch({ selection: { anchor: line.from } });
+
+  // Use anchor interpolation to scroll editor to match preview position
+  if (scrollAnchors.length >= 2) {
+    const preview = document.getElementById("preview-pane");
+    const cmScroller = editor.dom.querySelector(".cm-scroller");
+    const block = editor.lineBlockAt(line.from);
+    const editorTarget = block.top - cmScroller.clientHeight / 3;
+    editorScrolledAt = performance.now();
+    cmScroller.scrollTo({ top: Math.max(0, editorTarget), behavior: "instant" });
+  }
+
   editor.focus();
 }
 
