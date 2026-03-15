@@ -1,17 +1,25 @@
-import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection } from "@codemirror/view";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  drawSelection,
+} from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { defaultKeymap, indentWithTab, history, historyKeymap } from "@codemirror/commands";
-import {
-  syntaxHighlighting,
-  defaultHighlightStyle,
-  bracketMatching,
-} from "@codemirror/language";
+import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from "@codemirror/language";
 import { search, searchKeymap } from "@codemirror/search";
 import { editorTheme } from "./theme.js";
 import { editTableAtCursor } from "./table-editor.js";
-import { showSettings, ensureWorkerUrl, getWorkerUrl, isImageConversionAllowed, checkFirstRun } from "./settings.js";
+import {
+  showSettings,
+  ensureWorkerUrl,
+  getWorkerUrl,
+  isImageConversionAllowed,
+  checkFirstRun,
+} from "./settings.js";
 import { marked } from "marked";
 import hljs from "highlight.js/lib/common";
 import katex from "katex";
@@ -24,7 +32,9 @@ const mathExtension = {
     {
       name: "mathBlock",
       level: "block",
-      start(src) { return src.indexOf("$$"); },
+      start(src) {
+        return src.indexOf("$$");
+      },
       tokenizer(src) {
         const match = src.match(/^\$\$([\s\S]+?)\$\$/);
         if (match) {
@@ -42,7 +52,9 @@ const mathExtension = {
     {
       name: "mathInline",
       level: "inline",
-      start(src) { return src.indexOf("$"); },
+      start(src) {
+        return src.indexOf("$");
+      },
       tokenizer(src) {
         const match = src.match(/^\$([^\s$](?:[^$]*[^\s$])?)\$/);
         if (match) {
@@ -178,7 +190,8 @@ function buildScrollAnchors() {
           if (srcLine > editor.state.doc.lines) break;
           const editorLine = editor.state.doc.line(srcLine);
           const editorBlock = editor.lineBlockAt(editorLine.from);
-          const subPreviewY = codeRect.top - previewRect.top + previewScrollTop + i * codeLineHeight;
+          const subPreviewY =
+            codeRect.top - previewRect.top + previewScrollTop + i * codeLineHeight;
           anchors.push({ editorY: editorBlock.top, previewY: subPreviewY });
         }
       }
@@ -222,7 +235,9 @@ function syncEditorToPreview() {
 
   const preview = document.getElementById("preview-pane");
   const cmScroller = editor.dom.querySelector(".cm-scroller");
-  const target = Math.round(interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop));
+  const target = Math.round(
+    interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop),
+  );
 
   if (Math.abs(preview.scrollTop - target) < 1) return;
 
@@ -282,7 +297,10 @@ function syncPreviewClickToEditor(event) {
       const codeRect = codeEl.getBoundingClientRect();
       const codeLineHeight = codeRect.height / codeLines.length;
       const clickY = event.clientY - codeRect.top;
-      const lineIndex = Math.max(0, Math.min(codeLines.length - 1, Math.floor(clickY / codeLineHeight)));
+      const lineIndex = Math.max(
+        0,
+        Math.min(codeLines.length - 1, Math.floor(clickY / codeLineHeight)),
+      );
       // data-source-line points to the opening ```, code content starts at lineNum + 1
       const targetLine = lineNum + 1 + lineIndex;
       if (targetLine >= 1 && targetLine <= editor.state.doc.lines) {
@@ -322,8 +340,22 @@ function formatBytes(bytes) {
 }
 
 const IMPORT_EXTENSIONS = [
-  "pdf", "docx", "xlsx", "pptx", "html", "htm", "csv", "xml",
-  "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif",
+  "pdf",
+  "docx",
+  "xlsx",
+  "pptx",
+  "html",
+  "htm",
+  "csv",
+  "xml",
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "bmp",
+  "tiff",
+  "tif",
 ];
 
 // --- CodeMirror Editor ---
@@ -426,7 +458,10 @@ async function renderPreview(source) {
   };
   const html = marked.parse(source, { renderer });
 
-  preview.innerHTML = DOMPurify.sanitize(`<article class="preview-page" lang="en">${html}</article>`, { ADD_TAGS: ["foreignObject"], ADD_ATTR: ["data-mermaid-source"] });
+  preview.innerHTML = DOMPurify.sanitize(
+    `<article class="preview-page" lang="en">${html}</article>`,
+    { ADD_TAGS: ["foreignObject"], ADD_ATTR: ["data-mermaid-source"] },
+  );
 
   // Optimize image loading (Safari Reader-style)
   for (const img of preview.querySelectorAll(".preview-page img")) {
@@ -546,7 +581,9 @@ async function fetchFromUrlBar() {
 }
 
 document.getElementById("btn-fetch").addEventListener("click", fetchFromUrlBar);
-urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") fetchFromUrlBar(); });
+urlInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") fetchFromUrlBar();
+});
 
 // --- Import Document ---
 
@@ -561,10 +598,10 @@ async function convertFile(filePath) {
       document.getElementById("status").textContent = "Image conversion is disabled in Settings";
       return;
     }
-    const ok = await confirm(
-      "Image conversion uses AI Neurons (costs apply). Continue?",
-      { title: "Image Conversion Cost", kind: "warning" }
-    );
+    const ok = await confirm("Image conversion uses AI Neurons (costs apply). Continue?", {
+      title: "Image Conversion Cost",
+      kind: "warning",
+    });
     if (!ok) return;
   }
 
@@ -593,10 +630,12 @@ async function convertFile(filePath) {
 
 document.getElementById("btn-import").addEventListener("click", async () => {
   const path = await open({
-    filters: [{
-      name: "Documents",
-      extensions: IMPORT_EXTENSIONS,
-    }],
+    filters: [
+      {
+        name: "Documents",
+        extensions: IMPORT_EXTENSIONS,
+      },
+    ],
   });
   if (path) await convertFile(path);
 });
@@ -711,7 +750,9 @@ const previewPane = document.getElementById("preview-pane");
 
 let isDragging = false;
 
-divider.addEventListener("mousedown", () => { isDragging = true; });
+divider.addEventListener("mousedown", () => {
+  isDragging = true;
+});
 document.addEventListener("mousemove", (e) => {
   if (!isDragging) return;
   const container = document.getElementById("app");
@@ -721,7 +762,9 @@ document.addEventListener("mousemove", (e) => {
   editorPane.style.flex = `${clamped}`;
   previewPane.style.flex = `${1 - clamped}`;
 });
-document.addEventListener("mouseup", () => { isDragging = false; });
+document.addEventListener("mouseup", () => {
+  isDragging = false;
+});
 
 // --- MCP Bridge: State Sync & Event Listeners ---
 
@@ -807,14 +850,22 @@ syncEditorState();
 let editorScrollRAF = 0;
 let previewScrollRAF = 0;
 const cmScroller = editor.dom.querySelector(".cm-scroller");
-cmScroller.addEventListener("scroll", () => {
-  cancelAnimationFrame(editorScrollRAF);
-  editorScrollRAF = requestAnimationFrame(syncEditorToPreview);
-}, { passive: true });
-document.getElementById("preview-pane").addEventListener("scroll", () => {
-  cancelAnimationFrame(previewScrollRAF);
-  previewScrollRAF = requestAnimationFrame(syncPreviewToEditor);
-}, { passive: true });
+cmScroller.addEventListener(
+  "scroll",
+  () => {
+    cancelAnimationFrame(editorScrollRAF);
+    editorScrollRAF = requestAnimationFrame(syncEditorToPreview);
+  },
+  { passive: true },
+);
+document.getElementById("preview-pane").addEventListener(
+  "scroll",
+  () => {
+    cancelAnimationFrame(previewScrollRAF);
+    previewScrollRAF = requestAnimationFrame(syncPreviewToEditor);
+  },
+  { passive: true },
+);
 window.addEventListener("resize", buildScrollAnchors);
 document.getElementById("preview-pane").addEventListener("click", syncPreviewClickToEditor);
 

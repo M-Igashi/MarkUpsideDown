@@ -65,7 +65,7 @@ function renderFeatureList(container, status) {
       <span class="feature-icon">${r.ok ? "\u2713" : "\u25CF"}</span>
       <span class="feature-name">${r.name}</span>
       <span class="feature-hint">${r.hint}</span>
-    </div>`
+    </div>`,
     )
     .join("");
 }
@@ -192,7 +192,7 @@ async function startAutoSetup(progressContainer, urlInput, onComplete) {
       urlInput.value = workerUrl;
       showSetupError(
         progressContainer,
-        `Worker deployed at ${workerUrl} but secret setup failed: ${manualErr}\nYou can set secrets manually or use Import without Render JS.`
+        `Worker deployed at ${workerUrl} but secret setup failed: ${manualErr}\nYou can set secrets manually or use Import without Render JS.`,
       );
       onComplete(workerUrl, null);
       return;
@@ -214,7 +214,10 @@ async function startAutoSetup(progressContainer, urlInput, onComplete) {
       showSetupSuccess(progressContainer, workerUrl);
     } else {
       update("verify", "error");
-      showSetupError(progressContainer, `Worker deployed but health check failed. URL: ${workerUrl}`);
+      showSetupError(
+        progressContainer,
+        `Worker deployed but health check failed. URL: ${workerUrl}`,
+      );
     }
     onComplete(workerUrl, testStatus);
   } catch (e) {
@@ -469,8 +472,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
       }
 
       renderFeatureList(featureList, status);
-      secretsHelp.style.display =
-        status.reachable && !status.render_available ? "" : "none";
+      secretsHelp.style.display = status.reachable && !status.render_available ? "" : "none";
     } catch (e) {
       testResult.className = "settings-test-result test-error";
       testResult.textContent = `Error: ${e}`;
@@ -487,7 +489,10 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
   urlInput.value = workerUrl;
 
   // Close actions
-  const close = () => { overlay.remove(); if (onCloseCallback) onCloseCallback(); };
+  const close = () => {
+    overlay.remove();
+    if (onCloseCallback) onCloseCallback();
+  };
   const saveAndClose = () => {
     const url = urlInput.value.trim();
     setWorkerUrl(url);
@@ -532,8 +537,13 @@ export function ensureWorkerUrl() {
   return new Promise((resolve) => {
     let resolved = false;
     showSettings({
-      onSave: (savedUrl) => { resolved = true; resolve(savedUrl || null); },
-      onClose: () => { if (!resolved) resolve(null); },
+      onSave: (savedUrl) => {
+        resolved = true;
+        resolve(savedUrl || null);
+      },
+      onClose: () => {
+        if (!resolved) resolve(null);
+      },
     });
   });
 }

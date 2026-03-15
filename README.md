@@ -87,12 +87,15 @@ The **Feature Status** panel shows which capabilities are available.
 
 ## Build from Source
 
-**Requirements:** Rust 1.85+, Node.js 18+, [gh CLI](https://cli.github.com/) (optional)
+**Requirements:** Rust 1.85+, Node.js 22+, [Vite+](https://viteplus.dev/) (optional, for lint/format), [gh CLI](https://cli.github.com/) (optional)
 
 ```bash
 cd ui && npm install && cd ..
 cargo tauri dev        # dev mode with hot-reload
 cargo tauri build      # production build
+
+# Lint + format (requires vp CLI)
+cd ui && vp check src/
 ```
 
 ## MCP Server
@@ -133,7 +136,7 @@ src-tauri/               # Rust backend (Tauri v2)
 ├── Cargo.toml
 └── tauri.conf.json
 
-ui/                      # Frontend (Vite + vanilla JS)
+ui/                      # Frontend (Vite+ + vanilla JS)
 ├── src/
 │   ├── main.js          # Editor, preview, scroll sync, toolbar, bridge events
 │   ├── settings.js      # Settings panel, auto-setup UI, feature status

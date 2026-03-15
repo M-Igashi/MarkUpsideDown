@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vite-plus";
 
 const host = process.env.TAURI_DEV_HOST;
 

@@ -27,10 +27,9 @@ const theme = EditorView.theme(
     ".cm-cursor, .cm-dropCursor": {
       borderLeftColor: accent,
     },
-    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
-      {
-        backgroundColor: "rgba(74, 122, 181, 0.18)",
-      },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
+      backgroundColor: "rgba(74, 122, 181, 0.18)",
+    },
     ".cm-activeLine": {
       backgroundColor: "rgba(0, 0, 0, 0.03)",
     },
@@ -94,7 +93,7 @@ const theme = EditorView.theme(
       backgroundColor: "rgba(74, 122, 181, 0.3)",
     },
   },
-  { dark: false }
+  { dark: false },
 );
 
 const highlighting = HighlightStyle.define([

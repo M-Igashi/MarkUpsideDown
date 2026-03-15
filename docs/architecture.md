@@ -162,4 +162,4 @@ The editor and preview panes are bidirectionally scroll-synced using an anchor-b
 | `mermaid` | Diagram rendering (lazy-loaded) |
 | `highlight.js` | Code syntax highlighting |
 | `katex` | Math rendering (inline and display) |
-| `vite` (dev) | Build tool |
+| `vite-plus` (dev) | Unified toolchain (Vite + Oxlint + Oxfmt via `vp` CLI) |
