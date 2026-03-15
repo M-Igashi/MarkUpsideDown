@@ -158,8 +158,8 @@ html, body {
   padding: 32px;
   background: var(--bg);
   overscroll-behavior: contain;
-  will-change: scroll-position;
-  contain: paint style;
+  scrollbar-width: thin;
+  color-scheme: light;
 }
 
 /* CodeMirror overrides */
@@ -177,7 +177,7 @@ html, body {
   outline: none;
 }
 
-/* Markdown preview — paper-like reading experience */
+/* Markdown preview — Safari Reader-inspired reading experience */
 #preview-pane .preview-page {
   max-width: var(--content-width);
   margin: 0 auto;
@@ -186,18 +186,24 @@ html, body {
   padding: 40px 48px;
   box-shadow: 0 1px 8px rgba(0, 0, 0, 0.08), 0 4px 24px rgba(0, 0, 0, 0.04);
   font-family: var(--font-sans);
+  font-size: 18px;
   line-height: 1.8;
   min-height: 100%;
-  contain: layout style;
+  /* Safari Reader typography */
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-kerning: normal;
+  font-variant-ligatures: common-ligatures;
   hanging-punctuation: first allow-end last;
   overflow-wrap: break-word;
   word-break: auto-phrase;
   line-break: strict;
   text-wrap: pretty;
+  hyphens: auto;
+  /* CJK text spacing (Safari 18.2+ / 19+ progressive enhancement) */
+  text-spacing-trim: auto;
+  text-autospace: ideograph-alpha ideograph-numeric;
 }
 
 #preview-pane h1,
@@ -244,7 +250,16 @@ html, body {
 }
 
 #preview-pane a { color: var(--accent); text-decoration: none; }
-#preview-pane a:hover { text-decoration: underline; }
+#preview-pane a:visited { color: #6a5acd; }
+#preview-pane a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+#preview-pane a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 #preview-pane code {
   font-family: var(--font-mono);
@@ -261,13 +276,14 @@ html, body {
   overflow-x: auto;
   margin: 1.2em 0;
   border: 1px solid var(--border);
-  contain: content;
+  tab-size: 4;
 }
 
 #preview-pane pre code {
   background: none;
   padding: 0;
   font-size: 0.9em;
+  line-height: 1.5;
 }
 
 #preview-pane blockquote {
@@ -278,12 +294,39 @@ html, body {
   font-style: italic;
 }
 
+#preview-pane blockquote blockquote {
+  border-left-color: var(--border);
+  font-size: 0.95em;
+}
+
 #preview-pane ul, #preview-pane ol { padding-left: 28px; margin: 0.8em 0; }
 #preview-pane li { line-height: 1.8; margin: 0.2em 0; }
-#preview-pane img { max-width: 100%; border-radius: 8px; }
+#preview-pane li > ul, #preview-pane li > ol { margin: 0.2em 0; }
+
+#preview-pane img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1em auto;
+  border-radius: 8px;
+}
+
+#preview-pane figure { margin: 1.5em 0; }
+#preview-pane figcaption {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 0.5em;
+}
+
 #preview-pane .inline-svg { display: inline-block; max-width: 100%; }
 #preview-pane .inline-svg svg { max-width: 100%; height: auto; }
-#preview-pane table { border-collapse: collapse; width: 100%; margin: 1.2em 0; }
+
+#preview-pane .table-wrapper {
+  overflow-x: auto;
+  margin: 1.2em 0;
+}
+#preview-pane table { border-collapse: collapse; width: 100%; margin: 0; }
 #preview-pane th, #preview-pane td { border: 1px solid var(--border); padding: 10px 14px; text-align: left; }
 #preview-pane th { background: var(--code-bg); font-weight: 600; }
 #preview-pane hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
@@ -293,7 +336,6 @@ html, body {
   margin: 1.2em 0;
   text-align: center;
   overflow-x: auto;
-  contain: content;
 }
 
 .math-error {
@@ -347,7 +389,6 @@ html, body {
 .mermaid-container {
   margin: 0.8em 0;
   text-align: center;
-  contain: content;
 }
 
 .mermaid-container svg {
@@ -365,6 +406,15 @@ html, body {
   font-size: 12px;
   white-space: pre-wrap;
   text-align: left;
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0s !important; }
+}
+
+#preview-pane ::selection {
+  background: rgba(74, 122, 181, 0.3);
 }
 
 /* Drag & drop overlay */

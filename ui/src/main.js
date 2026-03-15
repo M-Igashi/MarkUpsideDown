@@ -136,17 +136,14 @@ function annotateSourceLines(previewEl, source) {
   }
 }
 
-// Scroll offset of el within its scroll container, immune to offsetParent/CSS containment.
-function scrollOffsetIn(el, container) {
-  return el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
-}
-
 function buildScrollAnchors() {
   const preview = document.getElementById("preview-pane");
   const cmScroller = editor.dom.querySelector(".cm-scroller");
   const elements = preview.querySelectorAll("[data-source-line]");
 
   const anchors = [{ editorY: 0, previewY: 0 }];
+  const previewRect = preview.getBoundingClientRect();
+  const previewScrollTop = preview.scrollTop;
 
   for (const el of elements) {
     const lineNum = parseInt(el.dataset.sourceLine, 10);
@@ -154,7 +151,7 @@ function buildScrollAnchors() {
     const line = editor.state.doc.line(lineNum);
     const block = editor.lineBlockAt(line.from);
     const editorY = block.top;
-    const previewY = scrollOffsetIn(el, preview);
+    const previewY = el.getBoundingClientRect().top - previewRect.top + previewScrollTop;
     anchors.push({ editorY, previewY });
   }
 
@@ -235,7 +232,7 @@ function syncPreviewToCursor() {
   }
 
   if (best) {
-    const target = scrollOffsetIn(best, preview) - preview.clientHeight / 3;
+    const target = best.getBoundingClientRect().top - preview.getBoundingClientRect().top + preview.scrollTop - preview.clientHeight / 3;
     previewScrolledAt = performance.now();
     preview.scrollTo({ top: Math.max(0, target), behavior: "instant" });
   }
@@ -383,12 +380,20 @@ async function renderPreview(source) {
   };
   const html = marked.parse(source, { renderer });
 
-  preview.innerHTML = `<article class="preview-page">${html}</article>`;
+  preview.innerHTML = `<article class="preview-page" lang="en">${html}</article>`;
 
   // Optimize image loading (Safari Reader-style)
   for (const img of preview.querySelectorAll(".preview-page img")) {
     img.loading = "lazy";
     img.decoding = "async";
+  }
+
+  // Wrap tables in scrollable containers for overflow handling
+  for (const table of preview.querySelectorAll(".preview-page > table")) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "table-wrapper";
+    table.parentNode.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
   }
 
   // Annotate elements with source line numbers for scroll sync
@@ -418,7 +423,8 @@ async function renderPreview(source) {
     }
   }
 
-  buildScrollAnchors();
+  // Build scroll anchors after layout is computed
+  requestAnimationFrame(buildScrollAnchors);
 
   // Inline SVG images (runs after initial HTML is set)
   inlineSvgImages(preview).catch(() => {});
