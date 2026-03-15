@@ -68,6 +68,63 @@ html, body {
   font-family: var(--font-mono);
 }
 
+#url-bar {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 180px;
+  max-width: 480px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+#url-bar:focus-within {
+  border-color: var(--accent);
+}
+
+#url-input {
+  flex: 1;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+  min-width: 0;
+}
+
+#url-input::placeholder {
+  color: var(--text-muted);
+}
+
+#btn-fetch {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#btn-fetch:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+#url-bar.loading #btn-fetch {
+  color: var(--accent);
+}
+
+#url-bar.loading #url-input {
+  opacity: 0.6;
+}
+
 #app {
   display: flex;
   height: calc(100% - var(--toolbar-height));
@@ -174,7 +231,7 @@ html, body {
   outline-offset: -4px;
 }
 
-/* Fetch URL dialog */
+/* Dialog overlay (used by settings, table editor) */
 .dialog-overlay {
   position: fixed;
   inset: 0;
@@ -205,41 +262,6 @@ html, body {
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.5;
-}
-
-.dialog-box input[type="url"] {
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-family: var(--font-mono);
-  outline: none;
-}
-
-.dialog-box input[type="url"]:focus {
-  border-color: var(--accent);
-}
-
-.dialog-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.toggle-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.toggle-hint {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 .dialog-actions {

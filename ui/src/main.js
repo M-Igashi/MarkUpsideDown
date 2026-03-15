@@ -182,100 +182,40 @@ document.getElementById("btn-save").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("btn-fetch-url").addEventListener("click", () => {
-  showFetchDialog();
-});
+// --- URL Bar (Fetch URL) ---
 
-function showFetchDialog() {
-  // Remove existing dialog if any
-  document.getElementById("fetch-dialog")?.remove();
+const urlBar = document.getElementById("url-bar");
+const urlInput = document.getElementById("url-input");
 
-  const overlay = document.createElement("div");
-  overlay.id = "fetch-dialog";
-  overlay.className = "dialog-overlay";
-  overlay.innerHTML = `
-    <div class="dialog-box">
-      <div class="dialog-title">Fetch URL as Markdown</div>
-      <input type="url" id="fetch-url-input" placeholder="https://example.com" />
-      <div class="dialog-row">
-        <label class="toggle-label">
-          <input type="checkbox" id="fetch-render-toggle" />
-          <span>Render JS</span>
-        </label>
-        <span class="toggle-hint" id="fetch-render-hint">Standard fetch (fast)</span>
-      </div>
-      <div class="dialog-actions">
-        <button id="fetch-dialog-cancel">Cancel</button>
-        <button id="fetch-dialog-ok" class="primary">Fetch</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
+async function fetchFromUrlBar() {
+  const url = urlInput.value.trim();
+  if (!url) return;
 
-  const urlInput = document.getElementById("fetch-url-input");
-  const renderToggle = document.getElementById("fetch-render-toggle");
-  const hint = document.getElementById("fetch-render-hint");
+  const workerUrl = await ensureWorkerUrl();
+  if (!workerUrl) return;
 
-  urlInput.focus();
-
-  renderToggle.addEventListener("change", () => {
-    hint.textContent = renderToggle.checked
-      ? "Browser Rendering (slower, JS support)"
-      : "Standard fetch (fast)";
-  });
-
-  const close = () => overlay.remove();
-
-  document.getElementById("fetch-dialog-cancel").addEventListener("click", close);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-
-  const doFetch = async () => {
-    const url = urlInput.value.trim();
-    if (!url) return;
-    const renderJs = renderToggle.checked;
-    close();
-    await fetchUrl(url, renderJs);
-  };
-
-  document.getElementById("fetch-dialog-ok").addEventListener("click", doFetch);
-  urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doFetch(); });
-  overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
-}
-
-async function fetchUrl(url, renderJs) {
   const statusEl = document.getElementById("status");
+  urlBar.classList.add("loading");
+  urlInput.disabled = true;
+  statusEl.textContent = "Rendering page (this may take a moment)…";
 
-  if (renderJs) {
-    const workerUrl = await ensureWorkerUrl();
-    if (!workerUrl) return;
-
-    statusEl.textContent = "Rendering page (this may take a moment)…";
-    try {
-      const markdown = await invoke("fetch_rendered_url_as_markdown", { url, workerUrl });
-      editor.dispatch({
-        changes: { from: 0, to: editor.state.doc.length, insert: markdown },
-      });
-      renderPreview(markdown);
-      statusEl.textContent = "Fetched (rendered): " + url;
-    } catch (e) {
-      statusEl.textContent = `Render error: ${e}`;
-    }
-  } else {
-    statusEl.textContent = "Fetching…";
-    try {
-      const result = await invoke("fetch_url_as_markdown", { url });
-      editor.dispatch({
-        changes: { from: 0, to: editor.state.doc.length, insert: result.body },
-      });
-      renderPreview(result.body);
-      const info = result.is_markdown ? "Markdown" : "HTML (no Markdown for Agents)";
-      const tokens = result.token_count ? ` | ${result.token_count} tokens` : "";
-      statusEl.textContent = `Fetched: ${info}${tokens}`;
-    } catch (e) {
-      statusEl.textContent = `Error: ${e}`;
-    }
+  try {
+    const markdown = await invoke("fetch_rendered_url_as_markdown", { url, workerUrl });
+    editor.dispatch({
+      changes: { from: 0, to: editor.state.doc.length, insert: markdown },
+    });
+    renderPreview(markdown);
+    statusEl.textContent = "Fetched: " + url;
+  } catch (e) {
+    statusEl.textContent = `Render error: ${e}`;
+  } finally {
+    urlBar.classList.remove("loading");
+    urlInput.disabled = false;
   }
 }
+
+document.getElementById("btn-fetch").addEventListener("click", fetchFromUrlBar);
+urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") fetchFromUrlBar(); });
 
 // --- Import Document ---
 

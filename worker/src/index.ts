@@ -105,18 +105,42 @@ async function handleRender(url: URL, env: Env, ctx: ExecutionContext): Promise<
   }
 
   try {
-    const apiUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering/markdown`;
-    const apiResponse = await fetch(apiUrl, {
+    const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering`;
+    const authHeaders = {
+      "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
+      "Content-Type": "application/json",
+    };
+    const browserOptions = {
+      url: targetUrl,
+      rejectResourceTypes: ["image", "media", "font", "stylesheet"],
+      gotoOptions: { waitUntil: "networkidle0" },
+    };
+
+    // Step 1: Get rendered HTML via /content endpoint
+    const contentResponse = await fetch(`${baseUrl}/content`, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url: targetUrl,
-        rejectResourceTypes: ["image", "media", "font", "stylesheet"],
-        gotoOptions: { waitUntil: "networkidle0" },
-      }),
+      headers: authHeaders,
+      body: JSON.stringify(browserOptions),
+    });
+
+    if (!contentResponse.ok) {
+      const errorBody = await contentResponse.text();
+      return jsonResponse({ error: `Browser Rendering API error (${contentResponse.status}): ${errorBody}` }, contentResponse.status);
+    }
+
+    const contentData = await contentResponse.json<{ success: boolean; result: string; errors?: unknown[] }>();
+    if (!contentData.success) {
+      return jsonResponse({ error: "Browser Rendering content API returned failure", details: contentData.errors }, 500);
+    }
+
+    // Step 2: Clean HTML — strip nav, header, footer, aside, etc.
+    const cleanedHtml = await stripBoilerplate(contentData.result);
+
+    // Step 3: Convert cleaned HTML to markdown via /markdown endpoint
+    const apiResponse = await fetch(`${baseUrl}/markdown`, {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({ html: cleanedHtml }),
     });
 
     if (!apiResponse.ok) {
@@ -144,6 +168,22 @@ async function handleRender(url: URL, env: Env, ctx: ExecutionContext): Promise<
   } catch (e) {
     return jsonResponse({ error: `Render failed: ${e instanceof Error ? e.message : "Unknown error"}` }, 500);
   }
+}
+
+async function stripBoilerplate(html: string): Promise<string> {
+  const rewriter = new HTMLRewriter()
+    .on("nav", { element(el) { el.remove(); } })
+    .on("header", { element(el) { el.remove(); } })
+    .on("footer", { element(el) { el.remove(); } })
+    .on("aside", { element(el) { el.remove(); } })
+    .on("script", { element(el) { el.remove(); } })
+    .on("style", { element(el) { el.remove(); } })
+    .on("noscript", { element(el) { el.remove(); } })
+    .on("[role='navigation']", { element(el) { el.remove(); } })
+    .on("[role='banner']", { element(el) { el.remove(); } })
+    .on("[role='contentinfo']", { element(el) { el.remove(); } })
+    .on("[aria-hidden='true']", { element(el) { el.remove(); } });
+  return rewriter.transform(new Response(html)).text();
 }
 
 function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {

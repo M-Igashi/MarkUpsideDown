@@ -10,12 +10,14 @@
     <div id="toolbar">
       <button id="btn-open" title="Open file">Open</button>
       <button id="btn-save" title="Save file">Save</button>
-      <span class="separator"></span>
-      <button id="btn-fetch-url" title="Fetch URL as Markdown">Fetch URL</button>
       <button id="btn-import" title="Import document as Markdown">Import</button>
       <span class="separator"></span>
-      <button id="btn-table" title="Insert or edit Markdown table">Table</button>
+      <div id="url-bar">
+        <input type="url" id="url-input" placeholder="Enter URL to fetch as Markdown…" />
+        <button id="btn-fetch" title="Fetch URL">Go</button>
+      </div>
       <span class="separator"></span>
+      <button id="btn-table" title="Insert or edit Markdown table">Table</button>
       <button id="btn-export-pdf" title="Export as PDF">Export PDF</button>
       <button id="btn-copy-rich" title="Copy as Rich Text (⌘⇧C)">Copy Rich Text</button>
       <span class="spacer"></span>
