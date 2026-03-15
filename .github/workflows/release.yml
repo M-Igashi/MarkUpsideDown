@@ -16,6 +16,8 @@ jobs:
       dmg_sha256: ${{ steps.checksums.outputs.dmg_sha256 }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -34,6 +36,44 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --format="- %s" "${PREV_TAG}..HEAD" | grep -v "^- Bump version" || true)
+          else
+            CHANGES=$(git log --format="- %s" | grep -v "^- Bump version" || true)
+          fi
+
+          if [ -z "$CHANGES" ]; then
+            CHANGES="- Maintenance release"
+          fi
+
+          {
+            echo "body<<RELEASE_NOTES_EOF"
+            echo "## What's Changed"
+            echo ""
+            echo "$CHANGES"
+            echo ""
+            echo "---"
+            echo ""
+            echo "See the [README](https://github.com/M-Igashi/markupsidedown#readme) for features and setup instructions."
+            echo ""
+            echo "## Install"
+            echo ""
+            echo "### Homebrew (macOS)"
+            echo '```bash'
+            echo "brew install M-Igashi/tap/markupsidedown"
+            echo '```'
+            echo ""
+            echo "### Manual"
+            echo "Download the \`.dmg\` file below, open it, and drag **MarkUpsideDown.app** to your Applications folder."
+            echo ""
+            echo "> **Note:** This app is not code-signed. On first launch, right-click the app and select \"Open\" to bypass Gatekeeper."
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri app (universal)
         uses: tauri-apps/tauri-action@73fb865345c54760d875b94642314f8c0c894afa # v0.6.1
         env:
@@ -41,20 +81,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "MarkUpsideDown ${{ github.ref_name }}"
-          releaseBody: |
-            See the [README](https://github.com/M-Igashi/markupsidedown#readme) for features and setup instructions.
-
-            ## Install
-
-            ### Homebrew (macOS)
-            ```bash
-            brew install M-Igashi/tap/markupsidedown
-            ```
-
-            ### Manual
-            Download the `.dmg` file below, open it, and drag **MarkUpsideDown.app** to your Applications folder.
-
-            > **Note:** This app is not code-signed. On first launch, right-click the app and select "Open" to bypass Gatekeeper.
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: --target universal-apple-darwin
