@@ -157,6 +157,7 @@ html, body {
   overflow-y: auto;
   padding: 32px;
   background: var(--bg);
+  contain: paint style;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   color-scheme: light;
@@ -204,6 +205,8 @@ html, body {
   /* CJK text spacing (Safari 18.2+ / 19+ progressive enhancement) */
   text-spacing-trim: auto;
   text-autospace: ideograph-alpha ideograph-numeric;
+  /* CSS containment — safe with getBoundingClientRect()-based scroll sync */
+  contain: layout style;
 }
 
 #preview-pane h1,

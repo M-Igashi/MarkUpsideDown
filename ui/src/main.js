@@ -270,8 +270,26 @@ function syncPreviewClickToEditor(event) {
   }
   if (!el || !el.dataset || !el.dataset.sourceLine) return;
 
-  const lineNum = parseInt(el.dataset.sourceLine, 10);
+  let lineNum = parseInt(el.dataset.sourceLine, 10);
   if (lineNum < 1 || lineNum > editor.state.doc.lines) return;
+
+  // For clicks inside code blocks, determine the specific line from click position
+  if (el.tagName === "PRE") {
+    const codeEl = el.querySelector("code") || el;
+    const codeLines = codeEl.textContent.split("\n");
+    if (codeLines.length > 0 && codeLines[codeLines.length - 1] === "") codeLines.pop();
+    if (codeLines.length > 1) {
+      const codeRect = codeEl.getBoundingClientRect();
+      const codeLineHeight = codeRect.height / codeLines.length;
+      const clickY = event.clientY - codeRect.top;
+      const lineIndex = Math.max(0, Math.min(codeLines.length - 1, Math.floor(clickY / codeLineHeight)));
+      // data-source-line points to the opening ```, code content starts at lineNum + 1
+      const targetLine = lineNum + 1 + lineIndex;
+      if (targetLine >= 1 && targetLine <= editor.state.doc.lines) {
+        lineNum = targetLine;
+      }
+    }
+  }
 
   previewClickedAt = performance.now();
   const line = editor.state.doc.line(lineNum);
