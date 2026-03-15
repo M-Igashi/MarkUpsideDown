@@ -131,33 +131,21 @@ function countNewlines(str, from, to) {
   return n;
 }
 
-function annotateSourceLines(previewEl, source) {
-  const tokens = marked.lexer(source);
-  let offset = 0;
+function annotateTokensWithSourceLines(tokens) {
   let lineNum = 1;
-  const lines = [];
   for (const token of tokens) {
     if (!token.raw) continue;
     if (token.type === "space") {
       lineNum += countNewlines(token.raw, 0, token.raw.length);
-      offset += token.raw.length;
       continue;
     }
-    const idx = source.indexOf(token.raw, offset);
-    if (idx >= 0) {
-      lineNum += countNewlines(source, offset, idx);
-      lines.push(lineNum);
-      lineNum += countNewlines(source, idx, idx + token.raw.length);
-      offset = idx + token.raw.length;
-    }
+    token._sourceLine = lineNum;
+    lineNum += countNewlines(token.raw, 0, token.raw.length);
   }
+}
 
-  const page = previewEl.querySelector(".preview-page") || previewEl;
-  const children = page.children;
-  const len = Math.min(children.length, lines.length);
-  for (let i = 0; i < len; i++) {
-    children[i].setAttribute("data-source-line", lines[i]);
-  }
+function slAttr(sourceLine) {
+  return sourceLine ? ` data-source-line="${sourceLine}"` : "";
 }
 
 function buildScrollAnchors() {
@@ -461,23 +449,64 @@ async function renderPreview(source) {
   // Reset render count each time so Mermaid IDs stay small and predictable
   mermaidRenderCount = 0;
 
+  // Lex source and annotate top-level tokens with source line numbers
+  const tokens = marked.lexer(source);
+  annotateTokensWithSourceLines(tokens);
+
   const renderer = new marked.Renderer();
-  renderer.code = function ({ text, lang }) {
+  renderer.code = function ({ text, lang, _sourceLine }) {
+    const sl = slAttr(_sourceLine);
     if (lang === "mermaid") {
-      return `<div class="mermaid-container" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
+      return `<div${sl} class="mermaid-container" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
     }
     const language = lang && hljs.getLanguage(lang) ? lang : null;
     const highlighted = language
       ? hljs.highlight(text, { language }).value
       : hljs.highlightAuto(text).value;
     const langClass = language ? ` class="hljs language-${lang}"` : ' class="hljs"';
-    return `<pre><code${langClass}>${highlighted}</code></pre>`;
+    return `<pre${sl}><code${langClass}>${highlighted}</code></pre>`;
   };
-  const html = marked.parse(source, { renderer });
+  renderer.heading = function ({ text, depth, _sourceLine }) {
+    return `<h${depth}${slAttr(_sourceLine)}>${text}</h${depth}>\n`;
+  };
+  renderer.paragraph = function ({ text, _sourceLine }) {
+    return `<p${slAttr(_sourceLine)}>${text}</p>\n`;
+  };
+  renderer.blockquote = function ({ body, _sourceLine }) {
+    return `<blockquote${slAttr(_sourceLine)}>\n${body}</blockquote>\n`;
+  };
+  renderer.list = function ({ items, ordered, start, _sourceLine }) {
+    const tag = ordered ? "ol" : "ul";
+    const startAttr = ordered && start !== 1 ? ` start="${start}"` : "";
+    const body = items.map((item) => this.listitem(item)).join("");
+    return `<${tag}${startAttr}${slAttr(_sourceLine)}>\n${body}</${tag}>\n`;
+  };
+  renderer.table = function ({ header, rows, _sourceLine }) {
+    const headerRow = `<tr>${header.map((h) => `<th${h.align ? ` align="${h.align}"` : ""}>${h.text}</th>`).join("")}</tr>`;
+    const bodyRows = rows
+      .map(
+        (row) =>
+          `<tr>${row.map((c) => `<td${c.align ? ` align="${c.align}"` : ""}>${c.text}</td>`).join("")}</tr>`,
+      )
+      .join("\n");
+    const tbody = bodyRows ? `<tbody>${bodyRows}</tbody>` : "";
+    return `<table${slAttr(_sourceLine)}><thead>${headerRow}</thead>${tbody}</table>\n`;
+  };
+  renderer.hr = function ({ _sourceLine }) {
+    return `<hr${slAttr(_sourceLine)}>\n`;
+  };
+  renderer.html = function ({ text, _sourceLine }) {
+    return _sourceLine ? text.replace(/^<(\w+)/, `<$1${slAttr(_sourceLine)}`) : text;
+  };
+
+  const html = marked.parser(tokens, { renderer });
 
   preview.innerHTML = DOMPurify.sanitize(
     `<article class="preview-page" lang="en">${html}</article>`,
-    { ADD_TAGS: ["foreignObject"], ADD_ATTR: ["data-mermaid-source"] },
+    {
+      ADD_TAGS: ["foreignObject"],
+      ADD_ATTR: ["data-mermaid-source", "data-source-line"],
+    },
   );
 
   // Optimize image loading (Safari Reader-style)
@@ -490,12 +519,14 @@ async function renderPreview(source) {
   for (const table of preview.querySelectorAll(".preview-page > table")) {
     const wrapper = document.createElement("div");
     wrapper.className = "table-wrapper";
+    // Transfer data-source-line to wrapper so scroll sync finds it
+    if (table.dataset.sourceLine) {
+      wrapper.dataset.sourceLine = table.dataset.sourceLine;
+      table.removeAttribute("data-source-line");
+    }
     table.parentNode.insertBefore(wrapper, table);
     wrapper.appendChild(table);
   }
-
-  // Annotate elements with source line numbers for scroll sync
-  annotateSourceLines(preview, source);
 
   if (hasMermaid) {
     try {
