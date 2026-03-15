@@ -51,12 +51,12 @@ const { readTextFile, writeTextFile } = window.__TAURI__.fs;
 let currentFilePath = null;
 let previewTimeout = null;
 
-// --- Scroll Sync (anchor-based linear interpolation) ---
+// --- Scroll Sync (anchor-based, timestamp cooldown) ---
 
-let scrollSyncSource = null; // 'editor' | 'preview' | null
-let editorScrollRAF = 0;
-let previewScrollRAF = 0;
 let scrollAnchors = []; // [{ editorY, previewY }]
+let editorScrolledAt = 0; // timestamp of last programmatic editor scroll
+let previewScrolledAt = 0; // timestamp of last programmatic preview scroll
+const SCROLL_COOLDOWN = 80; // ms to ignore scroll events after programmatic scroll
 
 function annotateSourceLines(previewEl, source) {
   const tokens = marked.lexer(source);
@@ -113,7 +113,6 @@ function buildScrollAnchors() {
 function interpolate(anchors, fromKey, toKey, value) {
   if (anchors.length < 2) return 0;
 
-  // Binary search for the interval
   let lo = 0;
   let hi = anchors.length - 1;
   while (lo < hi - 1) {
@@ -132,27 +131,59 @@ function interpolate(anchors, fromKey, toKey, value) {
 }
 
 function syncEditorToPreview() {
-  if (scrollSyncSource === "preview") return;
-  scrollSyncSource = "editor";
+  const now = performance.now();
+  // Ignore if this scroll was caused by our own programmatic scroll
+  if (now - editorScrolledAt < SCROLL_COOLDOWN) return;
 
   const preview = document.getElementById("preview-pane");
   const cmScroller = editor.dom.querySelector(".cm-scroller");
-  const target = interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop);
-  preview.scrollTop = target;
+  const target = Math.round(interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop));
 
-  requestAnimationFrame(() => { scrollSyncSource = null; });
+  // Only apply if the difference is meaningful (avoids sub-pixel jitter)
+  if (Math.abs(preview.scrollTop - target) < 1) return;
+
+  previewScrolledAt = now;
+  preview.scrollTop = target;
 }
 
 function syncPreviewToEditor() {
-  if (scrollSyncSource === "editor") return;
-  scrollSyncSource = "preview";
+  const now = performance.now();
+  if (now - previewScrolledAt < SCROLL_COOLDOWN) return;
 
   const preview = document.getElementById("preview-pane");
   const cmScroller = editor.dom.querySelector(".cm-scroller");
-  const target = interpolate(scrollAnchors, "previewY", "editorY", preview.scrollTop);
-  cmScroller.scrollTop = target;
+  const target = Math.round(interpolate(scrollAnchors, "previewY", "editorY", preview.scrollTop));
 
-  requestAnimationFrame(() => { scrollSyncSource = null; });
+  if (Math.abs(cmScroller.scrollTop - target) < 1) return;
+
+  editorScrolledAt = now;
+  cmScroller.scrollTop = target;
+}
+
+// Sync preview to editor cursor/selection position
+function syncPreviewToCursor() {
+  const pos = editor.state.selection.main.head;
+  const line = editor.state.doc.lineAt(pos);
+  const lineNum = line.number;
+
+  const preview = document.getElementById("preview-pane");
+  // Find the closest annotated element at or before this line
+  const elements = preview.querySelectorAll("[data-source-line]");
+  let best = null;
+  for (const el of elements) {
+    const elLine = parseInt(el.dataset.sourceLine, 10);
+    if (elLine <= lineNum) best = el;
+    else break;
+  }
+
+  if (best) {
+    const previewRect = preview.getBoundingClientRect();
+    const elRect = best.getBoundingClientRect();
+    // Scroll so the element is roughly centered
+    const target = best.offsetTop - previewRect.height / 3;
+    previewScrolledAt = performance.now();
+    preview.scrollTo({ top: Math.max(0, target), behavior: "instant" });
+  }
 }
 
 const IMPORT_EXTENSIONS = [
@@ -170,6 +201,10 @@ const updatePreview = EditorView.updateListener.of((update) => {
       updateStatus(update.state);
     }, 150);
     syncEditorState();
+  }
+  // Sync preview when cursor moves (click, arrow keys, selection)
+  if (update.selectionSet && !update.docChanged) {
+    syncPreviewToCursor();
   }
 });
 
@@ -643,16 +678,8 @@ syncEditorState();
 // --- Scroll Sync Event Listeners ---
 
 const cmScroller = editor.dom.querySelector(".cm-scroller");
-cmScroller.addEventListener("scroll", () => {
-  cancelAnimationFrame(editorScrollRAF);
-  editorScrollRAF = requestAnimationFrame(syncEditorToPreview);
-}, { passive: true });
-
-document.getElementById("preview-pane").addEventListener("scroll", () => {
-  cancelAnimationFrame(previewScrollRAF);
-  previewScrollRAF = requestAnimationFrame(syncPreviewToEditor);
-}, { passive: true });
-
+cmScroller.addEventListener("scroll", syncEditorToPreview, { passive: true });
+document.getElementById("preview-pane").addEventListener("scroll", syncPreviewToEditor, { passive: true });
 window.addEventListener("resize", buildScrollAnchors);
 
 // First-run: show settings if Worker not configured
