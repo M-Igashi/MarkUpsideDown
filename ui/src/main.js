@@ -117,12 +117,12 @@ let scrollAnchors = []; // [{ editorY, previewY }]
 let editorScrolledAt = 0; // timestamp of last programmatic editor scroll
 let previewScrolledAt = 0; // timestamp of last programmatic preview scroll
 let cursorSyncRAF = 0;
-let anchorsRAF = 0;
 let editorScrollRAF = 0;
 let previewScrollRAF = 0;
 let previewClickedAt = 0; // timestamp of last preview click (suppress cursor→preview sync)
 let preciseSyncAt = 0; // timestamp of last cursor/click sync (suppress generic scroll sync)
-const SCROLL_COOLDOWN = 50; // ms to ignore scroll events after programmatic scroll
+let renderingPreview = false; // suppress scroll sync during preview re-render
+const SCROLL_COOLDOWN = 80; // ms to ignore scroll events after programmatic scroll
 const PRECISE_SYNC_COOLDOWN = 300; // ms to suppress generic scroll sync after cursor/click sync
 
 function countNewlines(str, from, to) {
@@ -221,6 +221,7 @@ function interpolate(anchors, fromKey, toKey, value) {
 }
 
 function syncEditorToPreview() {
+  if (renderingPreview) return;
   const now = performance.now();
   if (now - editorScrolledAt < SCROLL_COOLDOWN) return;
   if (now - preciseSyncAt < PRECISE_SYNC_COOLDOWN) return;
@@ -239,6 +240,7 @@ function syncEditorToPreview() {
 }
 
 function syncPreviewToEditor() {
+  if (renderingPreview) return;
   const now = performance.now();
   if (now - previewScrolledAt < SCROLL_COOLDOWN) return;
   if (now - preciseSyncAt < PRECISE_SYNC_COOLDOWN) return;
@@ -452,6 +454,14 @@ async function renderPreview(source) {
   const hasMermaid = /```mermaid\b/.test(source);
   const preview = document.getElementById("preview-pane");
 
+  // Suppress scroll sync during DOM replacement to prevent stale-anchor feedback
+  renderingPreview = true;
+  cancelAnimationFrame(editorScrollRAF);
+  cancelAnimationFrame(previewScrollRAF);
+
+  // Save scroll position before innerHTML replacement
+  const savedScrollTop = preview.scrollTop;
+
   // Reset render count each time so Mermaid IDs stay small and predictable
   mermaidRenderCount = 0;
 
@@ -558,12 +568,20 @@ async function renderPreview(source) {
     }
   }
 
-  // Build scroll anchors after layout is computed
-  cancelAnimationFrame(anchorsRAF);
-  anchorsRAF = requestAnimationFrame(buildScrollAnchors);
+  // Restore scroll position and build anchors synchronously (getBoundingClientRect forces layout)
+  preview.scrollTop = savedScrollTop;
+  buildScrollAnchors();
 
-  // Inline SVG images (runs after initial HTML is set)
-  inlineSvgImages(preview).catch(() => {});
+  // Mark timestamps to suppress echo-back from the scroll restore
+  const now = performance.now();
+  editorScrolledAt = now;
+  previewScrolledAt = now;
+  renderingPreview = false;
+
+  // Inline SVG images — rebuild anchors after layout may shift
+  inlineSvgImages(preview)
+    .then(() => buildScrollAnchors())
+    .catch(() => {});
 }
 
 function updateStatus(state) {
