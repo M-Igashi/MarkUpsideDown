@@ -159,6 +159,7 @@ html, body {
   background: var(--bg);
   overscroll-behavior: contain;
   will-change: scroll-position;
+  contain: paint style;
 }
 
 /* CodeMirror overrides */
@@ -187,6 +188,7 @@ html, body {
   font-family: var(--font-sans);
   line-height: 1.8;
   min-height: 100%;
+  contain: layout style;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
