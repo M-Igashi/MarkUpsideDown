@@ -121,7 +121,9 @@ let anchorsRAF = 0;
 let editorScrollRAF = 0;
 let previewScrollRAF = 0;
 let previewClickedAt = 0; // timestamp of last preview click (suppress cursor→preview sync)
+let preciseSyncAt = 0; // timestamp of last cursor/click sync (suppress generic scroll sync)
 const SCROLL_COOLDOWN = 50; // ms to ignore scroll events after programmatic scroll
+const PRECISE_SYNC_COOLDOWN = 300; // ms to suppress generic scroll sync after cursor/click sync
 
 function countNewlines(str, from, to) {
   let n = 0;
@@ -221,6 +223,7 @@ function interpolate(anchors, fromKey, toKey, value) {
 function syncEditorToPreview() {
   const now = performance.now();
   if (now - editorScrolledAt < SCROLL_COOLDOWN) return;
+  if (now - preciseSyncAt < PRECISE_SYNC_COOLDOWN) return;
   if (scrollAnchors.length < 2) return;
 
   const preview = document.getElementById("preview-pane");
@@ -238,6 +241,7 @@ function syncEditorToPreview() {
 function syncPreviewToEditor() {
   const now = performance.now();
   if (now - previewScrolledAt < SCROLL_COOLDOWN) return;
+  if (now - preciseSyncAt < PRECISE_SYNC_COOLDOWN) return;
   if (scrollAnchors.length < 2) return;
 
   const preview = document.getElementById("preview-pane");
@@ -266,6 +270,7 @@ function syncPreviewToCursor() {
 
   // Suppress competing scroll sync handlers
   const now = performance.now();
+  preciseSyncAt = now;
   editorScrolledAt = now;
   previewScrolledAt = now;
   cancelAnimationFrame(editorScrollRAF);
@@ -319,6 +324,7 @@ function syncPreviewClickToEditor(event) {
 
   // Suppress competing scroll sync handlers
   const now = performance.now();
+  preciseSyncAt = now;
   editorScrolledAt = now;
   previewScrolledAt = now;
   cancelAnimationFrame(editorScrollRAF);
