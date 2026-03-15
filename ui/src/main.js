@@ -51,18 +51,12 @@ const { readTextFile, writeTextFile } = window.__TAURI__.fs;
 let currentFilePath = null;
 let previewTimeout = null;
 
-// --- Scroll Sync ---
+// --- Scroll Sync (anchor-based linear interpolation) ---
 
 let scrollSyncSource = null; // 'editor' | 'preview' | null
-let scrollSyncTimer = null;
 let editorScrollRAF = 0;
 let previewScrollRAF = 0;
-
-function setScrollSyncSource(source) {
-  scrollSyncSource = source;
-  clearTimeout(scrollSyncTimer);
-  scrollSyncTimer = setTimeout(() => { scrollSyncSource = null; }, 150);
-}
+let scrollAnchors = []; // [{ editorY, previewY }]
 
 function annotateSourceLines(previewEl, source) {
   const tokens = marked.lexer(source);
@@ -90,54 +84,75 @@ function annotateSourceLines(previewEl, source) {
   }
 }
 
+function buildScrollAnchors() {
+  const preview = document.getElementById("preview-pane");
+  const cmScroller = editor.dom.querySelector(".cm-scroller");
+  const elements = preview.querySelectorAll("[data-source-line]");
+
+  const anchors = [{ editorY: 0, previewY: 0 }];
+
+  for (const el of elements) {
+    const lineNum = parseInt(el.dataset.sourceLine, 10);
+    if (lineNum < 1 || lineNum > editor.state.doc.lines) continue;
+    const line = editor.state.doc.line(lineNum);
+    const block = editor.lineBlockAt(line.from);
+    const editorY = block.top;
+    const previewY = el.offsetTop;
+    anchors.push({ editorY, previewY });
+  }
+
+  const editorMax = cmScroller.scrollHeight - cmScroller.clientHeight;
+  const previewMax = preview.scrollHeight - preview.clientHeight;
+  if (editorMax > 0 && previewMax > 0) {
+    anchors.push({ editorY: editorMax, previewY: previewMax });
+  }
+
+  scrollAnchors = anchors;
+}
+
+function interpolate(anchors, fromKey, toKey, value) {
+  if (anchors.length < 2) return 0;
+
+  // Binary search for the interval
+  let lo = 0;
+  let hi = anchors.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (anchors[mid][fromKey] <= value) lo = mid;
+    else hi = mid;
+  }
+
+  const a = anchors[lo];
+  const b = anchors[hi];
+  const range = b[fromKey] - a[fromKey];
+  if (range <= 0) return a[toKey];
+
+  const t = Math.max(0, Math.min(1, (value - a[fromKey]) / range));
+  return a[toKey] + t * (b[toKey] - a[toKey]);
+}
+
 function syncEditorToPreview() {
   if (scrollSyncSource === "preview") return;
-  setScrollSyncSource("editor");
+  scrollSyncSource = "editor";
 
   const preview = document.getElementById("preview-pane");
-  const lineNum = editor.state.doc.lineAt(editor.viewport.from).number;
+  const cmScroller = editor.dom.querySelector(".cm-scroller");
+  const target = interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop);
+  preview.scrollTop = target;
 
-  const elements = preview.querySelectorAll("[data-source-line]");
-  let target = null;
-  for (const el of elements) {
-    if (parseInt(el.dataset.sourceLine, 10) <= lineNum) {
-      target = el;
-    } else {
-      break;
-    }
-  }
-
-  if (target) {
-    const previewRect = preview.getBoundingClientRect();
-    const targetRect = target.getBoundingClientRect();
-    const scrollOffset = targetRect.top - previewRect.top + preview.scrollTop;
-    preview.scrollTo({ top: scrollOffset, behavior: "smooth" });
-  }
+  requestAnimationFrame(() => { scrollSyncSource = null; });
 }
 
 function syncPreviewToEditor() {
   if (scrollSyncSource === "editor") return;
-  setScrollSyncSource("preview");
+  scrollSyncSource = "preview";
 
   const preview = document.getElementById("preview-pane");
-  const previewRect = preview.getBoundingClientRect();
-  const elements = preview.querySelectorAll("[data-source-line]");
+  const cmScroller = editor.dom.querySelector(".cm-scroller");
+  const target = interpolate(scrollAnchors, "previewY", "editorY", preview.scrollTop);
+  cmScroller.scrollTop = target;
 
-  let targetLine = 1;
-  for (const el of elements) {
-    const rect = el.getBoundingClientRect();
-    if (rect.top <= previewRect.top + 10) {
-      targetLine = parseInt(el.dataset.sourceLine, 10);
-    } else {
-      break;
-    }
-  }
-
-  const clampedLine = Math.min(targetLine, editor.state.doc.lines);
-  const line = editor.state.doc.line(clampedLine);
-  editor.dispatch({
-    effects: EditorView.scrollIntoView(line.from, { y: "start" }),
-  });
+  requestAnimationFrame(() => { scrollSyncSource = null; });
 }
 
 const IMPORT_EXTENSIONS = [
@@ -243,6 +258,9 @@ async function renderPreview(source) {
 
   preview.innerHTML = `<div class="preview-page">${html}</div>`;
 
+  // Annotate elements with source line numbers for scroll sync
+  annotateSourceLines(preview, source);
+
   if (hasMermaid) {
     try {
       const mermaid = await getMermaid();
@@ -265,10 +283,12 @@ async function renderPreview(source) {
     } catch (err) {
       console.error("Mermaid failed to load:", err);
     }
+    // Rebuild anchors after Mermaid changes element heights
+    buildScrollAnchors();
   }
 
-  // Annotate elements with source line numbers for scroll sync
-  annotateSourceLines(preview, source);
+  // Build scroll anchors from annotated elements
+  buildScrollAnchors();
 
   // Inline SVG images (runs after initial HTML is set)
   inlineSvgImages(preview).catch(() => {});
@@ -632,6 +652,8 @@ document.getElementById("preview-pane").addEventListener("scroll", () => {
   cancelAnimationFrame(previewScrollRAF);
   previewScrollRAF = requestAnimationFrame(syncPreviewToEditor);
 }, { passive: true });
+
+window.addEventListener("resize", buildScrollAnchors);
 
 // First-run: show settings if Worker not configured
 checkFirstRun();
