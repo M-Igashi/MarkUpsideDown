@@ -1,11 +1,11 @@
 # MCP Server Setup Guide
 
-MarkUpsideDown exposes its editing and conversion capabilities as an MCP (Model Context Protocol) server, allowing AI agents (Claude Desktop, etc.) to use the editor as a tool.
+MarkUpsideDown exposes its editing and conversion capabilities as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server, allowing AI agents to use the editor as a tool.
 
 ## Architecture
 
 ```
-AI Agent (Claude Desktop, etc.)
+AI Agent (Claude Desktop, Claude Code, etc.)
     ↕ stdio (JSON-RPC)
 MCP Server (mcp-server/)
     ↕ HTTP (localhost:31415)
@@ -14,28 +14,31 @@ MarkUpsideDown App (Tauri)
 Editor (CodeMirror)
 ```
 
-The MCP server communicates with the running MarkUpsideDown app via a local HTTP bridge. Conversion tools can also call the Cloudflare Worker directly.
+- **Editor tools** communicate with the running app via the local HTTP bridge
+- **Conversion tools** call the Cloudflare Worker directly (app not required if Worker URL is set)
 
 ## Available Tools
 
 ### Editor Tools (require the app to be running)
 
-| Tool | Description |
-|------|-------------|
-| `get_editor_content` | Get current Markdown content from the editor |
-| `set_editor_content` | Replace editor content with provided Markdown |
-| `insert_text` | Insert text at cursor, start, or end |
-| `open_file` | Open a Markdown file in the editor |
-| `save_file` | Save current content to a file |
-| `export_pdf` | Export current content as PDF |
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_editor_content` | Get current Markdown from the editor | — |
+| `set_editor_content` | Replace editor content | `markdown: string` |
+| `insert_text` | Insert text at cursor, start, or end | `text: string`, `position?: "cursor" \| "start" \| "end"` |
+| `open_file` | Open a Markdown file in the editor | `path: string` |
+| `save_file` | Save content to a file | `path?: string` (uses current file if omitted) |
+| `export_pdf` | Export as PDF (opens print dialog) | — |
 
 ### Conversion Tools (require Worker URL)
 
-| Tool | Description |
-|------|-------------|
-| `fetch_markdown` | Fetch a URL as Markdown (Cloudflare Markdown for Agents) |
-| `render_markdown` | Fetch a JS-rendered page as Markdown (Browser Rendering) |
-| `convert_to_markdown` | Convert a document (PDF, DOCX, etc.) to Markdown |
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `fetch_markdown` | Fetch a URL as Markdown via Markdown for Agents | `url: string` |
+| `render_markdown` | Fetch a JS-rendered page as Markdown via Browser Rendering | `url: string` |
+| `convert_to_markdown` | Convert a local file to Markdown via Workers AI | `file_path: string` |
+
+**Supported formats for `convert_to_markdown`:** PDF, DOCX, XLSX, PPTX, HTML, HTM, CSV, XML, JPG, JPEG, PNG, GIF, WebP, BMP, TIFF, TIF
 
 ## Setup
 
@@ -47,9 +50,11 @@ npm install
 npm run build
 ```
 
-### 2. Configure Claude Desktop
+### 2. Configure Your AI Agent
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+#### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -65,38 +70,67 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-Replace the paths and Worker URL with your actual values.
+#### Claude Code
+
+Add to your project's `.mcp.json` or global MCP config:
+
+```json
+{
+  "mcpServers": {
+    "markupsidedown": {
+      "command": "node",
+      "args": ["/absolute/path/to/markupsidedown/mcp-server/dist/index.js"],
+      "env": {
+        "MARKUPSIDEDOWN_WORKER_URL": "https://markupsidedown-converter.YOUR_SUBDOMAIN.workers.dev"
+      }
+    }
+  }
+}
+```
 
 ### 3. Start the App
 
-Launch MarkUpsideDown. The app automatically starts the HTTP bridge on `localhost:31415` and writes the port to `~/.markupsidedown-bridge-port`.
+Launch MarkUpsideDown. The app automatically starts the HTTP bridge and writes the port to `~/.markupsidedown-bridge-port`.
 
-### 4. Use with AI Agent
+### 4. Use with the Agent
 
-Editor tools (`get_editor_content`, `set_editor_content`, etc.) require the MarkUpsideDown app to be running. Conversion tools work independently if `MARKUPSIDEDOWN_WORKER_URL` is set.
+- **Editor tools** (`get_editor_content`, `set_editor_content`, etc.) require the app to be running
+- **Conversion tools** (`fetch_markdown`, `render_markdown`, `convert_to_markdown`) work independently if `MARKUPSIDEDOWN_WORKER_URL` is set
 
 ## Configuration
 
-### Worker URL
+### Worker URL Resolution
 
-The MCP server looks for the Worker URL in this order:
-1. `MARKUPSIDEDOWN_WORKER_URL` environment variable
-2. Worker URL configured in the app's Settings
+The MCP server resolves the Worker URL in this order:
+
+1. `MARKUPSIDEDOWN_WORKER_URL` environment variable (set in MCP config)
+2. Worker URL configured in the app's Settings (read via bridge `/editor/state`)
 
 ### Bridge Port
 
-The Tauri app listens on `localhost:31415` by default (falls back to 31416–31420 if in use). The active port is written to `~/.markupsidedown-bridge-port`.
+The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit.
 
 ## Troubleshooting
 
 ### "MarkUpsideDown app is not running"
 
-Editor tools require the app. Make sure MarkUpsideDown is open.
+Editor tools require the app to be open. Start MarkUpsideDown and try again.
+
+If the app is running but the error persists, check `~/.markupsidedown-bridge-port` exists and contains a valid port number.
 
 ### "Worker URL not configured"
 
-Set `MARKUPSIDEDOWN_WORKER_URL` in your MCP config or configure it in the app's Settings dialog.
+Conversion tools need a Worker URL. Either:
+
+- Set `MARKUPSIDEDOWN_WORKER_URL` in your MCP config's `env` block
+- Or configure the Worker URL in the app's Settings panel
 
 ### Bridge port conflict
 
-If port 31415 is in use, the app tries ports up to 31420. Check `~/.markupsidedown-bridge-port` for the actual port.
+If port 31415 is occupied, the app tries 31416–31420. The MCP server reads the actual port from `~/.markupsidedown-bridge-port`, so no manual configuration is needed.
+
+### Conversion tool errors
+
+- **"Unsupported file type"** — Check that the file extension is in the supported list above
+- **Network errors** — Verify the Worker URL is correct and the Worker is deployed
+- **"AI Neurons" cost** — Image conversion (OCR) uses AI Neurons; document formats are free
