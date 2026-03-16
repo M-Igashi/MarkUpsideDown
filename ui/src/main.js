@@ -993,7 +993,11 @@ document.getElementById("preview-pane").addEventListener(
   { passive: true },
 );
 window.addEventListener("resize", buildScrollAnchors);
-document.getElementById("preview-pane").addEventListener("click", syncPreviewClickToEditor);
+document.getElementById("preview-pane").addEventListener("click", (e) => {
+  const sel = window.getSelection();
+  if (sel && !sel.isCollapsed) return;
+  syncPreviewClickToEditor(e);
+});
 
 // First-run: show settings if Worker not configured
 checkFirstRun();
