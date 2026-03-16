@@ -494,6 +494,13 @@ pub struct FileEntry {
 }
 
 #[tauri::command]
+pub async fn read_text_file(path: String) -> Result<String, String> {
+    tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("Failed to read file: {e}"))
+}
+
+#[tauri::command]
 pub async fn list_directory(
     path: String,
     repo_root: Option<String>,

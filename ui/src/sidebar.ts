@@ -2,7 +2,6 @@ import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog, confirm } = window.__TAURI__.dialog;
-const { readTextFile } = window.__TAURI__.fs;
 
 const STORAGE_KEY = "markupsidedown:sidebar";
 
@@ -314,7 +313,7 @@ async function selectAndOpenFile(entry: DirEntry) {
   setSelectedPath(entry.path);
   if (onFileOpen) {
     try {
-      const content = await readTextFile(entry.path);
+      const content = await invoke<string>("read_text_file", { path: entry.path });
       onFileOpen(content, entry.path);
     } catch (e) {
       console.error("Failed to open file:", e);

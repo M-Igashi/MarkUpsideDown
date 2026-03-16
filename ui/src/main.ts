@@ -147,7 +147,7 @@ async function getMermaid() {
 
 const { invoke } = window.__TAURI__.core;
 const { open, save, confirm } = window.__TAURI__.dialog;
-const { readTextFile, writeTextFile } = window.__TAURI__.fs;
+const { writeTextFile } = window.__TAURI__.fs;
 
 let currentFilePath: string | null = null;
 let previewTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -716,7 +716,7 @@ document.getElementById("btn-open")!.addEventListener("click", async () => {
     filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx"] }],
   });
   if (path) {
-    const content = await readTextFile(path);
+    const content = await invoke<string>("read_text_file", { path: path });
     loadContentAsTab(content, path);
   }
 });
@@ -891,7 +891,7 @@ if (window.__TAURI__?.event) {
     if (IMPORT_EXTENSIONS.includes(ext)) {
       await convertFile(filePath);
     } else if (ext === "md" || ext === "markdown" || ext === "mdx") {
-      const content = await readTextFile(filePath);
+      const content = await invoke<string>("read_text_file", { path: filePath });
       loadContentAsTab(content, filePath);
     } else {
       statusEl.textContent = `Unsupported file type: .${ext}`;
@@ -1022,7 +1022,7 @@ if (window.__TAURI__?.event) {
   listen<string>("bridge:open-file", async (event) => {
     const path = event.payload;
     try {
-      const content = await readTextFile(path);
+      const content = await invoke<string>("read_text_file", { path: path });
       loadContentAsTab(content, path);
       syncEditorState();
     } catch (e) {
@@ -1110,7 +1110,7 @@ if (gitPanelEl) {
   initGitPanel(gitPanelEl, {
     onOpen: async (filePath: string) => {
       try {
-        const content = await readTextFile(filePath);
+        const content = await invoke<string>("read_text_file", { path: filePath });
         loadContentAsTab(content, filePath);
       } catch (e) {
         statusEl.textContent = `Open failed: ${e}`;
@@ -1196,7 +1196,7 @@ initTabs(tabBarEl, {
   onReload: async (tab: { content: string; path: string | null }) => {
     if (!tab.path) return;
     try {
-      const content = await readTextFile(tab.path);
+      const content = await invoke<string>("read_text_file", { path: tab.path });
       updateActiveTab({ content });
       loadContent(content, tab.path);
     } catch {
