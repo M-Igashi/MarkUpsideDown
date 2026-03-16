@@ -164,6 +164,185 @@ body {
   color-scheme: light;
 }
 
+/* Sidebar */
+#sidebar {
+  width: 220px;
+  min-width: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 0.15s ease;
+}
+
+#sidebar.collapsed {
+  width: 0;
+  border-right: none;
+}
+
+#sidebar-divider {
+  width: 1px;
+  background: var(--border);
+  cursor: col-resize;
+  flex-shrink: 0;
+}
+
+#sidebar.collapsed + #sidebar-divider {
+  display: none;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  gap: 6px;
+  min-height: 36px;
+}
+
+.sidebar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.sidebar-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.sidebar-header-actions button {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sidebar-header-actions button:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.sidebar-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  padding: 4px 0;
+}
+
+.sidebar-empty {
+  padding: 16px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.sidebar-error {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--error);
+}
+
+.sidebar-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.sidebar-tree-item:hover {
+  background: var(--bg);
+}
+
+.sidebar-tree-item.selected {
+  background: rgba(74, 122, 181, 0.12);
+  color: var(--accent);
+}
+
+.sidebar-tree-indicator {
+  width: 10px;
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sidebar-tree-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+
+.sidebar-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-tree-children {
+  /* nesting handled by padding-left on items */
+}
+
+/* Context Menu */
+.sidebar-context-menu {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 140px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 2000;
+}
+
+.sidebar-context-item {
+  display: block;
+  width: 100%;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-context-item:hover {
+  background: var(--bg);
+}
+
+.sidebar-context-item.danger {
+  color: var(--error);
+}
+
+.sidebar-context-item.danger:hover {
+  background: var(--error-bg);
+}
+
+.sidebar-context-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
 /* CodeMirror overrides */
 .cm-editor {
   height: 100%;
@@ -1103,6 +1282,8 @@ body {
   }
 
   #toolbar,
+  #sidebar,
+  #sidebar-divider,
   #editor-pane,
   #divider,
   .dialog-overlay {

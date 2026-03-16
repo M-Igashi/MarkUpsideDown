@@ -348,6 +348,101 @@ fn sanitize_svg(svg: &str) -> String {
     result.into_owned()
 }
 
+// --- File Tree ---
+
+#[derive(Serialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub extension: Option<String>,
+}
+
+#[tauri::command]
+pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
+    let path = std::path::Path::new(&path);
+    if !path.is_dir() {
+        return Err(format!("Not a directory: {}", path.display()));
+    }
+
+    let mut entries = Vec::new();
+    let mut read_dir = tokio::fs::read_dir(path)
+        .await
+        .map_err(|e| format!("Failed to read directory: {e}"))?;
+
+    while let Some(entry) = read_dir.next_entry().await.map_err(|e| e.to_string())? {
+        let name = entry.file_name().to_string_lossy().to_string();
+        // Skip hidden files/directories
+        if name.starts_with('.') {
+            continue;
+        }
+        let file_type = entry.file_type().await.map_err(|e| e.to_string())?;
+        let entry_path = entry.path();
+        let extension = entry_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_lowercase());
+
+        entries.push(FileEntry {
+            name,
+            path: entry_path.to_string_lossy().to_string(),
+            is_dir: file_type.is_dir(),
+            extension,
+        });
+    }
+
+    // Sort: directories first, then alphabetically (case-insensitive)
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    Ok(entries)
+}
+
+#[tauri::command]
+pub async fn create_file(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if p.exists() {
+        return Err("File already exists".to_string());
+    }
+    tokio::fs::write(p, "")
+        .await
+        .map_err(|e| format!("Failed to create file: {e}"))
+}
+
+#[tauri::command]
+pub async fn create_directory(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if p.exists() {
+        return Err("Directory already exists".to_string());
+    }
+    tokio::fs::create_dir_all(p)
+        .await
+        .map_err(|e| format!("Failed to create directory: {e}"))
+}
+
+#[tauri::command]
+pub async fn rename_entry(from: String, to: String) -> Result<(), String> {
+    tokio::fs::rename(&from, &to)
+        .await
+        .map_err(|e| format!("Failed to rename: {e}"))
+}
+
+#[tauri::command]
+pub async fn delete_entry(path: String, is_dir: bool) -> Result<(), String> {
+    if is_dir {
+        tokio::fs::remove_dir_all(&path)
+            .await
+            .map_err(|e| format!("Failed to delete directory: {e}"))
+    } else {
+        tokio::fs::remove_file(&path)
+            .await
+            .map_err(|e| format!("Failed to delete file: {e}"))
+    }
+}
+
 // --- GitHub via gh CLI ---
 
 fn run_gh(args: &[&str]) -> Result<String, String> {

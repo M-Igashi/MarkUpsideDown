@@ -20,6 +20,7 @@ import {
   isImageConversionAllowed,
   checkFirstRun,
 } from "./settings.js";
+import { initSidebar, setSelectedPath } from "./sidebar.js";
 import { marked } from "marked";
 import hljs from "highlight.js/lib/common";
 import katex from "katex";
@@ -375,7 +376,10 @@ function loadContent(content, filePath) {
   editor.dispatch({
     changes: { from: 0, to: editor.state.doc.length, insert: content },
   });
-  if (filePath !== undefined) currentFilePath = filePath;
+  if (filePath !== undefined) {
+    currentFilePath = filePath;
+    setSelectedPath(filePath);
+  }
   svgCache.clear();
   renderPreview(content);
   updateStatus(editor.state);
@@ -873,9 +877,11 @@ divider.addEventListener("mousedown", () => {
 });
 document.addEventListener("mousemove", (e) => {
   if (!isDragging) return;
-  const container = document.getElementById("app");
-  const rect = container.getBoundingClientRect();
-  const ratio = (e.clientX - rect.left) / rect.width;
+  // Calculate ratio within the editor+preview area (excluding sidebar)
+  const editorLeft = editorPane.getBoundingClientRect().left;
+  const previewRight = previewPane.getBoundingClientRect().right;
+  const availableWidth = previewRight - editorLeft;
+  const ratio = (e.clientX - editorLeft) / availableWidth;
   const clamped = Math.max(0.2, Math.min(0.8, ratio));
   editorPane.style.flex = `${clamped}`;
   previewPane.style.flex = `${1 - clamped}`;
@@ -990,6 +996,58 @@ previewPane.addEventListener("click", (e) => {
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed) return;
   syncPreviewClickToEditor(e);
+});
+
+// --- Sidebar ---
+
+const sidebarEl = document.getElementById("sidebar");
+const sidebarDivider = document.getElementById("sidebar-divider");
+
+// Restore collapsed state
+const sidebarCollapsed = localStorage.getItem("markupsidedown:sidebarCollapsed") === "true";
+if (sidebarCollapsed) {
+  sidebarEl.classList.add("collapsed");
+}
+
+initSidebar(sidebarEl, {
+  onOpen: (content, filePath) => {
+    loadContent(content, filePath);
+  },
+});
+
+function toggleSidebar() {
+  sidebarEl.classList.toggle("collapsed");
+  localStorage.setItem(
+    "markupsidedown:sidebarCollapsed",
+    sidebarEl.classList.contains("collapsed"),
+  );
+}
+
+// Cmd+B to toggle sidebar
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+    e.preventDefault();
+    toggleSidebar();
+  }
+});
+
+// Sidebar resizable divider
+let isSidebarDragging = false;
+
+sidebarDivider.addEventListener("mousedown", () => {
+  isSidebarDragging = true;
+});
+document.addEventListener("mousemove", (e) => {
+  if (!isSidebarDragging) return;
+  const width = Math.max(120, Math.min(400, e.clientX));
+  sidebarEl.style.width = `${width}px`;
+  sidebarEl.classList.remove("collapsed");
+});
+document.addEventListener("mouseup", () => {
+  if (isSidebarDragging) {
+    isSidebarDragging = false;
+    localStorage.setItem("markupsidedown:sidebarCollapsed", "false");
+  }
 });
 
 // First-run: show settings if Worker not configured
