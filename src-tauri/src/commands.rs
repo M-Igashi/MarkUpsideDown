@@ -439,6 +439,175 @@ pub async fn delete_entry(path: String, is_dir: bool) -> Result<(), String> {
     }
 }
 
+// --- Git Operations ---
+
+fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["-C", repo_path])
+        .args(args)
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "git command failed".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[derive(Serialize)]
+pub struct GitFileStatus {
+    pub path: String,
+    pub status: String,   // "M", "A", "D", "?", "R", etc.
+    pub staged: bool,
+}
+
+#[derive(Serialize)]
+pub struct GitStatus {
+    pub branch: String,
+    pub files: Vec<GitFileStatus>,
+    pub is_repo: bool,
+}
+
+#[tauri::command]
+pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
+    let rp = repo_path.clone();
+    tokio::task::spawn_blocking(move || {
+        // Check if it's a git repo
+        if run_git(&rp, &["rev-parse", "--is-inside-work-tree"]).is_err() {
+            return Ok(GitStatus {
+                branch: String::new(),
+                files: Vec::new(),
+                is_repo: false,
+            });
+        }
+
+        // Get branch name
+        let branch = run_git(&rp, &["branch", "--show-current"])
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        // Get file statuses with porcelain format
+        let output = run_git(&rp, &["status", "--porcelain=v1"])?;
+        let mut files = Vec::new();
+
+        for line in output.lines() {
+            if line.len() < 4 {
+                continue;
+            }
+            let index_status = line.chars().nth(0).unwrap_or(' ');
+            let work_status = line.chars().nth(1).unwrap_or(' ');
+            let file_path = line[3..].to_string();
+
+            // Staged changes
+            if index_status != ' ' && index_status != '?' {
+                files.push(GitFileStatus {
+                    path: file_path.clone(),
+                    status: index_status.to_string(),
+                    staged: true,
+                });
+            }
+
+            // Unstaged changes
+            if work_status != ' ' {
+                let status = if index_status == '?' {
+                    "?".to_string()
+                } else {
+                    work_status.to_string()
+                };
+                files.push(GitFileStatus {
+                    path: file_path,
+                    status,
+                    staged: false,
+                });
+            }
+        }
+
+        Ok(GitStatus {
+            branch,
+            files,
+            is_repo: true,
+        })
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn git_stage(repo_path: String, file_path: String) -> Result<(), String> {
+    let rp = repo_path;
+    let fp = file_path;
+    tokio::task::spawn_blocking(move || {
+        run_git(&rp, &["add", "--", &fp])?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn git_unstage(repo_path: String, file_path: String) -> Result<(), String> {
+    let rp = repo_path;
+    let fp = file_path;
+    tokio::task::spawn_blocking(move || {
+        run_git(&rp, &["reset", "HEAD", "--", &fp])?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn git_commit(repo_path: String, message: String) -> Result<String, String> {
+    let rp = repo_path;
+    let msg = message;
+    tokio::task::spawn_blocking(move || {
+        let output = run_git(&rp, &["commit", "-m", &msg])?;
+        Ok(output.trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn git_push(repo_path: String) -> Result<String, String> {
+    let rp = repo_path;
+    tokio::task::spawn_blocking(move || {
+        let output = run_git(&rp, &["push"])?;
+        Ok(output.trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn git_pull(repo_path: String) -> Result<String, String> {
+    let rp = repo_path;
+    tokio::task::spawn_blocking(move || {
+        let output = run_git(&rp, &["pull"])?;
+        Ok(output.trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn git_fetch(repo_path: String) -> Result<String, String> {
+    let rp = repo_path;
+    tokio::task::spawn_blocking(move || {
+        let output = run_git(&rp, &["fetch"])?;
+        Ok(output.trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
 // --- GitHub via gh CLI ---
 
 fn run_gh(args: &[&str]) -> Result<String, String> {

@@ -10,15 +10,19 @@ let rootPath = null;
 let expandedDirs = new Set();
 let selectedPath = null;
 let onFileOpen = null;
+let onFolderChange = null;
+let gitStatusMap = new Map(); // path -> { status, staged }
 
 // --- DOM ---
 
 let sidebarEl = null;
 let treeEl = null;
+let gitPanelSlot = null;
 
-export function initSidebar(el, { onOpen }) {
+export function initSidebar(el, { onOpen, onFolder }) {
   sidebarEl = el;
   onFileOpen = onOpen;
+  onFolderChange = onFolder;
 
   // Restore state
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -58,6 +62,7 @@ export async function openFolder() {
   saveState();
   render();
   refreshTree();
+  onFolderChange?.(rootPath);
 }
 
 // --- Render ---
@@ -98,6 +103,15 @@ function render() {
   }
 
   sidebarEl.appendChild(treeEl);
+
+  // Git panel slot (populated by main.js)
+  gitPanelSlot = document.createElement("div");
+  gitPanelSlot.id = "git-panel";
+  sidebarEl.appendChild(gitPanelSlot);
+}
+
+export function getGitPanelEl() {
+  return gitPanelSlot;
 }
 
 async function refreshTree() {
@@ -157,6 +171,40 @@ function createTreeItem(entry, depth) {
   name.className = "sidebar-tree-name";
   name.textContent = entry.name;
   item.appendChild(name);
+
+  // Git status indicator
+  const relPath = rootPath ? entry.path.replace(rootPath + "/", "") : entry.name;
+  const gitStatus = gitStatusMap.get(relPath);
+  if (gitStatus) {
+    const badge = document.createElement("span");
+    badge.className = "sidebar-git-badge";
+    badge.textContent = gitStatus.status;
+    switch (gitStatus.status) {
+      case "M":
+        badge.classList.add("git-modified");
+        break;
+      case "A":
+        badge.classList.add("git-added");
+        break;
+      case "D":
+        badge.classList.add("git-deleted");
+        break;
+      case "?":
+        badge.classList.add("git-untracked");
+        break;
+    }
+    item.appendChild(badge);
+    name.classList.add(
+      "sidebar-name-" +
+        (gitStatus.status === "?"
+          ? "untracked"
+          : gitStatus.status === "A"
+            ? "added"
+            : gitStatus.status === "D"
+              ? "deleted"
+              : "modified"),
+    );
+  }
 
   // Click handler
   item.addEventListener("click", (e) => {
@@ -399,4 +447,13 @@ export function getSidebarState() {
     rootPath,
     visible: sidebarEl ? sidebarEl.style.display !== "none" : true,
   };
+}
+
+export function getRootPath() {
+  return rootPath;
+}
+
+export function setGitStatus(statusMap) {
+  gitStatusMap = statusMap;
+  if (treeEl && rootPath) refreshTree();
 }

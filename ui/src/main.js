@@ -20,7 +20,14 @@ import {
   isImageConversionAllowed,
   checkFirstRun,
 } from "./settings.js";
-import { initSidebar, setSelectedPath } from "./sidebar.js";
+import {
+  initSidebar,
+  setSelectedPath,
+  getRootPath,
+  setGitStatus,
+  getGitPanelEl,
+} from "./sidebar.js";
+import { initGitPanel, setRepoPath, refresh as refreshGit, getStatusMap } from "./git-panel.js";
 import {
   initTabs,
   openTab,
@@ -691,6 +698,8 @@ document.getElementById("btn-save").addEventListener("click", async () => {
       updateStatus(editor.state);
     }
   }
+  // Refresh git status after save
+  if (getRootPath()) refreshGitAndSync();
 });
 
 // --- URL Bar (Fetch URL) ---
@@ -1026,7 +1035,39 @@ initSidebar(sidebarEl, {
   onOpen: (content, filePath) => {
     loadContentAsTab(content, filePath);
   },
+  onFolder: (rootPath) => {
+    setRepoPath(rootPath);
+    refreshGitAndSync();
+  },
 });
+
+// Initialize git panel after sidebar renders
+const gitPanelEl = getGitPanelEl();
+if (gitPanelEl) {
+  initGitPanel(gitPanelEl, {
+    onOpen: async (filePath) => {
+      const { readTextFile } = window.__TAURI__.fs;
+      try {
+        const content = await readTextFile(filePath);
+        loadContentAsTab(content, filePath);
+      } catch (e) {
+        statusEl.textContent = `Open failed: ${e}`;
+      }
+    },
+  });
+}
+
+async function refreshGitAndSync() {
+  await refreshGit();
+  setGitStatus(getStatusMap());
+}
+
+// Initialize git for restored sidebar root path
+const initialRoot = getRootPath();
+if (initialRoot) {
+  setRepoPath(initialRoot);
+  refreshGitAndSync();
+}
 
 function toggleSidebar() {
   sidebarEl.classList.toggle("collapsed");
