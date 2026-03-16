@@ -798,23 +798,37 @@ document.getElementById("btn-open")!.addEventListener("click", async () => {
   }
 });
 
-document.getElementById("btn-save")!.addEventListener("click", async () => {
-  const content = editor.state.doc.toString();
-  if (currentFilePath) {
-    await writeTextFile(currentFilePath, content);
-  } else {
-    const path = await save({
-      filters: [{ name: "Markdown", extensions: ["md"] }],
-    });
-    if (path) {
-      await writeTextFile(path, content);
-      currentFilePath = path;
-      updateActiveTab({ path, name: path.split("/").pop()! });
-      updateStatus(editor.state);
+async function saveFile() {
+  try {
+    const content = editor.state.doc.toString();
+    if (currentFilePath) {
+      await writeTextFile(currentFilePath, content);
+    } else {
+      const path = await save({
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (path) {
+        await writeTextFile(path, content);
+        currentFilePath = path;
+        updateActiveTab({ path, name: path.split("/").pop()! });
+        updateStatus(editor.state);
+      }
     }
+    // Refresh git status after save
+    if (getRootPath()) refreshGitAndSync();
+  } catch (e) {
+    statusEl.textContent = `Save failed: ${e}`;
   }
-  // Refresh git status after save
-  if (getRootPath()) refreshGitAndSync();
+}
+
+document.getElementById("btn-save")!.addEventListener("click", saveFile);
+
+// Cmd+S: save file
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    e.preventDefault();
+    saveFile();
+  }
 });
 
 // --- URL Bar (Fetch URL) ---
