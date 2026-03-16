@@ -111,27 +111,29 @@ const { readTextFile, writeTextFile } = window.__TAURI__.fs;
 let currentFilePath = null;
 let previewTimeout = null;
 
-// --- Scroll Sync (anchor-based, timestamp cooldown) ---
+// --- Scroll Sync ---
+//
+// Design: single-direction-at-a-time with programmatic-scroll detection.
+//   activeSide = which pane the user last interacted with (scroll / click / cursor)
+//   programmaticScrollAt = timestamp to ignore echo-back scroll events
+//   pendingRender = true while a debounced re-render is queued (anchors stale)
 
-let scrollAnchors = []; // [{ editorY, previewY }]
-let editorScrolledAt = 0; // timestamp of last programmatic editor scroll
-let previewScrolledAt = 0; // timestamp of last programmatic preview scroll
-let cursorSyncRAF = 0;
-let editorScrollRAF = 0;
-let previewScrollRAF = 0;
-let previewClickedAt = 0; // timestamp of last preview click (suppress cursor→preview sync)
-let preciseSyncAt = 0; // timestamp of last cursor/click sync (suppress generic scroll sync)
-let renderingPreview = false; // suppress scroll sync during preview re-render
-const SCROLL_COOLDOWN = 80; // ms to ignore scroll events after programmatic scroll
-const PRECISE_SYNC_COOLDOWN = 300; // ms to suppress generic scroll sync after cursor/click sync
+let scrollAnchors = [];
+let syncRAF = 0;
+let renderingPreview = false;
+let pendingRender = false;
+let activeSide = "editor"; // 'editor' | 'preview'
+let programmaticScrollAt = 0;
+let lastPreviewClickAt = 0;
 
-function suppressScrollSync() {
-  const now = performance.now();
-  preciseSyncAt = now;
-  editorScrolledAt = now;
-  previewScrolledAt = now;
-  cancelAnimationFrame(editorScrollRAF);
-  cancelAnimationFrame(previewScrollRAF);
+const PROG_SCROLL_MS = 80;
+const CLICK_SUPPRESS_MS = 150;
+
+function isProgrammaticScroll() {
+  return performance.now() - programmaticScrollAt < PROG_SCROLL_MS;
+}
+function markProgrammaticScroll() {
+  programmaticScrollAt = performance.now();
 }
 
 function getCodeBlockLineInfo(preEl) {
@@ -234,61 +236,44 @@ function interpolate(anchors, fromKey, toKey, value) {
   return a[toKey] + t * (b[toKey] - a[toKey]);
 }
 
-function syncEditorToPreview() {
-  if (renderingPreview) return;
-  const now = performance.now();
-  if (now - editorScrolledAt < SCROLL_COOLDOWN) return;
-  if (now - preciseSyncAt < PRECISE_SYNC_COOLDOWN) return;
-  if (scrollAnchors.length < 2) return;
-
-  const preview = document.getElementById("preview-pane");
+function syncToPreview() {
+  if (renderingPreview || scrollAnchors.length < 2) return;
   const cmScroller = editor.dom.querySelector(".cm-scroller");
+  const preview = document.getElementById("preview-pane");
   const target = Math.round(
     interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop),
   );
-
   if (Math.abs(preview.scrollTop - target) < 1) return;
-
-  previewScrolledAt = now;
+  markProgrammaticScroll();
   preview.scrollTop = target;
 }
 
-function syncPreviewToEditor() {
-  if (renderingPreview) return;
-  const now = performance.now();
-  if (now - previewScrolledAt < SCROLL_COOLDOWN) return;
-  if (now - preciseSyncAt < PRECISE_SYNC_COOLDOWN) return;
-  if (scrollAnchors.length < 2) return;
-
-  const preview = document.getElementById("preview-pane");
+function syncToEditor() {
+  if (renderingPreview || scrollAnchors.length < 2) return;
   const cmScroller = editor.dom.querySelector(".cm-scroller");
+  const preview = document.getElementById("preview-pane");
   const target = Math.round(interpolate(scrollAnchors, "previewY", "editorY", preview.scrollTop));
-
   if (Math.abs(cmScroller.scrollTop - target) < 1) return;
-
-  editorScrolledAt = now;
+  markProgrammaticScroll();
   cmScroller.scrollTop = target;
 }
 
-// Sync preview to editor cursor position — align at exact same visual height
 function syncPreviewToCursor() {
-  if (performance.now() - previewClickedAt < 100) return;
-  if (scrollAnchors.length < 2) return;
+  if (renderingPreview || scrollAnchors.length < 2) return;
+  if (performance.now() - lastPreviewClickAt < CLICK_SUPPRESS_MS) return;
 
   const pos = editor.state.selection.main.head;
   const block = editor.lineBlockAt(pos);
   const cmScroller = editor.dom.querySelector(".cm-scroller");
-  const lineVisibleY = block.top - cmScroller.scrollTop;
-  const previewTarget = Math.round(interpolate(scrollAnchors, "editorY", "previewY", block.top));
-
   const preview = document.getElementById("preview-pane");
-  const scrollTarget = previewTarget - lineVisibleY;
-
-  suppressScrollSync();
-  preview.scrollTo({ top: Math.max(0, scrollTarget), behavior: "instant" });
+  const lineVisibleY = block.top - cmScroller.scrollTop;
+  const previewTarget = interpolate(scrollAnchors, "editorY", "previewY", block.top);
+  const scrollTarget = Math.max(0, Math.round(previewTarget - lineVisibleY));
+  if (Math.abs(preview.scrollTop - scrollTarget) < 1) return;
+  markProgrammaticScroll();
+  preview.scrollTop = scrollTarget;
 }
 
-// Sync editor cursor to clicked preview element using anchor interpolation
 function syncPreviewClickToEditor(event) {
   let el = event.target;
   while (el && el !== event.currentTarget) {
@@ -300,7 +285,6 @@ function syncPreviewClickToEditor(event) {
   let lineNum = parseInt(el.dataset.sourceLine, 10);
   if (lineNum < 1 || lineNum > editor.state.doc.lines) return;
 
-  // For clicks inside code blocks, determine the specific line from click position
   if (el.tagName === "PRE") {
     const info = getCodeBlockLineInfo(el);
     if (info.lines.length > 1) {
@@ -309,7 +293,6 @@ function syncPreviewClickToEditor(event) {
         0,
         Math.min(info.lines.length - 1, Math.floor(clickY / info.lineHeight)),
       );
-      // data-source-line points to the opening ```, code content starts at lineNum + 1
       const targetLine = lineNum + 1 + lineIndex;
       if (targetLine >= 1 && targetLine <= editor.state.doc.lines) {
         lineNum = targetLine;
@@ -317,20 +300,18 @@ function syncPreviewClickToEditor(event) {
     }
   }
 
-  previewClickedAt = performance.now();
+  lastPreviewClickAt = performance.now();
+  activeSide = "preview";
   const line = editor.state.doc.line(lineNum);
   editor.dispatch({ selection: { anchor: line.from } });
 
-  // Scroll editor so the target line aligns at the same visual height as the click
   const preview = document.getElementById("preview-pane");
   const clickVisibleY = event.clientY - preview.getBoundingClientRect().top;
   const cmScroller = editor.dom.querySelector(".cm-scroller");
   const block = editor.lineBlockAt(line.from);
   const editorTarget = block.top - clickVisibleY;
-
-  suppressScrollSync();
+  markProgrammaticScroll();
   cmScroller.scrollTo({ top: Math.max(0, editorTarget), behavior: "instant" });
-
   editor.focus();
 }
 
@@ -373,6 +354,7 @@ const IMPORT_EXTENSIONS = [
 
 const updatePreview = EditorView.updateListener.of((update) => {
   if (update.docChanged) {
+    pendingRender = true;
     clearTimeout(previewTimeout);
     previewTimeout = setTimeout(() => {
       renderPreview(update.state.doc.toString());
@@ -380,10 +362,11 @@ const updatePreview = EditorView.updateListener.of((update) => {
     }, 100);
     syncEditorState();
   }
-  // Sync preview when cursor moves (click, arrow keys, selection)
-  if (update.selectionSet && !update.docChanged) {
-    cancelAnimationFrame(cursorSyncRAF);
-    cursorSyncRAF = requestAnimationFrame(syncPreviewToCursor);
+  // Sync preview when cursor moves — skip if a render is pending (anchors stale)
+  if (update.selectionSet && !update.docChanged && !pendingRender) {
+    activeSide = "editor";
+    cancelAnimationFrame(syncRAF);
+    syncRAF = requestAnimationFrame(syncPreviewToCursor);
   }
 });
 
@@ -503,12 +486,10 @@ async function renderPreview(source) {
   const hasMermaid = /```mermaid\b/.test(source);
   const preview = document.getElementById("preview-pane");
 
-  // Suppress scroll sync during DOM replacement to prevent stale-anchor feedback
   renderingPreview = true;
-  cancelAnimationFrame(editorScrollRAF);
-  cancelAnimationFrame(previewScrollRAF);
+  cancelAnimationFrame(syncRAF);
 
-  // Save scroll position before innerHTML replacement
+  // Save scroll position to prevent visual flash during innerHTML replacement
   const savedScrollTop = preview.scrollTop;
 
   // Reset render count each time so Mermaid IDs stay small and predictable
@@ -571,14 +552,17 @@ async function renderPreview(source) {
     }
   }
 
-  // Restore scroll position and build anchors synchronously (getBoundingClientRect forces layout)
+  // Restore scroll approximately (prevents flash), then build fresh anchors
   preview.scrollTop = savedScrollTop;
   buildScrollAnchors();
-
-  // Mark timestamps to suppress echo-back from the scroll restore
-  editorScrolledAt = performance.now();
-  previewScrolledAt = editorScrolledAt;
+  pendingRender = false;
   renderingPreview = false;
+
+  // Re-sync preview to cursor so it never drifts from the editing position
+  if (activeSide === "editor") {
+    markProgrammaticScroll();
+    syncPreviewToCursor();
+  }
 
   // Inline SVG images — rebuild anchors only if layout changed
   inlineSvgImages(preview)
@@ -927,16 +911,20 @@ const cmScroller = editor.dom.querySelector(".cm-scroller");
 cmScroller.addEventListener(
   "scroll",
   () => {
-    cancelAnimationFrame(editorScrollRAF);
-    editorScrollRAF = requestAnimationFrame(syncEditorToPreview);
+    if (isProgrammaticScroll()) return;
+    activeSide = "editor";
+    cancelAnimationFrame(syncRAF);
+    syncRAF = requestAnimationFrame(syncToPreview);
   },
   { passive: true },
 );
 document.getElementById("preview-pane").addEventListener(
   "scroll",
   () => {
-    cancelAnimationFrame(previewScrollRAF);
-    previewScrollRAF = requestAnimationFrame(syncPreviewToEditor);
+    if (isProgrammaticScroll()) return;
+    activeSide = "preview";
+    cancelAnimationFrame(syncRAF);
+    syncRAF = requestAnimationFrame(syncToEditor);
   },
   { passive: true },
 );
