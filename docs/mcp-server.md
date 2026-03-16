@@ -7,13 +7,14 @@ MarkUpsideDown exposes its editing and conversion capabilities as an [MCP (Model
 ```
 AI Agent (Claude Desktop, Claude Code, etc.)
     ↕ stdio (JSON-RPC)
-MCP Server (mcp-server/)
+MCP Server (Rust sidecar binary, bundled in .app)
     ↕ HTTP (localhost:31415)
 MarkUpsideDown App (Tauri)
     ↕ Tauri events
 Editor (CodeMirror)
 ```
 
+- The MCP server is a standalone Rust binary bundled as a Tauri sidecar — **no Node.js required**
 - **Editor tools** communicate with the running app via the local HTTP bridge
 - **Conversion tools** call the Cloudflare Worker directly (app not required if Worker URL is set)
 
@@ -42,26 +43,23 @@ Editor (CodeMirror)
 
 ## Setup
 
-### 1. Build the MCP Server
+### 1. Copy the Config from Settings
 
-```bash
-cd mcp-server
-npm install
-npm run build
-```
+Open **Settings** in the app and scroll to **AI Agent Integration**. The MCP binary path is automatically detected. Click **Copy to clipboard** to get the JSON config.
 
 ### 2. Configure Your AI Agent
 
 #### Claude Desktop
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Paste the copied config into `~/Library/Application Support/Claude/claude_desktop_config.json`.
+
+Example:
 
 ```json
 {
   "mcpServers": {
     "markupsidedown": {
-      "command": "node",
-      "args": ["/absolute/path/to/markupsidedown/mcp-server/dist/index.js"],
+      "command": "/Applications/MarkUpsideDown.app/Contents/Resources/binaries/markupsidedown-mcp-aarch64-apple-darwin",
       "env": {
         "MARKUPSIDEDOWN_WORKER_URL": "https://markupsidedown-converter.YOUR_SUBDOMAIN.workers.dev"
       }
@@ -72,21 +70,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 #### Claude Code
 
-Add to your project's `.mcp.json` or global MCP config:
-
-```json
-{
-  "mcpServers": {
-    "markupsidedown": {
-      "command": "node",
-      "args": ["/absolute/path/to/markupsidedown/mcp-server/dist/index.js"],
-      "env": {
-        "MARKUPSIDEDOWN_WORKER_URL": "https://markupsidedown-converter.YOUR_SUBDOMAIN.workers.dev"
-      }
-    }
-  }
-}
-```
+Paste the copied config into your project's `.mcp.json` or global MCP config.
 
 ### 3. Start the App
 

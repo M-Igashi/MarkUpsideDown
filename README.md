@@ -104,27 +104,9 @@ cd ui && vp check src/
 
 ## MCP Server
 
-The MCP server lets AI agents interact with the editor — read/write content, open/save files, import documents, and more.
+The MCP server lets AI agents interact with the editor — read/write content, open/save files, import documents, and more. It is a standalone Rust binary bundled as a Tauri sidecar (no Node.js required).
 
-```bash
-cd mcp-server && npm install && npm run build
-```
-
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "markupsidedown": {
-      "command": "node",
-      "args": ["/path/to/markupsidedown/mcp-server/dist/index.js"],
-      "env": {
-        "MARKUPSIDEDOWN_WORKER_URL": "https://markupsidedown-converter.YOUR_SUBDOMAIN.workers.dev"
-      }
-    }
-  }
-}
-```
+**Setup:** Open **Settings > AI Agent Integration** in the app, then copy the config JSON for your AI client (Claude Desktop or Claude Code).
 
 See [docs/mcp-server.md](docs/mcp-server.md) for the full tool list and troubleshooting.
 
@@ -155,11 +137,12 @@ worker/                  # Cloudflare Worker
 ├── wrangler.jsonc
 └── package.json
 
-mcp-server/              # MCP Server (Model Context Protocol)
+mcp-server-rs/           # MCP Server (Rust sidecar binary)
 ├── src/
-│   ├── index.ts         # 9 MCP tools (editor, conversion, file operations)
-│   └── bridge.ts        # HTTP client to Tauri bridge
-└── package.json
+│   ├── main.rs          # Entry point (stdio transport)
+│   ├── tools.rs         # 9 MCP tools (editor, conversion, file operations)
+│   └── bridge.rs        # HTTP client to Tauri bridge
+└── Cargo.toml
 
 docs/                    # Documentation
 ├── architecture.md      # Data flow, components, IPC/bridge API reference

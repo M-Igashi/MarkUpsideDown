@@ -1,0 +1,129 @@
+use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use reqwest::Client;
+use serde::Deserialize;
+
+const TIMEOUT: Duration = Duration::from_secs(5);
+
+static CACHED_BRIDGE_URL: OnceLock<String> = OnceLock::new();
+
+fn port_file_path() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join(".markupsidedown-bridge-port")
+}
+
+fn discover_bridge_url() -> Option<String> {
+    let port = std::fs::read_to_string(port_file_path()).ok()?;
+    let port = port.trim();
+    if port.is_empty() {
+        return None;
+    }
+    Some(format!("http://127.0.0.1:{port}"))
+}
+
+fn get_bridge_url() -> Result<&'static str, String> {
+    // Try to get cached value first
+    if let Some(url) = CACHED_BRIDGE_URL.get() {
+        return Ok(url.as_str());
+    }
+    // Discover and cache
+    let url = discover_bridge_url()
+        .ok_or_else(|| "MarkUpsideDown app is not running (no bridge port file found)".to_string())?;
+    // Another thread may have initialized it; that's fine
+    let _ = CACHED_BRIDGE_URL.set(url.clone());
+    // Return the stored reference
+    Ok(CACHED_BRIDGE_URL.get().unwrap().as_str())
+}
+
+pub struct BridgeClient {
+    client: Client,
+}
+
+impl BridgeClient {
+    pub fn new() -> Self {
+        Self {
+            client: Client::new(),
+        }
+    }
+
+    async fn request(&self, method: &str, path: &str, body: Option<serde_json::Value>) -> Result<Option<serde_json::Value>, String> {
+        let base_url = get_bridge_url()?;
+        let url = format!("{base_url}{path}");
+
+        let mut req = match method {
+            "POST" => self.client.post(&url),
+            _ => self.client.get(&url),
+        };
+        req = req.timeout(TIMEOUT);
+
+        if let Some(body) = body {
+            req = req.json(&body);
+        }
+
+        let response = req.send().await.map_err(|_| "MarkUpsideDown app is not reachable".to_string())?;
+
+        if !response.status().is_success() {
+            return Err(format!("Bridge returned {}", response.status()));
+        }
+
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        if text.is_empty() {
+            Ok(None)
+        } else {
+            serde_json::from_str(&text).map(Some).map_err(|e| e.to_string())
+        }
+    }
+
+    pub async fn get_editor_content(&self) -> Result<String, String> {
+        #[derive(Deserialize)]
+        struct Resp {
+            content: String,
+        }
+        let val = self.request("GET", "/editor/content", None).await?;
+        let resp: Resp = serde_json::from_value(val.unwrap_or_default()).map_err(|e| e.to_string())?;
+        Ok(resp.content)
+    }
+
+    pub async fn set_editor_content(&self, content: &str) -> Result<(), String> {
+        self.request("POST", "/editor/content", Some(serde_json::json!({ "content": content }))).await?;
+        Ok(())
+    }
+
+    pub async fn insert_text(&self, text: &str, position: Option<&str>) -> Result<(), String> {
+        self.request("POST", "/editor/insert", Some(serde_json::json!({ "text": text, "position": position }))).await?;
+        Ok(())
+    }
+
+    pub async fn get_editor_state(&self) -> Result<EditorState, String> {
+        let val = self.request("GET", "/editor/state", None).await?;
+        serde_json::from_value(val.unwrap_or_default()).map_err(|e| e.to_string())
+    }
+
+    pub async fn open_file(&self, path: &str) -> Result<(), String> {
+        self.request("POST", "/editor/open-file", Some(serde_json::json!({ "path": path }))).await?;
+        Ok(())
+    }
+
+    pub async fn save_file(&self, path: Option<&str>) -> Result<(), String> {
+        self.request("POST", "/editor/save-file", Some(serde_json::json!({ "path": path }))).await?;
+        Ok(())
+    }
+
+    pub async fn export_pdf(&self) -> Result<(), String> {
+        self.request("POST", "/editor/export-pdf", None).await?;
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+pub struct EditorState {
+    #[allow(dead_code)]
+    pub file_path: Option<String>,
+    pub worker_url: Option<String>,
+    #[allow(dead_code)]
+    pub cursor_pos: usize,
+}

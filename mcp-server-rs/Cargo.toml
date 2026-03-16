@@ -1,0 +1,23 @@
+[package]
+name = "markupsidedown-mcp"
+version = "0.1.1"
+edition = "2024"
+description = "MCP server for MarkUpsideDown Markdown editor"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+rmcp = { version = "1", features = ["server", "transport-io", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "fs"] }
+reqwest = { version = "0.13", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+urlencoding = "2"
+anyhow = "1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"

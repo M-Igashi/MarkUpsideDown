@@ -1754,3 +1754,114 @@ body {
     color: #1d4ed8;
   }
 }
+
+/* --- MCP Integration Section --- */
+
+.settings-mcp-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.settings-mcp-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.settings-mcp-label {
+  color: var(--fg-muted, #888);
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.settings-mcp-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.mcp-status-ok {
+  color: var(--green, #4ade80);
+}
+
+.mcp-status-error {
+  color: var(--red, #f87171);
+}
+
+.settings-mcp-config {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-mcp-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.settings-mcp-tab {
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  cursor: pointer;
+}
+
+.settings-mcp-tab.active {
+  background: var(--accent, #7c3aed);
+  color: #fff;
+  border-color: var(--accent, #7c3aed);
+}
+
+.settings-mcp-json {
+  max-height: 200px;
+  overflow: auto;
+  font-size: 11px;
+  white-space: pre;
+}
+
+.settings-mcp-copy-btn {
+  align-self: flex-start;
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg, #ccc);
+  cursor: pointer;
+}
+
+.settings-mcp-copy-btn:hover {
+  background: var(--hover-bg, #333);
+}
+
+.settings-mcp-tools-details {
+  font-size: 12px;
+}
+
+.settings-mcp-tools-details summary {
+  cursor: pointer;
+  color: var(--fg-muted, #888);
+}
+
+.settings-mcp-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding-left: 8px;
+}
+
+.settings-mcp-tool {
+  font-size: 11px;
+  color: var(--fg-muted, #888);
+}
+
+.settings-mcp-tool code {
+  color: var(--fg, #ccc);
+  font-size: 11px;
+}

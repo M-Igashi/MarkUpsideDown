@@ -200,7 +200,7 @@ async function startAutoSetup(
   try {
     await invoke("setup_worker_secrets", { accountId });
     secretsOk = true;
-  } catch (_autoErr) {
+  } catch {
     // Auto-setup failed — ask user for API token
     try {
       const userToken = await showApiTokenInput(progressContainer);
@@ -419,6 +419,46 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
         </label>
       </div>
 
+      <div class="settings-section">
+        <div class="settings-section-title">AI Agent Integration</div>
+        <div class="settings-description">
+          MCP allows AI agents (Claude Desktop, Claude Code) to read and write your editor,
+          convert documents, and fetch web pages as Markdown.
+        </div>
+        <div class="settings-mcp-status">
+          <div class="settings-mcp-row">
+            <span class="settings-mcp-label">Bridge:</span>
+            <span id="settings-mcp-bridge-status" class="settings-mcp-value"></span>
+          </div>
+          <div class="settings-mcp-row">
+            <span class="settings-mcp-label">MCP binary:</span>
+            <span id="settings-mcp-binary-path" class="settings-mcp-value"></span>
+          </div>
+        </div>
+        <div class="settings-mcp-config">
+          <div class="settings-mcp-tabs">
+            <button class="settings-mcp-tab active" data-mcp-target="claude-desktop">Claude Desktop</button>
+            <button class="settings-mcp-tab" data-mcp-target="claude-code">Claude Code</button>
+          </div>
+          <pre id="settings-mcp-config-json" class="settings-code settings-mcp-json"></pre>
+          <button id="settings-mcp-copy" class="settings-mcp-copy-btn">Copy to clipboard</button>
+        </div>
+        <details class="settings-mcp-tools-details">
+          <summary>Available tools (9)</summary>
+          <div class="settings-mcp-tools-list">
+            <div class="settings-mcp-tool"><code>get_editor_content</code> &mdash; Get current Markdown from the editor</div>
+            <div class="settings-mcp-tool"><code>set_editor_content</code> &mdash; Replace editor content</div>
+            <div class="settings-mcp-tool"><code>insert_text</code> &mdash; Insert text at cursor, start, or end</div>
+            <div class="settings-mcp-tool"><code>open_file</code> &mdash; Open a Markdown file</div>
+            <div class="settings-mcp-tool"><code>save_file</code> &mdash; Save content to a file</div>
+            <div class="settings-mcp-tool"><code>export_pdf</code> &mdash; Export as PDF</div>
+            <div class="settings-mcp-tool"><code>fetch_markdown</code> &mdash; Fetch URL as Markdown</div>
+            <div class="settings-mcp-tool"><code>render_markdown</code> &mdash; JS-render a page as Markdown</div>
+            <div class="settings-mcp-tool"><code>convert_to_markdown</code> &mdash; Convert local file to Markdown</div>
+          </div>
+        </details>
+      </div>
+
       <div class="settings-actions">
         <button id="settings-clear" class="settings-clear-btn">Clear URL</button>
         <span class="spacer"></span>
@@ -446,6 +486,9 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
 
   const allowImageCheckbox = document.getElementById("settings-allow-image") as HTMLInputElement;
   allowImageCheckbox.checked = isImageConversionAllowed();
+
+  // --- MCP Integration Section ---
+  initMcpSection();
 
   urlInput.focus();
 
@@ -554,6 +597,72 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
   if (workerUrl) {
     testBtn.click();
   }
+}
+
+// --- MCP Config Generator ---
+
+function generateMcpConfig(binaryPath: string, workerUrl: string) {
+  const config: Record<string, unknown> = {
+    mcpServers: {
+      markupsidedown: {
+        command: binaryPath,
+        ...(workerUrl ? { env: { MARKUPSIDEDOWN_WORKER_URL: workerUrl } } : {}),
+      },
+    },
+  };
+  return JSON.stringify(config, null, 2);
+}
+
+async function initMcpSection() {
+  const bridgeStatus = document.getElementById("settings-mcp-bridge-status");
+  const binaryPathEl = document.getElementById("settings-mcp-binary-path");
+  const configJson = document.getElementById("settings-mcp-config-json");
+  const copyBtn = document.getElementById("settings-mcp-copy");
+  const tabs = document.querySelectorAll<HTMLButtonElement>(".settings-mcp-tab");
+
+  if (!bridgeStatus || !binaryPathEl || !configJson || !copyBtn) return;
+
+  // Bridge status — always active when app is running
+  bridgeStatus.textContent = "Active (app is running)";
+  bridgeStatus.classList.add("mcp-status-ok");
+
+  // Resolve MCP binary path
+  let mcpBinaryPath = "";
+  try {
+    mcpBinaryPath = await invoke<string>("get_mcp_binary_path");
+    binaryPathEl.textContent = mcpBinaryPath;
+    binaryPathEl.classList.add("mcp-status-ok");
+  } catch {
+    binaryPathEl.textContent = "Not found";
+    binaryPathEl.classList.add("mcp-status-error");
+  }
+
+  // Generate config JSON
+  const workerUrl = getWorkerUrl();
+
+  function updateConfig() {
+    configJson.textContent = generateMcpConfig(mcpBinaryPath, workerUrl);
+  }
+  updateConfig();
+
+  // Tab switching (config is the same for both targets; tabs are visual only)
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => {
+      for (const t of tabs) t.classList.remove("active");
+      tab.classList.add("active");
+    });
+  }
+
+  // Copy to clipboard
+  copyBtn.addEventListener("click", async () => {
+    const text = configJson.textContent || "";
+    await navigator.clipboard.writeText(text);
+    const original = copyBtn.textContent;
+    copyBtn.textContent = "Copied!";
+    setTimeout(() => {
+      copyBtn.textContent = original;
+    }, 1500);
+  });
 }
 
 // Returns the worker URL, or shows settings panel if not configured.

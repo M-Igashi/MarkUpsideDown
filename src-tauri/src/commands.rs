@@ -677,6 +677,24 @@ pub async fn reveal_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// --- MCP Sidecar ---
+
+#[tauri::command]
+pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let resource_path = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to resolve resource dir: {e}"))?
+        .join("binaries")
+        .join(format!(
+            "markupsidedown-mcp-{}",
+            tauri::utils::platform::target_triple()
+                .map_err(|e| format!("Failed to get target triple: {e}"))?
+        ));
+    Ok(resource_path.to_string_lossy().to_string())
+}
+
 // --- Git Operations ---
 
 fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {

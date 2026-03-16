@@ -36,6 +36,7 @@ fn main() {
             commands::github_list_repos,
             commands::sync_editor_state,
             commands::fetch_svg,
+            commands::get_mcp_binary_path,
             commands::list_directory,
             commands::create_file,
             commands::create_directory,
