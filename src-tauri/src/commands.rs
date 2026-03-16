@@ -733,25 +733,32 @@ pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(resource_path.to_string_lossy().to_string())
 }
 
-// --- Git Operations ---
+// --- CLI Command Runner ---
 
-fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(["-C", repo_path])
+fn run_cli(cmd: &str, args: &[&str]) -> Result<String, String> {
+    let output = Command::new(cmd)
         .args(args)
         .output()
-        .map_err(|e| format!("Failed to run git: {e}"))?;
+        .map_err(|e| format!("Failed to run {cmd}: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
-            "git command failed".to_string()
+            format!("{cmd} command failed")
         } else {
             stderr
         });
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// --- Git Operations ---
+
+fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
+    let mut full_args = vec!["-C", repo_path];
+    full_args.extend_from_slice(args);
+    run_cli("git", &full_args)
 }
 
 #[derive(Serialize)]
@@ -794,20 +801,27 @@ pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
             .map(|b| b.split("...").next().unwrap_or(b).to_string())
             .unwrap_or_default();
 
-        // Collect diff stats: unstaged and staged
+        // Collect diff stats: unstaged and staged (in parallel)
+        let rp2 = rp.clone();
+        let (unstaged_raw, staged_raw) = std::thread::scope(|s| {
+            let h1 = s.spawn(|| run_git(&rp2, &["diff", "--numstat"]));
+            let h2 = s.spawn(|| run_git(&rp2, &["diff", "--cached", "--numstat"]));
+            (h1.join().ok().and_then(|r| r.ok()), h2.join().ok().and_then(|r| r.ok()))
+        });
+
         let mut unstaged_stats: std::collections::HashMap<String, (u32, u32)> =
             std::collections::HashMap::new();
         let mut staged_stats: std::collections::HashMap<String, (u32, u32)> =
             std::collections::HashMap::new();
 
-        if let Ok(numstat) = run_git(&rp, &["diff", "--numstat"]) {
+        if let Some(numstat) = unstaged_raw {
             for line in numstat.lines() {
                 if let Some((added, removed, path)) = parse_numstat_line(line) {
                     unstaged_stats.insert(path, (added, removed));
                 }
             }
         }
-        if let Ok(numstat) = run_git(&rp, &["diff", "--cached", "--numstat"]) {
+        if let Some(numstat) = staged_raw {
             for line in numstat.lines() {
                 if let Some((added, removed, path)) = parse_numstat_line(line) {
                     staged_stats.insert(path, (added, removed));
@@ -962,16 +976,7 @@ pub async fn git_fetch(repo_path: String) -> Result<String, String> {
 // --- GitHub via gh CLI ---
 
 fn run_gh(args: &[&str]) -> Result<String, String> {
-    let output = Command::new("gh")
-        .args(args)
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    run_cli("gh", args).map(|s| s.trim().to_string())
 }
 
 #[tauri::command]
