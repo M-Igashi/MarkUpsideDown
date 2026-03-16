@@ -40,6 +40,10 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 - **MCP Server** — AI agents (Claude Desktop, Claude Code, etc.) can read/write editor content via [Model Context Protocol](https://modelcontextprotocol.io/)
 - **GitHub** — Fetch issue and PR bodies via `gh` CLI
 
+## Requirements
+
+- **macOS** on **Apple Silicon** (M1/M2/M3/M4)
+
 ## Getting Started
 
 ### 1. Install the App

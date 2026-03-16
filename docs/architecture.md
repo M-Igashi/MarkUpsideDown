@@ -42,7 +42,7 @@ MCP Server (mcp-server/)
 | Layer | Tech | Location |
 |-------|------|----------|
 | Desktop shell | Tauri v2 (WebKit on macOS) | `src-tauri/` |
-| Editor | CodeMirror 6 (Markdown, nested code languages) | `ui/src/main.js` |
+| Editor | CodeMirror 6 (Markdown) | `ui/src/main.js` |
 | Preview | marked.js + KaTeX + Mermaid + highlight.js | `ui/src/main.js` |
 | Scroll sync | Anchor-based bidirectional sync with cooldown | `ui/src/main.js` |
 | Settings | Worker setup (auto + manual), feature status | `ui/src/settings.js` |
@@ -131,7 +131,7 @@ The editor and preview panes are bidirectionally scroll-synced using an anchor-b
 | URL fetch (standard) | reqwest → target URL (with `Accept: text/markdown`) |
 | URL fetch (rendered) | reqwest → Worker → Browser Rendering REST API |
 | Document import | reqwest → Worker → Workers AI `AI.toMarkdown()` |
-| SVG inlining | reqwest → SVG URL → sanitize (LazyLock regex) → inline DOM |
+| SVG inlining | reqwest → SVG URL → sanitize (string-based) → inline DOM |
 | GitHub | `gh` CLI subprocess |
 | MCP agent access | MCP Server → HTTP → axum bridge → Tauri events → Frontend |
 | Auto-setup | Rust → wrangler CLI → Cloudflare API |
@@ -148,15 +148,13 @@ The editor and preview panes are bidirectionally scroll-synced using an anchor-b
 | `reqwest` | HTTP client for Worker API and SVG fetch |
 | `axum` + `tokio` | MCP bridge HTTP server |
 | `serde` + `serde_json` | JSON serialization |
-| `regex` | SVG sanitization (LazyLock for compile-once) |
 | `urlencoding` | URL encoding for Worker API calls |
-| `dirs` | Home directory for port file |
 
 ### Frontend (`ui/package.json`)
 
 | Package | Purpose |
 |---------|---------|
-| `@codemirror/*` | Editor (markdown, language-data, search, state, view) |
+| `@codemirror/*` | Editor (markdown, search, state, view) |
 | `@tauri-apps/*` | Tauri IPC (api, plugin-dialog, plugin-fs) |
 | `marked` | Markdown → HTML |
 | `mermaid` | Diagram rendering (lazy-loaded) |
