@@ -12,6 +12,7 @@ let selectedPath = null;
 let onFileOpen = null;
 let onFolderChange = null;
 let gitStatusMap = new Map(); // path -> { status, staged }
+let refreshGeneration = 0; // guards against concurrent refreshTree() races
 
 // --- DOM ---
 
@@ -127,10 +128,12 @@ export function getGitHubPanelEl() {
 async function refreshTree() {
   if (!rootPath || !treeEl) return;
 
+  const gen = ++refreshGeneration;
   treeEl.innerHTML = "";
   try {
-    await renderDirectory(rootPath, treeEl, 0);
+    await renderDirectory(rootPath, treeEl, 0, gen);
   } catch (e) {
+    if (gen !== refreshGeneration) return;
     const err = document.createElement("div");
     err.className = "sidebar-error";
     err.textContent = `Error: ${e}`;
@@ -138,8 +141,9 @@ async function refreshTree() {
   }
 }
 
-async function renderDirectory(dirPath, container, depth) {
+async function renderDirectory(dirPath, container, depth, gen) {
   const entries = await invoke("list_directory", { path: dirPath });
+  if (gen !== refreshGeneration) return;
 
   for (const entry of entries) {
     const item = createTreeItem(entry, depth);
@@ -149,7 +153,8 @@ async function renderDirectory(dirPath, container, depth) {
       const childContainer = document.createElement("div");
       childContainer.className = "sidebar-tree-children";
       container.appendChild(childContainer);
-      await renderDirectory(entry.path, childContainer, depth + 1);
+      await renderDirectory(entry.path, childContainer, depth + 1, gen);
+      if (gen !== refreshGeneration) return;
     }
   }
 }
