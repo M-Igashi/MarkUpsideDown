@@ -325,15 +325,16 @@ pub async fn fetch_svg(
 }
 
 fn sanitize_svg(svg: &str) -> String {
-    let result = strip_script_tags(svg);
+    let lower = svg.to_ascii_lowercase();
+    let result = strip_script_tags(svg, &lower);
     let result = strip_event_handlers(&result);
-    strip_js_hrefs(&result)
+    let lower2 = result.to_ascii_lowercase();
+    strip_js_hrefs(&result, &lower2)
 }
 
 /// Remove `<script>...</script>` blocks (case-insensitive).
-fn strip_script_tags(input: &str) -> String {
+fn strip_script_tags(input: &str, lower: &str) -> String {
     let mut out = String::with_capacity(input.len());
-    let lower = input.to_ascii_lowercase();
     let mut pos = 0;
 
     while pos < input.len() {
@@ -439,9 +440,8 @@ fn strip_event_handlers(input: &str) -> String {
 }
 
 /// Replace `javascript:` URLs in href attributes with `#`.
-fn strip_js_hrefs(input: &str) -> String {
+fn strip_js_hrefs(input: &str, lower: &str) -> String {
     let mut out = String::with_capacity(input.len());
-    let lower = input.to_ascii_lowercase();
     let mut pos = 0;
 
     while pos < input.len() {

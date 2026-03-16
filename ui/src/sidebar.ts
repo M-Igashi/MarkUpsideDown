@@ -567,9 +567,8 @@ export function setGitStatus(statusMap: Map<string, GitStatus>) {
     if (oldBadge) oldBadge.remove();
     const nameEl = item.querySelector(".sidebar-tree-name");
     if (nameEl) {
-      for (const cls of nameEl.classList) {
-        if (cls.startsWith("sidebar-name-")) nameEl.classList.remove(cls);
-      }
+      const toRemove = [...nameEl.classList].filter((cls) => cls.startsWith("sidebar-name-"));
+      for (const cls of toRemove) nameEl.classList.remove(cls);
     }
 
     if (status) {

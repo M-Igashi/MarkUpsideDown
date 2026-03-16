@@ -1086,8 +1086,10 @@ previewPane.addEventListener("click", (e) => {
 const sidebarEl = document.getElementById("sidebar")!;
 const sidebarDivider = document.getElementById("sidebar-divider")!;
 
+const STORAGE_KEY_SIDEBAR_COLLAPSED = "markupsidedown:sidebarCollapsed";
+
 // Restore collapsed state
-const sidebarCollapsed = localStorage.getItem("markupsidedown:sidebarCollapsed") === "true";
+const sidebarCollapsed = localStorage.getItem(STORAGE_KEY_SIDEBAR_COLLAPSED) === "true";
 if (sidebarCollapsed) {
   sidebarEl.classList.add("collapsed");
 }
@@ -1148,7 +1150,7 @@ if (initialRoot) {
 function toggleSidebar() {
   sidebarEl.classList.toggle("collapsed");
   localStorage.setItem(
-    "markupsidedown:sidebarCollapsed",
+    STORAGE_KEY_SIDEBAR_COLLAPSED,
     String(sidebarEl.classList.contains("collapsed")),
   );
 }
@@ -1176,7 +1178,7 @@ document.addEventListener("mousemove", (e) => {
 document.addEventListener("mouseup", () => {
   if (isSidebarDragging) {
     isSidebarDragging = false;
-    localStorage.setItem("markupsidedown:sidebarCollapsed", "false");
+    localStorage.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, "false");
   }
 });
 

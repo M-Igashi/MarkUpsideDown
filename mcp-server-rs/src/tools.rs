@@ -9,7 +9,7 @@ use crate::bridge::BridgeClient;
 
 /// MIME map (sync with commands.rs and worker SUPPORTED_TYPES)
 fn mime_from_extension(ext: &str) -> Option<&'static str> {
-    match ext {
+    match ext.to_lowercase().as_str() {
         "pdf" => Some("application/pdf"),
         "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
