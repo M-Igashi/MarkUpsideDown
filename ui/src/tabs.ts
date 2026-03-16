@@ -96,7 +96,13 @@ export function openTab(path: string | null, name: string, content: string): Tab
     const existing = tabs.find((t) => t.path === path);
     if (existing) {
       existing.content = content;
-      switchTab(existing.id);
+      if (existing.id === activeTabId) {
+        // Already active but content was refreshed — update the editor
+        onTabSwitch?.(existing);
+        renderTabs();
+      } else {
+        switchTab(existing.id);
+      }
       return existing;
     }
   }
