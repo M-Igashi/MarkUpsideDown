@@ -1932,7 +1932,7 @@ dependencies = [
 
 [[package]]
 name = "markupsidedown"
-version = "0.1.45"
+version = "0.1.46"
 dependencies = [
  "axum",
  "log",

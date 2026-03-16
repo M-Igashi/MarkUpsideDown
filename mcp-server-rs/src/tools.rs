@@ -89,12 +89,24 @@ pub struct McpTools {
 impl McpTools {
     pub fn new() -> Self {
         let worker_url_env = std::env::var("MARKUPSIDEDOWN_WORKER_URL").ok();
+        let http = reqwest::Client::new();
         Self {
             tool_router: Self::tool_router(),
-            bridge: BridgeClient::new(),
-            http: reqwest::Client::new(),
+            bridge: BridgeClient::new(http.clone()),
+            http,
             worker_url_env,
         }
+    }
+
+    async fn resolve_worker_url(&self) -> Result<String, String> {
+        if let Some(ref url) = self.worker_url_env {
+            return Ok(url.clone());
+        }
+        let bridge_state = self.bridge.get_editor_state().await.ok();
+        get_worker_url(
+            None,
+            bridge_state.as_ref().and_then(|s| s.worker_url.as_deref()),
+        )
     }
 
     // --- Editor Tools (require running app) ---
@@ -184,11 +196,7 @@ impl McpTools {
         Parameters(params): Parameters<UrlParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let bridge_state = self.bridge.get_editor_state().await.ok();
-            let worker_url = get_worker_url(
-                self.worker_url_env.as_deref(),
-                bridge_state.as_ref().and_then(|s| s.worker_url.as_deref()),
-            )?;
+            let worker_url = self.resolve_worker_url().await?;
 
             let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&params.url));
             let response = self.http.get(&render_url).send().await.map_err(|e| e.to_string())?;
@@ -218,11 +226,7 @@ impl McpTools {
         Parameters(params): Parameters<FilePathParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let bridge_state = self.bridge.get_editor_state().await.ok();
-            let worker_url = get_worker_url(
-                self.worker_url_env.as_deref(),
-                bridge_state.as_ref().and_then(|s| s.worker_url.as_deref()),
-            )?;
+            let worker_url = self.resolve_worker_url().await?;
 
             let ext = std::path::Path::new(&params.file_path)
                 .extension()

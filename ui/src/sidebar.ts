@@ -191,6 +191,7 @@ const SVG_GITHUB = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" 
 function createNavButton(panel: SidebarPanel, label: string, svgIcon: string): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.className = "sidebar-nav-btn";
+  btn.dataset.panel = panel;
   if (panel === activePanel) btn.classList.add("active");
   btn.title = label;
   btn.innerHTML = svgIcon;
@@ -237,18 +238,16 @@ function updatePanelVisibility() {
 
 function updateNavButtons() {
   if (!navBar) return;
-  const buttons = navBar.querySelectorAll(".sidebar-nav-btn");
-  const panels: SidebarPanel[] = ["files", "git", "github"];
-  buttons.forEach((btn, i) => {
-    btn.classList.toggle("active", panels[i] === activePanel);
-  });
+  for (const btn of navBar.querySelectorAll(".sidebar-nav-btn") as NodeListOf<HTMLElement>) {
+    btn.classList.toggle("active", btn.dataset.panel === activePanel);
+  }
 }
 
 export function updateGitChangeCount(count: number) {
   gitChangeCount = count;
   // Update badge in nav bar
   if (!navBar) return;
-  const gitBtn = navBar.querySelectorAll(".sidebar-nav-btn")[1];
+  const gitBtn = navBar.querySelector('.sidebar-nav-btn[data-panel="git"]');
   if (!gitBtn) return;
   const existing = gitBtn.querySelector(".sidebar-nav-badge");
   if (existing) existing.remove();

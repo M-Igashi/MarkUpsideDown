@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use reqwest::Client;
@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
-static CACHED_BRIDGE_URL: OnceLock<String> = OnceLock::new();
+static CACHED_BRIDGE_URL: Mutex<Option<String>> = Mutex::new(None);
 
 fn port_file_path() -> PathBuf {
     let home = std::env::var_os("HOME")
@@ -25,18 +25,20 @@ fn discover_bridge_url() -> Option<String> {
     Some(format!("http://127.0.0.1:{port}"))
 }
 
-fn get_bridge_url() -> Result<&'static str, String> {
-    // Try to get cached value first
-    if let Some(url) = CACHED_BRIDGE_URL.get() {
-        return Ok(url.as_str());
+fn get_bridge_url() -> Result<String, String> {
+    let mut cached = CACHED_BRIDGE_URL.lock().unwrap();
+    if let Some(ref url) = *cached {
+        return Ok(url.clone());
     }
-    // Discover and cache
     let url = discover_bridge_url()
         .ok_or_else(|| "MarkUpsideDown app is not running (no bridge port file found)".to_string())?;
-    // Another thread may have initialized it; that's fine
-    let _ = CACHED_BRIDGE_URL.set(url.clone());
-    // Return the stored reference
-    Ok(CACHED_BRIDGE_URL.get().unwrap().as_str())
+    *cached = Some(url.clone());
+    Ok(url)
+}
+
+/// Clear the cached bridge URL so the next call re-discovers it from the port file.
+fn clear_bridge_url_cache() {
+    *CACHED_BRIDGE_URL.lock().unwrap() = None;
 }
 
 pub struct BridgeClient {
@@ -44,15 +46,13 @@ pub struct BridgeClient {
 }
 
 impl BridgeClient {
-    pub fn new() -> Self {
-        Self {
-            client: Client::new(),
-        }
+    pub fn new(client: Client) -> Self {
+        Self { client }
     }
 
     async fn request(&self, method: &str, path: &str, body: Option<serde_json::Value>) -> Result<Option<serde_json::Value>, String> {
         let base_url = get_bridge_url()?;
-        let url = format!("{base_url}{path}");
+        let url = format!("{}{path}", base_url);
 
         let mut req = match method {
             "POST" => self.client.post(&url),
@@ -64,7 +64,10 @@ impl BridgeClient {
             req = req.json(&body);
         }
 
-        let response = req.send().await.map_err(|_| "MarkUpsideDown app is not reachable".to_string())?;
+        let response = req.send().await.map_err(|_| {
+            clear_bridge_url_cache();
+            "MarkUpsideDown app is not reachable".to_string()
+        })?;
 
         if !response.status().is_success() {
             return Err(format!("Bridge returned {}", response.status()));

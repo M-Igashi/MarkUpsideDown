@@ -673,7 +673,12 @@ async function renderPreview(source: string) {
     `<article class="preview-page" lang="en">${html}</article>`,
     {
       ADD_TAGS: ["foreignObject"],
-      ADD_ATTR: ["data-mermaid-source", "data-source-line", "data-math-source", "data-math-display"],
+      ADD_ATTR: [
+        "data-mermaid-source",
+        "data-source-line",
+        "data-math-source",
+        "data-math-display",
+      ],
     },
   );
 
@@ -704,21 +709,23 @@ async function renderPreview(source: string) {
     try {
       const mermaid = await getMermaid();
       const containers = previewPane.querySelectorAll(".mermaid-container");
-      for (const el of containers) {
-        const src = decodeURIComponent((el as HTMLElement).dataset.mermaidSource!);
-        const id = `mmd-${mermaidRenderCount++}`;
-        try {
-          const { svg } = await mermaid.render(id, src);
-          el.innerHTML = svg;
-          el.classList.add("mermaid-rendered");
-        } catch (err) {
-          const pre = document.createElement("pre");
-          pre.className = "mermaid-error";
-          pre.textContent = (err as Error).message || String(err);
-          el.replaceChildren(pre);
-          document.getElementById(id)?.remove();
-        }
-      }
+      await Promise.all(
+        Array.from(containers).map(async (el) => {
+          const src = decodeURIComponent((el as HTMLElement).dataset.mermaidSource!);
+          const id = `mmd-${mermaidRenderCount++}`;
+          try {
+            const { svg } = await mermaid.render(id, src);
+            el.innerHTML = svg;
+            el.classList.add("mermaid-rendered");
+          } catch (err) {
+            const pre = document.createElement("pre");
+            pre.className = "mermaid-error";
+            pre.textContent = (err as Error).message || String(err);
+            el.replaceChildren(pre);
+            document.getElementById(id)?.remove();
+          }
+        }),
+      );
     } catch (err) {
       console.error("Mermaid failed to load:", err);
     }
@@ -1107,8 +1114,10 @@ if (window.__TAURI__?.event) {
       await writeTextFile(path, editor.state.doc.toString());
       if (!currentFilePath) {
         currentFilePath = path;
+        updateActiveTab({ path, name: path.split("/").pop()! });
         updateStatus(editor.state);
       }
+      if (getRootPath()) refreshGitAndSync();
     } catch (e) {
       statusEl.textContent = `Save failed: ${e}`;
     }
@@ -1144,7 +1153,11 @@ previewPane.addEventListener(
   },
   { passive: true },
 );
-window.addEventListener("resize", buildScrollAnchors);
+let resizeRAF = 0;
+window.addEventListener("resize", () => {
+  cancelAnimationFrame(resizeRAF);
+  resizeRAF = requestAnimationFrame(buildScrollAnchors);
+});
 previewPane.addEventListener("click", (e) => {
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed) return;

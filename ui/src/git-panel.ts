@@ -164,6 +164,8 @@ function statusLabel(status: string): string {
       return "deleted";
     case "R":
       return "renamed";
+    case "C":
+      return "copied";
     case "?":
       return "untracked";
     default:
@@ -179,6 +181,8 @@ export function statusClass(status: string): string {
       return "git-added";
     case "D":
       return "git-deleted";
+    case "R":
+      return "git-renamed";
     case "?":
       return "git-untracked";
     default:
