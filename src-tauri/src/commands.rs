@@ -13,16 +13,9 @@ pub struct EditorStateInner {
     pub worker_url: Option<String>,
 }
 
+#[derive(Default)]
 pub struct EditorState {
     pub inner: Mutex<EditorStateInner>,
-}
-
-impl Default for EditorState {
-    fn default() -> Self {
-        Self {
-            inner: Mutex::new(EditorStateInner::default()),
-        }
-    }
 }
 
 #[tauri::command]

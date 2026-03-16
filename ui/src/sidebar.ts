@@ -1,4 +1,4 @@
-import { statusClass } from "./git-panel.ts";
+import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog, confirm } = window.__TAURI__.dialog;
@@ -226,14 +226,8 @@ function createTreeItem(entry: DirEntry, depth: number) {
   const relPath = rootPath ? entry.path.replace(rootPath + "/", "") : entry.name;
   const gitStatus = gitStatusMap.get(relPath);
   if (gitStatus) {
-    const badge = document.createElement("span");
-    badge.className = "sidebar-git-badge";
-    badge.textContent = gitStatus.status;
-    badge.classList.add(statusClass(gitStatus.status));
-    item.appendChild(badge);
-    const cls = statusClass(gitStatus.status);
-    const suffix = cls.replace("git-", "");
-    name.classList.add(`sidebar-name-${suffix}`);
+    item.appendChild(createGitBadge(gitStatus.status));
+    applyGitNameStyle(name, gitStatus.status);
   }
 
   // Click handler
@@ -559,15 +553,9 @@ export function setGitStatus(statusMap: Map<string, GitStatus>) {
     }
 
     if (status) {
-      const badge = document.createElement("span");
-      badge.className = "sidebar-git-badge";
-      badge.textContent = status.status;
-      badge.classList.add(statusClass(status.status));
-      item.appendChild(badge);
+      item.appendChild(createGitBadge(status.status));
       if (nameEl) {
-        const cls = statusClass(status.status);
-        const suffix = cls.replace("git-", "");
-        nameEl.classList.add(`sidebar-name-${suffix}`);
+        applyGitNameStyle(nameEl, status.status);
       }
     }
   }

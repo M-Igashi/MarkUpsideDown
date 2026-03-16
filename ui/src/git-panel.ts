@@ -137,6 +137,22 @@ export function statusClass(status: string): string {
   }
 }
 
+export function statusSuffix(status: string): string {
+  return statusClass(status).replace("git-", "");
+}
+
+export function createGitBadge(status: string): HTMLSpanElement {
+  const badge = document.createElement("span");
+  badge.className = "sidebar-git-badge";
+  badge.textContent = status;
+  badge.classList.add(statusClass(status));
+  return badge;
+}
+
+export function applyGitNameStyle(nameEl: Element, status: string) {
+  nameEl.classList.add(`sidebar-name-${statusSuffix(status)}`);
+}
+
 function render() {
   if (!panelEl) return;
   panelEl.innerHTML = "";

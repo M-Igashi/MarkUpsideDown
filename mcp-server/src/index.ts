@@ -8,6 +8,26 @@ import { readFile } from "node:fs/promises";
 
 const WORKER_URL = process.env.MARKUPSIDEDOWN_WORKER_URL;
 
+// Shared across convert_to_markdown calls (sync with commands.rs mime_from_extension and worker SUPPORTED_TYPES)
+const MIME_MAP: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  html: "text/html",
+  htm: "text/html",
+  csv: "text/csv",
+  xml: "application/xml",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  tiff: "image/tiff",
+  tif: "image/tiff",
+};
+
 function getWorkerUrl(bridgeWorkerUrl: string | null): string {
   const url = WORKER_URL || bridgeWorkerUrl;
   if (!url) {
@@ -110,25 +130,7 @@ server.tool(
     const workerUrl = getWorkerUrl(state?.worker_url ?? null);
 
     const ext = file_path.split(".").pop()?.toLowerCase() ?? "";
-    const mimeMap: Record<string, string> = {
-      pdf: "application/pdf",
-      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      html: "text/html",
-      htm: "text/html",
-      csv: "text/csv",
-      xml: "application/xml",
-      jpg: "image/jpeg",
-      jpeg: "image/jpeg",
-      png: "image/png",
-      gif: "image/gif",
-      webp: "image/webp",
-      bmp: "image/bmp",
-      tiff: "image/tiff",
-      tif: "image/tiff",
-    };
-    const mime = mimeMap[ext];
+    const mime = MIME_MAP[ext];
     if (!mime) throw new Error(`Unsupported file type: .${ext}`);
 
     const bytes = await readFile(file_path);
