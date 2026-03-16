@@ -438,12 +438,13 @@ const IMPORT_EXTENSIONS = [
 const updatePreview = EditorView.updateListener.of((update) => {
   if (update.docChanged) {
     pendingRender = true;
+    const content = update.state.doc.toString();
     clearTimeout(previewTimeout);
     previewTimeout = setTimeout(() => {
-      renderPreview(update.state.doc.toString());
+      renderPreview(content);
       updateStatus(update.state);
     }, 100);
-    updateActiveTab({ content: update.state.doc.toString() });
+    updateActiveTab({ content });
     syncEditorState();
   }
   // Sync preview when cursor moves — skip if a render is pending (anchors stale)
@@ -1048,7 +1049,6 @@ const gitPanelEl = getGitPanelEl();
 if (gitPanelEl) {
   initGitPanel(gitPanelEl, {
     onOpen: async (filePath) => {
-      const { readTextFile } = window.__TAURI__.fs;
       try {
         const content = await readTextFile(filePath);
         loadContentAsTab(content, filePath);

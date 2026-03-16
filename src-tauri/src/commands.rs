@@ -400,23 +400,30 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 #[tauri::command]
 pub async fn create_file(path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
-    if p.exists() {
-        return Err("File already exists".to_string());
-    }
-    tokio::fs::write(p, "")
+    match tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(p)
         .await
-        .map_err(|e| format!("Failed to create file: {e}"))
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err("File already exists".to_string())
+        }
+        Err(e) => Err(format!("Failed to create file: {e}")),
+    }
 }
 
 #[tauri::command]
 pub async fn create_directory(path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
-    if p.exists() {
-        return Err("Directory already exists".to_string());
+    match tokio::fs::create_dir(p).await {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err("Directory already exists".to_string())
+        }
+        Err(e) => Err(format!("Failed to create directory: {e}")),
     }
-    tokio::fs::create_dir_all(p)
-        .await
-        .map_err(|e| format!("Failed to create directory: {e}"))
 }
 
 #[tauri::command]
@@ -476,7 +483,7 @@ pub struct GitStatus {
 
 #[tauri::command]
 pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
-    let rp = repo_path.clone();
+    let rp = repo_path;
     tokio::task::spawn_blocking(move || {
         // Check if it's a git repo
         if run_git(&rp, &["rev-parse", "--is-inside-work-tree"]).is_err() {

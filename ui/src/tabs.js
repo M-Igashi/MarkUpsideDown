@@ -138,6 +138,8 @@ export function switchToNextTab() {
   switchTab(tabs[next].id);
 }
 
+let saveTimeout = null;
+
 export function updateActiveTab({ content, path, name, scrollTop }) {
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return;
@@ -148,7 +150,13 @@ export function updateActiveTab({ content, path, name, scrollTop }) {
     renderTabs();
   }
   if (scrollTop !== undefined) tab.scrollTop = scrollTop;
-  saveState();
+  // Debounce localStorage writes for content-only updates
+  if (content !== undefined && path === undefined && name === undefined) {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveState, 1000);
+  } else {
+    saveState();
+  }
 }
 
 export function getActiveTab() {

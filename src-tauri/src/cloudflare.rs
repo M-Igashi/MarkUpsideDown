@@ -24,12 +24,13 @@ pub struct WranglerStatus {
 /// Set HOME and augment PATH for macOS GUI apps that don't inherit shell env.
 /// Covers: Homebrew (Intel + ARM), nvm, nodebrew, fnm, Volta, asdf, mise, n, proto
 fn setup_gui_env(cmd: &mut Command) {
-    if let Some(home) = dirs::home_dir() {
-        cmd.env("HOME", &home);
+    let home = dirs::home_dir();
+    if let Some(ref home) = home {
+        cmd.env("HOME", home);
     }
     if let Ok(current_path) = std::env::var("PATH") {
         let mut extra_paths = Vec::new();
-        if let Some(home) = dirs::home_dir() {
+        if let Some(ref home) = home {
             for dir in [
                 ".npm-packages/bin",
                 ".nodebrew/current/bin",

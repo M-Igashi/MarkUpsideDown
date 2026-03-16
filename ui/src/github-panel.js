@@ -2,6 +2,7 @@ const { invoke } = window.__TAURI__.core;
 
 let panelEl = null;
 let onInsert = null;
+let statusEl = null;
 
 export function initGitHubPanel(el, { onContent }) {
   panelEl = el;
@@ -42,31 +43,25 @@ function render() {
   panelEl.appendChild(inputRow);
 
   // Status
-  const status = document.createElement("div");
-  status.className = "gh-status";
-  status.id = "gh-panel-status";
-  panelEl.appendChild(status);
+  statusEl = document.createElement("div");
+  statusEl.className = "gh-status";
+  panelEl.appendChild(statusEl);
 }
 
 async function fetchRef(input) {
   const raw = input.value.trim();
   if (!raw) return;
 
-  const statusEl = document.getElementById("gh-panel-status");
   const parsed = parseRef(raw);
 
   if (!parsed) {
-    if (statusEl) {
-      statusEl.textContent = "Format: owner/repo#123 or GitHub URL";
-      statusEl.className = "gh-status gh-status-error";
-    }
+    statusEl.textContent = "Format: owner/repo#123 or GitHub URL";
+    statusEl.className = "gh-status gh-status-error";
     return;
   }
 
-  if (statusEl) {
-    statusEl.textContent = "Fetching…";
-    statusEl.className = "gh-status gh-status-pending";
-  }
+  statusEl.textContent = "Fetching…";
+  statusEl.className = "gh-status gh-status-pending";
 
   try {
     let body;
@@ -84,17 +79,13 @@ async function fetchRef(input) {
       });
     }
 
-    if (statusEl) {
-      statusEl.textContent = `Fetched ${parsed.type} #${parsed.number}`;
-      statusEl.className = "gh-status gh-status-ok";
-    }
+    statusEl.textContent = `Fetched ${parsed.type} #${parsed.number}`;
+    statusEl.className = "gh-status gh-status-ok";
 
     onInsert?.(body, `${parsed.owner}/${parsed.repo}#${parsed.number}`);
   } catch (e) {
-    if (statusEl) {
-      statusEl.textContent = `Error: ${e}`;
-      statusEl.className = "gh-status gh-status-error";
-    }
+    statusEl.textContent = `Error: ${e}`;
+    statusEl.className = "gh-status gh-status-error";
   }
 }
 
