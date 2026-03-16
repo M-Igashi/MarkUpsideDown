@@ -1,20 +1,30 @@
 const STORAGE_KEY = "markupsidedown:tabs";
 
+// --- Types ---
+
+export interface Tab {
+  id: string;
+  path: string | null;
+  name: string;
+  content: string;
+  scrollTop: number;
+}
+
 // --- State ---
 
-let tabs = []; // [{ id, path, name, content, scrollTop }]
-let activeTabId = null;
-let tabBarEl = null;
-let onTabSwitch = null; // (tab) => void — called when switching tabs
-let onTabEmpty = null; // () => void — called when all tabs closed
+let tabs: Tab[] = [];
+let activeTabId: string | null = null;
+let tabBarEl: HTMLElement | null = null;
+let onTabSwitch: ((tab: Tab) => void) | null = null;
+let onTabEmpty: (() => void) | null = null;
 
 let nextId = 1;
 
-function genId() {
+function genId(): string {
   return `tab-${nextId++}`;
 }
 
-export function initTabs(el, { onSwitch, onEmpty }) {
+export function initTabs(el: HTMLElement, { onSwitch, onEmpty }: { onSwitch: (tab: Tab) => void; onEmpty: () => void }): void {
   tabBarEl = el;
   onTabSwitch = onSwitch;
   onTabEmpty = onEmpty;
@@ -45,7 +55,7 @@ export function initTabs(el, { onSwitch, onEmpty }) {
   }
 }
 
-function saveState() {
+function saveState(): void {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
@@ -63,7 +73,7 @@ function saveState() {
 
 // --- Public API ---
 
-export function openTab(path, name, content) {
+export function openTab(path: string | null, name: string, content: string): Tab {
   // If file already open, switch to it
   if (path) {
     const existing = tabs.find((t) => t.path === path);
@@ -86,7 +96,7 @@ export function openTab(path, name, content) {
   return tab;
 }
 
-export function switchTab(id) {
+export function switchTab(id: string): void {
   if (id === activeTabId) {
     renderTabs();
     return;
@@ -98,7 +108,7 @@ export function switchTab(id) {
   if (tab) onTabSwitch?.(tab);
 }
 
-export function closeTab(id) {
+export function closeTab(id: string): void {
   const idx = tabs.findIndex((t) => t.id === id);
   if (idx === -1) return;
 
@@ -120,27 +130,27 @@ export function closeTab(id) {
   renderTabs();
 }
 
-export function closeActiveTab() {
+export function closeActiveTab(): void {
   if (activeTabId) closeTab(activeTabId);
 }
 
-export function switchToPrevTab() {
+export function switchToPrevTab(): void {
   if (tabs.length < 2) return;
   const idx = tabs.findIndex((t) => t.id === activeTabId);
   const prev = (idx - 1 + tabs.length) % tabs.length;
   switchTab(tabs[prev].id);
 }
 
-export function switchToNextTab() {
+export function switchToNextTab(): void {
   if (tabs.length < 2) return;
   const idx = tabs.findIndex((t) => t.id === activeTabId);
   const next = (idx + 1) % tabs.length;
   switchTab(tabs[next].id);
 }
 
-let saveTimeout = null;
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
-export function updateActiveTab({ content, path, name, scrollTop }) {
+export function updateActiveTab({ content, path, name, scrollTop }: { content?: string; path?: string; name?: string; scrollTop?: number }): void {
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return;
   if (content !== undefined) tab.content = content;
@@ -152,28 +162,28 @@ export function updateActiveTab({ content, path, name, scrollTop }) {
   if (scrollTop !== undefined) tab.scrollTop = scrollTop;
   // Debounce localStorage writes for content-only updates
   if (content !== undefined && path === undefined && name === undefined) {
-    clearTimeout(saveTimeout);
+    if (saveTimeout !== null) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(saveState, 1000);
   } else {
     saveState();
   }
 }
 
-export function getActiveTab() {
+export function getActiveTab(): Tab | null {
   return tabs.find((t) => t.id === activeTabId) || null;
 }
 
-export function getTabByPath(path) {
+export function getTabByPath(path: string): Tab | null {
   return tabs.find((t) => t.path === path) || null;
 }
 
-export function getTabs() {
+export function getTabs(): Tab[] {
   return tabs;
 }
 
 // --- Render ---
 
-function renderTabs() {
+function renderTabs(): void {
   if (!tabBarEl) return;
   tabBarEl.innerHTML = "";
 

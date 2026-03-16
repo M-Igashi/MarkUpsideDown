@@ -1,10 +1,20 @@
 const { invoke } = window.__TAURI__.core;
 
-let panelEl = null;
-let onInsert = null;
-let statusEl = null;
+interface GitHubRef {
+  owner: string;
+  repo: string;
+  type: string;
+  number: number;
+}
 
-export function initGitHubPanel(el, { onContent }) {
+let panelEl: HTMLElement | null = null;
+let onInsert: ((body: string, ref: string) => void) | null = null;
+let statusEl: HTMLElement | null = null;
+
+export function initGitHubPanel(
+  el: HTMLElement,
+  { onContent }: { onContent: (body: string, ref: string) => void },
+) {
   panelEl = el;
   onInsert = onContent;
   render();
@@ -48,48 +58,48 @@ function render() {
   panelEl.appendChild(statusEl);
 }
 
-async function fetchRef(input) {
+async function fetchRef(input: HTMLInputElement) {
   const raw = input.value.trim();
   if (!raw) return;
 
   const parsed = parseRef(raw);
 
   if (!parsed) {
-    statusEl.textContent = "Format: owner/repo#123 or GitHub URL";
-    statusEl.className = "gh-status gh-status-error";
+    if (statusEl) statusEl.textContent = "Format: owner/repo#123 or GitHub URL";
+    if (statusEl) statusEl.className = "gh-status gh-status-error";
     return;
   }
 
-  statusEl.textContent = "Fetching…";
-  statusEl.className = "gh-status gh-status-pending";
+  if (statusEl) statusEl.textContent = "Fetching…";
+  if (statusEl) statusEl.className = "gh-status gh-status-pending";
 
   try {
-    let body;
+    let body: string;
     if (parsed.type === "pull") {
-      body = await invoke("github_fetch_pr", {
+      body = await invoke<string>("github_fetch_pr", {
         owner: parsed.owner,
         repo: parsed.repo,
         number: parsed.number,
       });
     } else {
-      body = await invoke("github_fetch_issue", {
+      body = await invoke<string>("github_fetch_issue", {
         owner: parsed.owner,
         repo: parsed.repo,
         number: parsed.number,
       });
     }
 
-    statusEl.textContent = `Fetched ${parsed.type} #${parsed.number}`;
-    statusEl.className = "gh-status gh-status-ok";
+    if (statusEl) statusEl.textContent = `Fetched ${parsed.type} #${parsed.number}`;
+    if (statusEl) statusEl.className = "gh-status gh-status-ok";
 
     onInsert?.(body, `${parsed.owner}/${parsed.repo}#${parsed.number}`);
-  } catch (e) {
-    statusEl.textContent = `Error: ${e}`;
-    statusEl.className = "gh-status gh-status-error";
+  } catch (e: unknown) {
+    if (statusEl) statusEl.textContent = `Error: ${e}`;
+    if (statusEl) statusEl.className = "gh-status gh-status-error";
   }
 }
 
-function parseRef(input) {
+function parseRef(input: string): GitHubRef | null {
   // GitHub URL: https://github.com/owner/repo/issues/123 or /pull/123
   const urlMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/(issues|pull)\/(\d+)/);
   if (urlMatch) {

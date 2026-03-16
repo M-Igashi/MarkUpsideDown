@@ -10,15 +10,15 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { defaultKeymap, indentWithTab, history, historyKeymap } from "@codemirror/commands";
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from "@codemirror/language";
 import { search, searchKeymap } from "@codemirror/search";
-import { editorTheme } from "./theme.js";
-import { editTableAtCursor } from "./table-editor.js";
+import { editorTheme } from "./theme.ts";
+import { editTableAtCursor } from "./table-editor.ts";
 import {
   showSettings,
   ensureWorkerUrl,
   getWorkerUrl,
   isImageConversionAllowed,
   checkFirstRun,
-} from "./settings.js";
+} from "./settings.ts";
 import {
   initSidebar,
   setSelectedPath,
@@ -26,9 +26,9 @@ import {
   setGitStatus,
   getGitPanelEl,
   getGitHubPanelEl,
-} from "./sidebar.js";
-import { initGitPanel, setRepoPath, refresh as refreshGit, getStatusMap } from "./git-panel.js";
-import { initGitHubPanel } from "./github-panel.js";
+} from "./sidebar.ts";
+import { initGitPanel, setRepoPath, refresh as refreshGit, getStatusMap } from "./git-panel.ts";
+import { initGitHubPanel } from "./github-panel.ts";
 import {
   initTabs,
   openTab,
@@ -36,29 +36,47 @@ import {
   switchToPrevTab,
   switchToNextTab,
   updateActiveTab,
-} from "./tabs.js";
+} from "./tabs.ts";
 import { marked } from "marked";
 import hljs from "highlight.js/lib/common";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import DOMPurify from "dompurify";
 
+// --- Type Definitions ---
+
+interface ScrollAnchor {
+  editorY: number;
+  previewY: number;
+}
+
+interface FetchResult {
+  body: string;
+  is_markdown: boolean;
+}
+
+interface ConvertResult {
+  markdown: string;
+  is_image: boolean;
+  original_size: number;
+}
+
 // KaTeX math extension for marked
 const mathExtension = {
   extensions: [
     {
       name: "mathBlock",
-      level: "block",
-      start(src) {
+      level: "block" as const,
+      start(src: string) {
         return src.indexOf("$$");
       },
-      tokenizer(src) {
+      tokenizer(src: string) {
         const match = src.match(/^\$\$([\s\S]+?)\$\$/);
         if (match) {
           return { type: "mathBlock", raw: match[0], text: match[1].trim() };
         }
       },
-      renderer(token) {
+      renderer(token: { text: string }) {
         try {
           return `<div class="math-block">${katex.renderToString(token.text, { displayMode: true, throwOnError: false })}</div>`;
         } catch {
@@ -68,17 +86,17 @@ const mathExtension = {
     },
     {
       name: "mathInline",
-      level: "inline",
-      start(src) {
+      level: "inline" as const,
+      start(src: string) {
         return src.indexOf("$");
       },
-      tokenizer(src) {
+      tokenizer(src: string) {
         const match = src.match(/^\$([^\s$](?:[^$]*[^\s$])?)\$/);
         if (match) {
           return { type: "mathInline", raw: match[0], text: match[1] };
         }
       },
-      renderer(token) {
+      renderer(token: { text: string }) {
         try {
           return katex.renderToString(token.text, { displayMode: false, throwOnError: false });
         } catch {
@@ -91,7 +109,7 @@ const mathExtension = {
 
 marked.use(mathExtension);
 
-let mermaidModule = null;
+let mermaidModule: any = null;
 let mermaidRenderCount = 0;
 
 async function getMermaid() {
@@ -125,8 +143,8 @@ const { invoke } = window.__TAURI__.core;
 const { open, save, confirm } = window.__TAURI__.dialog;
 const { readTextFile, writeTextFile } = window.__TAURI__.fs;
 
-let currentFilePath = null;
-let previewTimeout = null;
+let currentFilePath: string | null = null;
+let previewTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // --- Scroll Sync ---
 //
@@ -135,12 +153,12 @@ let previewTimeout = null;
 //   programmaticScrollAt = timestamp to ignore echo-back scroll events
 //   pendingRender = true while a debounced re-render is queued (anchors stale)
 
-let scrollAnchors = [];
-let cachedSourceLineEls = [];
+let scrollAnchors: ScrollAnchor[] = [];
+let cachedSourceLineEls: HTMLElement[] = [];
 let syncRAF = 0;
 let renderingPreview = false;
 let pendingRender = false;
-let activeSide = "editor"; // 'editor' | 'preview'
+let activeSide: "editor" | "preview" = "editor";
 let programmaticScrollAt = 0;
 let lastPreviewClickAt = 0;
 
@@ -154,16 +172,16 @@ function markProgrammaticScroll() {
   programmaticScrollAt = performance.now();
 }
 
-function getCodeBlockLineInfo(preEl) {
+function getCodeBlockLineInfo(preEl: HTMLElement) {
   const codeEl = preEl.querySelector("code") || preEl;
-  const lines = codeEl.textContent.split("\n");
+  const lines = codeEl.textContent!.split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   const rect = codeEl.getBoundingClientRect();
   const lineHeight = lines.length > 0 ? rect.height / lines.length : 0;
   return { codeEl, lines, rect, lineHeight };
 }
 
-function countNewlines(str, from, to) {
+function countNewlines(str: string, from: number, to: number) {
   let n = 0;
   for (let i = from; i < to; i++) {
     if (str.charCodeAt(i) === 10) n++;
@@ -171,7 +189,7 @@ function countNewlines(str, from, to) {
   return n;
 }
 
-function annotateTokensWithSourceLines(tokens) {
+function annotateTokensWithSourceLines(tokens: any[]) {
   let lineNum = 1;
   for (const token of tokens) {
     if (!token.raw) continue;
@@ -184,19 +202,19 @@ function annotateTokensWithSourceLines(tokens) {
   }
 }
 
-function slAttr(sourceLine) {
+function slAttr(sourceLine: number | undefined) {
   return sourceLine ? ` data-source-line="${sourceLine}"` : "";
 }
 
 function buildScrollAnchors() {
   const elements = previewPane.querySelectorAll("[data-source-line]");
 
-  const anchors = [{ editorY: 0, previewY: 0 }];
+  const anchors: ScrollAnchor[] = [{ editorY: 0, previewY: 0 }];
   const previewRect = previewPane.getBoundingClientRect();
   const previewScrollTop = previewPane.scrollTop;
 
   for (const el of elements) {
-    const lineNum = parseInt(el.dataset.sourceLine, 10);
+    const lineNum = parseInt((el as HTMLElement).dataset.sourceLine!, 10);
     if (lineNum < 1 || lineNum > editor.state.doc.lines) continue;
     const line = editor.state.doc.line(lineNum);
     const block = editor.lineBlockAt(line.from);
@@ -206,7 +224,7 @@ function buildScrollAnchors() {
 
     // Add sub-line anchors within code blocks for precise per-line sync
     if (el.tagName === "PRE") {
-      const info = getCodeBlockLineInfo(el);
+      const info = getCodeBlockLineInfo(el as HTMLElement);
       if (info.lines.length > 1) {
         // data-source-line points to the opening ```, code content starts at lineNum + 1
         for (let i = 0; i < info.lines.length; i++) {
@@ -232,7 +250,12 @@ function buildScrollAnchors() {
   scrollAnchors = anchors;
 }
 
-function interpolate(anchors, fromKey, toKey, value) {
+function interpolate(
+  anchors: ScrollAnchor[],
+  fromKey: keyof ScrollAnchor,
+  toKey: keyof ScrollAnchor,
+  value: number,
+) {
   if (anchors.length < 2) return 0;
 
   let lo = 0;
@@ -284,13 +307,13 @@ function syncPreviewToCursor() {
   if (elements.length === 0) return;
 
   // Find the two elements bracketing the cursor line
-  let before = null;
-  let after = null;
+  let before: HTMLElement | null = null;
+  let after: HTMLElement | null = null;
   let beforeLine = -1;
   let afterLine = Infinity;
 
   for (const el of elements) {
-    const sl = parseInt(el.dataset.sourceLine, 10);
+    const sl = parseInt(el.dataset.sourceLine!, 10);
     if (isNaN(sl)) continue;
     if (sl <= cursorLine && sl > beforeLine) {
       before = el;
@@ -315,11 +338,11 @@ function syncPreviewToCursor() {
   const previewRect = previewPane.getBoundingClientRect();
   const previewScrollTop = previewPane.scrollTop;
 
-  let previewTargetY;
+  let previewTargetY: number | undefined;
 
   // Check if cursor is inside a code block represented by 'before' PRE element
-  if (before.tagName === "PRE" && cursorLine > beforeLine) {
-    const info = getCodeBlockLineInfo(before);
+  if (before!.tagName === "PRE" && cursorLine > beforeLine) {
+    const info = getCodeBlockLineInfo(before!);
     if (info.lines.length > 1) {
       const lineIndex = cursorLine - beforeLine - 1;
       if (lineIndex >= 0 && lineIndex < info.lines.length) {
@@ -331,11 +354,11 @@ function syncPreviewToCursor() {
 
   // If not resolved by code block, interpolate between bracketing elements
   if (previewTargetY === undefined) {
-    const beforeY = before.getBoundingClientRect().top - previewRect.top + previewScrollTop;
+    const beforeY = before!.getBoundingClientRect().top - previewRect.top + previewScrollTop;
     if (before === after || beforeLine === afterLine) {
       previewTargetY = beforeY;
     } else {
-      const afterY = after.getBoundingClientRect().top - previewRect.top + previewScrollTop;
+      const afterY = after!.getBoundingClientRect().top - previewRect.top + previewScrollTop;
       const t = (cursorLine - beforeLine) / (afterLine - beforeLine);
       previewTargetY = beforeY + t * (afterY - beforeY);
     }
@@ -349,8 +372,8 @@ function syncPreviewToCursor() {
   previewPane.scrollTop = scrollTarget;
 }
 
-function syncPreviewClickToEditor(event) {
-  let el = event.target;
+function syncPreviewClickToEditor(event: MouseEvent) {
+  let el = event.target as HTMLElement | null;
   while (el && el !== event.currentTarget) {
     if (el.dataset && el.dataset.sourceLine) break;
     el = el.parentElement;
@@ -388,26 +411,26 @@ function syncPreviewClickToEditor(event) {
   editor.focus();
 }
 
-function loadContent(content, filePath) {
+function loadContent(content: string, filePath?: string | null) {
   editor.dispatch({
     changes: { from: 0, to: editor.state.doc.length, insert: content },
   });
   if (filePath !== undefined) {
-    currentFilePath = filePath;
-    setSelectedPath(filePath);
+    currentFilePath = filePath ?? null;
+    setSelectedPath(filePath ?? null);
   }
   svgCache.clear();
   renderPreview(content);
   updateStatus(editor.state);
 }
 
-function loadContentAsTab(content, filePath) {
-  const name = filePath ? filePath.split("/").pop() : "Untitled";
+function loadContentAsTab(content: string, filePath?: string) {
+  const name = filePath ? filePath.split("/").pop()! : "Untitled";
   openTab(filePath || null, name, content);
   // openTab triggers onSwitch which calls loadContent
 }
 
-function formatBytes(bytes) {
+function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -438,7 +461,7 @@ const updatePreview = EditorView.updateListener.of((update) => {
   if (update.docChanged) {
     pendingRender = true;
     const content = update.state.doc.toString();
-    clearTimeout(previewTimeout);
+    if (previewTimeout) clearTimeout(previewTimeout);
     previewTimeout = setTimeout(() => {
       renderPreview(content);
       updateStatus(update.state);
@@ -472,43 +495,43 @@ const editor = new EditorView({
       EditorView.lineWrapping,
     ],
   }),
-  parent: document.getElementById("editor-pane"),
+  parent: document.getElementById("editor-pane")!,
 });
 
 // --- Cached DOM references (used by scroll sync & preview) ---
 
-const previewPane = document.getElementById("preview-pane");
-const cmScroller = editor.dom.querySelector(".cm-scroller");
-const statusEl = document.getElementById("status");
+const previewPane = document.getElementById("preview-pane")!;
+const cmScroller = editor.dom.querySelector(".cm-scroller")! as HTMLElement;
+const statusEl = document.getElementById("status")!;
 
 // --- Preview ---
 
 // SVG cache: URL -> sanitized SVG string
-const svgCache = new Map();
+const svgCache = new Map<string, string>();
 
-async function inlineSvgImages(container) {
+async function inlineSvgImages(container: HTMLElement) {
   const imgs = container.querySelectorAll('img[src$=".svg"]');
   if (imgs.length === 0) return false;
   let changed = false;
   const tasks = Array.from(imgs).map(async (img) => {
-    const url = img.src;
+    const url = (img as HTMLImageElement).src;
     if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return;
 
     try {
-      let svgText;
+      let svgText: string | undefined;
       if (svgCache.has(url)) {
         svgText = svgCache.get(url);
       } else {
-        svgText = await invoke("fetch_svg", { url });
+        svgText = await invoke<string>("fetch_svg", { url });
         svgCache.set(url, svgText);
       }
 
       const wrapper = document.createElement("span");
       wrapper.className = "inline-svg";
-      wrapper.innerHTML = svgText;
+      wrapper.innerHTML = svgText!;
 
       // Preserve alt text as aria-label
-      const alt = img.alt;
+      const alt = (img as HTMLImageElement).alt;
       const svgEl = wrapper.querySelector("svg");
       if (svgEl && alt) {
         svgEl.setAttribute("aria-label", alt);
@@ -526,8 +549,8 @@ async function inlineSvgImages(container) {
 }
 
 // Shared renderer — stateless, reused across renders
-const previewRenderer = new marked.Renderer();
-previewRenderer.code = function ({ text, lang, _sourceLine }) {
+const previewRenderer = new marked.Renderer() as any;
+previewRenderer.code = function ({ text, lang, _sourceLine }: any) {
   const sl = slAttr(_sourceLine);
   if (lang === "mermaid") {
     return `<div${sl} class="mermaid-container" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
@@ -539,40 +562,40 @@ previewRenderer.code = function ({ text, lang, _sourceLine }) {
   const langClass = language ? ` class="hljs language-${lang}"` : ' class="hljs"';
   return `<pre${sl}><code${langClass}>${highlighted}</code></pre>`;
 };
-previewRenderer.heading = function ({ text, depth, _sourceLine }) {
+previewRenderer.heading = function ({ text, depth, _sourceLine }: any) {
   return `<h${depth}${slAttr(_sourceLine)}>${text}</h${depth}>\n`;
 };
-previewRenderer.paragraph = function ({ text, _sourceLine }) {
+previewRenderer.paragraph = function ({ text, _sourceLine }: any) {
   return `<p${slAttr(_sourceLine)}>${text}</p>\n`;
 };
-previewRenderer.blockquote = function ({ body, _sourceLine }) {
+previewRenderer.blockquote = function ({ body, _sourceLine }: any) {
   return `<blockquote${slAttr(_sourceLine)}>\n${body}</blockquote>\n`;
 };
-previewRenderer.list = function ({ items, ordered, start, _sourceLine }) {
+previewRenderer.list = function (this: any, { items, ordered, start, _sourceLine }: any) {
   const tag = ordered ? "ol" : "ul";
   const startAttr = ordered && start !== 1 ? ` start="${start}"` : "";
-  const body = items.map((item) => this.listitem(item)).join("");
+  const body = items.map((item: any) => this.listitem(item)).join("");
   return `<${tag}${startAttr}${slAttr(_sourceLine)}>\n${body}</${tag}>\n`;
 };
-previewRenderer.table = function ({ header, rows, _sourceLine }) {
-  const headerRow = `<tr>${header.map((h) => `<th${h.align ? ` align="${h.align}"` : ""}>${h.text}</th>`).join("")}</tr>`;
+previewRenderer.table = function ({ header, rows, _sourceLine }: any) {
+  const headerRow = `<tr>${header.map((h: any) => `<th${h.align ? ` align="${h.align}"` : ""}>${h.text}</th>`).join("")}</tr>`;
   const bodyRows = rows
     .map(
-      (row) =>
-        `<tr>${row.map((c) => `<td${c.align ? ` align="${c.align}"` : ""}>${c.text}</td>`).join("")}</tr>`,
+      (row: any) =>
+        `<tr>${row.map((c: any) => `<td${c.align ? ` align="${c.align}"` : ""}>${c.text}</td>`).join("")}</tr>`,
     )
     .join("\n");
   const tbody = bodyRows ? `<tbody>${bodyRows}</tbody>` : "";
   return `<table${slAttr(_sourceLine)}><thead>${headerRow}</thead>${tbody}</table>\n`;
 };
-previewRenderer.hr = function ({ _sourceLine }) {
+previewRenderer.hr = function ({ _sourceLine }: any) {
   return `<hr${slAttr(_sourceLine)}>\n`;
 };
-previewRenderer.html = function ({ text, _sourceLine }) {
+previewRenderer.html = function ({ text, _sourceLine }: any) {
   return _sourceLine ? text.replace(/^<(\w+)/, `<$1${slAttr(_sourceLine)}`) : text;
 };
 
-async function renderPreview(source) {
+async function renderPreview(source: string) {
   const hasMermaid = /```mermaid\b/.test(source);
 
   renderingPreview = true;
@@ -599,13 +622,17 @@ async function renderPreview(source) {
   );
 
   // Optimize image loading (Safari Reader-style)
-  for (const img of previewPane.querySelectorAll(".preview-page img")) {
+  for (const img of previewPane.querySelectorAll(
+    ".preview-page img",
+  ) as NodeListOf<HTMLImageElement>) {
     img.loading = "lazy";
     img.decoding = "async";
   }
 
   // Wrap tables in scrollable containers for overflow handling
-  for (const table of previewPane.querySelectorAll(".preview-page > table")) {
+  for (const table of previewPane.querySelectorAll(
+    ".preview-page > table",
+  ) as NodeListOf<HTMLTableElement>) {
     const wrapper = document.createElement("div");
     wrapper.className = "table-wrapper";
     // Transfer data-source-line to wrapper so scroll sync finds it
@@ -613,7 +640,7 @@ async function renderPreview(source) {
       wrapper.dataset.sourceLine = table.dataset.sourceLine;
       table.removeAttribute("data-source-line");
     }
-    table.parentNode.insertBefore(wrapper, table);
+    table.parentNode!.insertBefore(wrapper, table);
     wrapper.appendChild(table);
   }
 
@@ -622,7 +649,7 @@ async function renderPreview(source) {
       const mermaid = await getMermaid();
       const containers = previewPane.querySelectorAll(".mermaid-container");
       for (const el of containers) {
-        const src = decodeURIComponent(el.dataset.mermaidSource);
+        const src = decodeURIComponent((el as HTMLElement).dataset.mermaidSource!);
         const id = `mmd-${mermaidRenderCount++}`;
         try {
           const { svg } = await mermaid.render(id, src);
@@ -631,7 +658,7 @@ async function renderPreview(source) {
         } catch (err) {
           const pre = document.createElement("pre");
           pre.className = "mermaid-error";
-          pre.textContent = err.message || String(err);
+          pre.textContent = (err as Error).message || String(err);
           el.replaceChildren(pre);
           document.getElementById(id)?.remove();
         }
@@ -644,7 +671,9 @@ async function renderPreview(source) {
   // Restore scroll approximately (prevents flash), then build fresh anchors
   previewPane.scrollTop = savedScrollTop;
   buildScrollAnchors();
-  cachedSourceLineEls = Array.from(previewPane.querySelectorAll("[data-source-line]"));
+  cachedSourceLineEls = Array.from(
+    previewPane.querySelectorAll("[data-source-line]"),
+  ) as HTMLElement[];
   pendingRender = false;
   renderingPreview = false;
 
@@ -662,7 +691,7 @@ async function renderPreview(source) {
     .catch(() => {});
 }
 
-function updateStatus(state) {
+function updateStatus(state: EditorState) {
   const lines = state.doc.lines;
   const chars = state.doc.length;
   const pathInfo = currentFilePath ? ` | ${currentFilePath}` : "";
@@ -675,7 +704,7 @@ updateStatus(editor.state);
 
 // --- Toolbar Actions ---
 
-document.getElementById("btn-open").addEventListener("click", async () => {
+document.getElementById("btn-open")!.addEventListener("click", async () => {
   const path = await open({
     filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx"] }],
   });
@@ -685,7 +714,7 @@ document.getElementById("btn-open").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("btn-save").addEventListener("click", async () => {
+document.getElementById("btn-save")!.addEventListener("click", async () => {
   const content = editor.state.doc.toString();
   if (currentFilePath) {
     await writeTextFile(currentFilePath, content);
@@ -696,7 +725,7 @@ document.getElementById("btn-save").addEventListener("click", async () => {
     if (path) {
       await writeTextFile(path, content);
       currentFilePath = path;
-      updateActiveTab({ path, name: path.split("/").pop() });
+      updateActiveTab({ path, name: path.split("/").pop()! });
       updateStatus(editor.state);
     }
   }
@@ -706,8 +735,8 @@ document.getElementById("btn-save").addEventListener("click", async () => {
 
 // --- URL Bar (Fetch URL) ---
 
-const urlBar = document.getElementById("url-bar");
-const urlInput = document.getElementById("url-input");
+const urlBar = document.getElementById("url-bar")!;
+const urlInput = document.getElementById("url-input")! as HTMLInputElement;
 
 async function fetchUrl() {
   const url = urlInput.value.trim();
@@ -718,7 +747,7 @@ async function fetchUrl() {
   statusEl.textContent = "Fetching page…";
 
   try {
-    const result = await invoke("fetch_url_as_markdown", { url });
+    const result = await invoke<FetchResult>("fetch_url_as_markdown", { url });
     loadContentAsTab(result.body);
     statusEl.textContent = result.is_markdown
       ? `Fetched (Markdown): ${url}`
@@ -743,7 +772,7 @@ async function renderUrl() {
   statusEl.textContent = "Rendering page (this may take a moment)…";
 
   try {
-    const markdown = await invoke("fetch_rendered_url_as_markdown", { url, workerUrl });
+    const markdown = await invoke<string>("fetch_rendered_url_as_markdown", { url, workerUrl });
     loadContentAsTab(markdown);
     statusEl.textContent = "Rendered: " + url;
   } catch (e) {
@@ -754,19 +783,19 @@ async function renderUrl() {
   }
 }
 
-document.getElementById("btn-fetch").addEventListener("click", fetchUrl);
-document.getElementById("btn-render").addEventListener("click", renderUrl);
+document.getElementById("btn-fetch")!.addEventListener("click", fetchUrl);
+document.getElementById("btn-render")!.addEventListener("click", renderUrl);
 urlInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") fetchUrl();
 });
 
 // --- Import Document ---
 
-async function convertFile(filePath) {
+async function convertFile(filePath: string) {
   const workerUrl = await ensureWorkerUrl();
   if (!workerUrl) return;
 
-  const isImage = await invoke("detect_file_is_image", { filePath });
+  const isImage = await invoke<boolean>("detect_file_is_image", { filePath });
 
   if (isImage) {
     if (!isImageConversionAllowed()) {
@@ -783,13 +812,13 @@ async function convertFile(filePath) {
   statusEl.textContent = "Converting…";
 
   try {
-    const result = await invoke("convert_file_to_markdown", {
+    const result = await invoke<ConvertResult>("convert_file_to_markdown", {
       filePath,
       workerUrl,
     });
     loadContentAsTab(result.markdown, filePath);
     const tag = result.is_image ? " (image OCR)" : "";
-    const fileName = filePath.split("/").pop();
+    const fileName = filePath.split("/").pop()!;
     const mdSize = new Blob([result.markdown]).size;
     if (result.original_size && result.original_size > 0 && mdSize < result.original_size) {
       const reduction = Math.round((1 - mdSize / result.original_size) * 100);
@@ -802,7 +831,7 @@ async function convertFile(filePath) {
   }
 }
 
-document.getElementById("btn-import").addEventListener("click", async () => {
+document.getElementById("btn-import")!.addEventListener("click", async () => {
   const path = await open({
     filters: [
       {
@@ -816,7 +845,7 @@ document.getElementById("btn-import").addEventListener("click", async () => {
 
 // --- Drag & Drop ---
 
-const appEl = document.getElementById("app");
+const appEl = document.getElementById("app")!;
 
 appEl.addEventListener("dragover", (e) => {
   e.preventDefault();
@@ -824,7 +853,7 @@ appEl.addEventListener("dragover", (e) => {
 });
 
 appEl.addEventListener("dragleave", (e) => {
-  if (!appEl.contains(e.relatedTarget)) {
+  if (!appEl.contains(e.relatedTarget as Node)) {
     appEl.classList.remove("drop-active");
   }
 });
@@ -845,7 +874,7 @@ appEl.addEventListener("drop", async (e) => {
 
 // Tauri file drop event (works with native file drops)
 if (window.__TAURI__?.event) {
-  window.__TAURI__.event.listen("tauri://drag-drop", async (event) => {
+  window.__TAURI__.event.listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
     const paths = event.payload.paths;
     if (!paths || paths.length === 0) return;
 
@@ -865,13 +894,13 @@ if (window.__TAURI__?.event) {
 
 // --- Table Editor ---
 
-document.getElementById("btn-table").addEventListener("click", () => {
+document.getElementById("btn-table")!.addEventListener("click", () => {
   editTableAtCursor(editor);
 });
 
 // --- Export PDF ---
 
-document.getElementById("btn-export-pdf").addEventListener("click", () => {
+document.getElementById("btn-export-pdf")!.addEventListener("click", () => {
   window.print();
 });
 
@@ -879,7 +908,7 @@ document.getElementById("btn-export-pdf").addEventListener("click", () => {
 
 async function copyRichText() {
   const html = previewPane.innerHTML;
-  const text = previewPane.innerText;
+  const text = (previewPane as HTMLElement).innerText;
   try {
     await navigator.clipboard.write([
       new ClipboardItem({
@@ -893,7 +922,7 @@ async function copyRichText() {
   }
 }
 
-document.getElementById("btn-copy-rich").addEventListener("click", copyRichText);
+document.getElementById("btn-copy-rich")!.addEventListener("click", copyRichText);
 
 document.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "C") {
@@ -904,9 +933,9 @@ document.addEventListener("keydown", (e) => {
 
 // --- Settings ---
 
-document.getElementById("btn-settings").addEventListener("click", () => {
+document.getElementById("btn-settings")!.addEventListener("click", () => {
   showSettings({
-    onSave: (url) => {
+    onSave: (url: string) => {
       statusEl.textContent = url ? `Worker URL: ${url}` : "Worker URL cleared";
     },
   });
@@ -914,8 +943,8 @@ document.getElementById("btn-settings").addEventListener("click", () => {
 
 // --- Resizable divider ---
 
-const divider = document.getElementById("divider");
-const editorContainer = document.getElementById("editor-container");
+const divider = document.getElementById("divider")!;
+const editorContainer = document.getElementById("editor-container")!;
 
 let isDragging = false;
 
@@ -930,8 +959,8 @@ document.addEventListener("mousemove", (e) => {
   const availableWidth = previewRight - editorLeft;
   const ratio = (e.clientX - editorLeft) / availableWidth;
   const clamped = Math.max(0.2, Math.min(0.8, ratio));
-  editorContainer.style.flex = `${clamped}`;
-  previewPane.style.flex = `${1 - clamped}`;
+  (editorContainer as HTMLElement).style.flex = `${clamped}`;
+  (previewPane as HTMLElement).style.flex = `${1 - clamped}`;
 });
 document.addEventListener("mouseup", () => {
   isDragging = false;
@@ -939,12 +968,12 @@ document.addEventListener("mouseup", () => {
 
 // --- MCP Bridge: State Sync & Event Listeners ---
 
-let syncTimeout = null;
-let lastSyncedContent = null;
-let lastSyncedFilePath = null;
+let syncTimeout: ReturnType<typeof setTimeout> | null = null;
+let lastSyncedContent: string | null = null;
+let lastSyncedFilePath: string | null = null;
 
 function syncEditorState() {
-  clearTimeout(syncTimeout);
+  if (syncTimeout) clearTimeout(syncTimeout);
   syncTimeout = setTimeout(() => {
     const content = editor.state.doc.toString();
     if (content === lastSyncedContent && currentFilePath === lastSyncedFilePath) return;
@@ -964,13 +993,13 @@ function syncEditorState() {
 if (window.__TAURI__?.event) {
   const { listen } = window.__TAURI__.event;
 
-  listen("bridge:set-content", (event) => {
+  listen<string>("bridge:set-content", (event) => {
     loadContentAsTab(event.payload);
   });
 
-  listen("bridge:insert-text", (event) => {
+  listen<{ text: string; position: string }>("bridge:insert-text", (event) => {
     const { text, position } = event.payload;
-    let pos;
+    let pos: number;
     if (position === "start") {
       pos = 0;
     } else if (position === "end") {
@@ -983,7 +1012,7 @@ if (window.__TAURI__?.event) {
     updateStatus(editor.state);
   });
 
-  listen("bridge:open-file", async (event) => {
+  listen<string>("bridge:open-file", async (event) => {
     const path = event.payload;
     try {
       const content = await readTextFile(path);
@@ -994,7 +1023,7 @@ if (window.__TAURI__?.event) {
     }
   });
 
-  listen("bridge:save-file", async (event) => {
+  listen<string>("bridge:save-file", async (event) => {
     const path = event.payload || currentFilePath;
     if (!path) return;
     try {
@@ -1047,8 +1076,8 @@ previewPane.addEventListener("click", (e) => {
 
 // --- Sidebar ---
 
-const sidebarEl = document.getElementById("sidebar");
-const sidebarDivider = document.getElementById("sidebar-divider");
+const sidebarEl = document.getElementById("sidebar")!;
+const sidebarDivider = document.getElementById("sidebar-divider")!;
 
 // Restore collapsed state
 const sidebarCollapsed = localStorage.getItem("markupsidedown:sidebarCollapsed") === "true";
@@ -1057,10 +1086,10 @@ if (sidebarCollapsed) {
 }
 
 initSidebar(sidebarEl, {
-  onOpen: (content, filePath) => {
+  onOpen: (content: string, filePath: string) => {
     loadContentAsTab(content, filePath);
   },
-  onFolder: (rootPath) => {
+  onFolder: (rootPath: string) => {
     setRepoPath(rootPath);
     refreshGitAndSync();
   },
@@ -1070,7 +1099,7 @@ initSidebar(sidebarEl, {
 const gitPanelEl = getGitPanelEl();
 if (gitPanelEl) {
   initGitPanel(gitPanelEl, {
-    onOpen: async (filePath) => {
+    onOpen: async (filePath: string) => {
       try {
         const content = await readTextFile(filePath);
         loadContentAsTab(content, filePath);
@@ -1085,7 +1114,7 @@ if (gitPanelEl) {
 const ghPanelEl = getGitHubPanelEl();
 if (ghPanelEl) {
   initGitHubPanel(ghPanelEl, {
-    onContent: (body, ref_) => {
+    onContent: (body: string, ref_: string) => {
       loadContentAsTab(body);
       statusEl.textContent = `Fetched: ${ref_}`;
     },
@@ -1108,7 +1137,7 @@ function toggleSidebar() {
   sidebarEl.classList.toggle("collapsed");
   localStorage.setItem(
     "markupsidedown:sidebarCollapsed",
-    sidebarEl.classList.contains("collapsed"),
+    String(sidebarEl.classList.contains("collapsed")),
   );
 }
 
@@ -1141,10 +1170,10 @@ document.addEventListener("mouseup", () => {
 
 // --- Tabs ---
 
-const tabBarEl = document.getElementById("tab-bar");
+const tabBarEl = document.getElementById("tab-bar")!;
 
 initTabs(tabBarEl, {
-  onSwitch: (tab) => {
+  onSwitch: (tab: { content: string; path: string | null }) => {
     loadContent(tab.content, tab.path);
   },
   onEmpty: () => {

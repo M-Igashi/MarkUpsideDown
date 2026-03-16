@@ -1,4 +1,4 @@
-import { statusClass } from "./git-panel.js";
+import { statusClass } from "./git-panel.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog, confirm } = window.__TAURI__.dialog;
@@ -6,24 +6,39 @@ const { readTextFile } = window.__TAURI__.fs;
 
 const STORAGE_KEY = "markupsidedown:sidebar";
 
+interface DirEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  extension: string;
+}
+
+interface GitStatus {
+  status: string;
+  staged: boolean;
+}
+
 // --- State ---
 
-let rootPath = null;
-let expandedDirs = new Set();
-let selectedPath = null;
-let onFileOpen = null;
-let onFolderChange = null;
-let gitStatusMap = new Map(); // path -> { status, staged }
+let rootPath: string | null = null;
+let expandedDirs = new Set<string>();
+let selectedPath: string | null = null;
+let onFileOpen: ((content: string, filePath: string) => void) | null = null;
+let onFolderChange: ((rootPath: string) => void) | null = null;
+let gitStatusMap: Map<string, GitStatus> = new Map();
 let refreshGeneration = 0; // guards against concurrent refreshTree() races
 
 // --- DOM ---
 
-let sidebarEl = null;
-let treeEl = null;
-let gitPanelSlot = null;
-let ghPanelSlot = null;
+let sidebarEl: HTMLElement | null = null;
+let treeEl: HTMLElement | null = null;
+let gitPanelSlot: HTMLElement | null = null;
+let ghPanelSlot: HTMLElement | null = null;
 
-export function initSidebar(el, { onOpen, onFolder }) {
+export function initSidebar(
+  el: HTMLElement,
+  { onOpen, onFolder }: { onOpen: (content: string, filePath: string) => void; onFolder: (rootPath: string) => void },
+) {
   sidebarEl = el;
   onFileOpen = onOpen;
   onFolderChange = onFolder;
@@ -72,6 +87,7 @@ export async function openFolder() {
 // --- Render ---
 
 function render() {
+  if (!sidebarEl) return;
   sidebarEl.innerHTML = "";
 
   // Header
@@ -80,7 +96,7 @@ function render() {
 
   const title = document.createElement("span");
   title.className = "sidebar-title";
-  title.textContent = rootPath ? rootPath.split("/").pop() : "Files";
+  title.textContent = rootPath ? rootPath.split("/").pop() ?? rootPath : "Files";
   header.appendChild(title);
 
   const actions = document.createElement("div");
@@ -143,8 +159,8 @@ async function refreshTree() {
   }
 }
 
-async function renderDirectory(dirPath, container, depth, gen) {
-  const entries = await invoke("list_directory", { path: dirPath });
+async function renderDirectory(dirPath: string, container: HTMLElement, depth: number, gen: number) {
+  const entries = await invoke<DirEntry[]>("list_directory", { path: dirPath });
   if (gen !== refreshGeneration) return;
 
   // Render items and collect expanded subdirectories for parallel fetch
@@ -169,7 +185,7 @@ async function renderDirectory(dirPath, container, depth, gen) {
   }
 }
 
-function createTreeItem(entry, depth) {
+function createTreeItem(entry: DirEntry, depth: number) {
   const item = document.createElement("div");
   item.className = "sidebar-tree-item";
   item.dataset.path = entry.path;
@@ -232,7 +248,7 @@ function createTreeItem(entry, depth) {
   return item;
 }
 
-function fileIcon(ext) {
+function fileIcon(ext: string) {
   switch (ext) {
     case "md":
     case "markdown":
@@ -262,7 +278,7 @@ function fileIcon(ext) {
   }
 }
 
-async function toggleDirectory(dirPath) {
+async function toggleDirectory(dirPath: string) {
   if (expandedDirs.has(dirPath)) {
     expandedDirs.delete(dirPath);
   } else {
@@ -272,7 +288,7 @@ async function toggleDirectory(dirPath) {
   await refreshTree();
 }
 
-async function selectAndOpenFile(entry) {
+async function selectAndOpenFile(entry: DirEntry) {
   setSelectedPath(entry.path);
   if (onFileOpen) {
     try {
@@ -286,7 +302,7 @@ async function selectAndOpenFile(entry) {
 
 // --- Context Menu ---
 
-let activeContextMenu = null;
+let activeContextMenu: HTMLElement | null = null;
 
 function removeContextMenu() {
   if (activeContextMenu) {
@@ -295,7 +311,7 @@ function removeContextMenu() {
   }
 }
 
-function showContextMenu(event, entry) {
+function showContextMenu(event: MouseEvent, entry: DirEntry) {
   removeContextMenu();
 
   const menu = document.createElement("div");
@@ -303,7 +319,7 @@ function showContextMenu(event, entry) {
   menu.style.left = `${event.clientX}px`;
   menu.style.top = `${event.clientY}px`;
 
-  const items = [];
+  const items: ({ label: string; action: () => void; danger?: boolean } | null)[] = [];
 
   if (entry.is_dir) {
     items.push({ label: "New File…", action: () => promptNewFile(entry.path) });
@@ -349,8 +365,8 @@ function showContextMenu(event, entry) {
   }
 
   // Close on click outside
-  const close = (e) => {
-    if (!menu.contains(e.target)) {
+  const close = (e: Event) => {
+    if (!menu.contains(e.target as Node)) {
       removeContextMenu();
       document.removeEventListener("click", close, true);
     }
@@ -358,7 +374,7 @@ function showContextMenu(event, entry) {
   setTimeout(() => document.addEventListener("click", close, true), 0);
 }
 
-async function promptNewFile(dirPath) {
+async function promptNewFile(dirPath: string) {
   const name = prompt("New file name:");
   if (!name) return;
   try {
@@ -374,7 +390,7 @@ async function promptNewFile(dirPath) {
   }
 }
 
-async function promptNewFolder(dirPath) {
+async function promptNewFolder(dirPath: string) {
   const name = prompt("New folder name:");
   if (!name) return;
   try {
@@ -390,7 +406,7 @@ async function promptNewFolder(dirPath) {
   }
 }
 
-async function promptRename(entry) {
+async function promptRename(entry: DirEntry) {
   const newName = prompt("New name:", entry.name);
   if (!newName || newName === entry.name) return;
   try {
@@ -402,7 +418,7 @@ async function promptRename(entry) {
     }
     // Update expanded dirs if renamed a directory
     if (entry.is_dir) {
-      const updated = new Set();
+      const updated = new Set<string>();
       for (const p of expandedDirs) {
         if (p === entry.path) {
           updated.add(newPath);
@@ -421,7 +437,7 @@ async function promptRename(entry) {
   }
 }
 
-async function promptDelete(entry) {
+async function promptDelete(entry: DirEntry) {
   const ok = await confirm(
     `Delete "${entry.name}"${entry.is_dir ? " and all its contents" : ""}?`,
     { title: "Confirm Delete", kind: "warning" },
@@ -442,7 +458,7 @@ async function promptDelete(entry) {
 
 // --- Public API ---
 
-export function setSelectedPath(path) {
+export function setSelectedPath(path: string | null) {
   selectedPath = path;
   if (!treeEl) return;
   // Targeted DOM update: swap .selected class without full tree re-render
@@ -468,7 +484,7 @@ export function getRootPath() {
   return rootPath;
 }
 
-export function setGitStatus(statusMap) {
+export function setGitStatus(statusMap: Map<string, GitStatus>) {
   gitStatusMap = statusMap;
   if (treeEl && rootPath) refreshTree();
 }

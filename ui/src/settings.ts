@@ -1,5 +1,18 @@
 const { invoke } = window.__TAURI__.core;
 
+interface WorkerStatus {
+  reachable: boolean;
+  convert_available: boolean;
+  render_available: boolean;
+  error?: string;
+}
+
+interface WranglerStatus {
+  installed: boolean;
+  logged_in: boolean;
+  accounts: { id: string; name: string }[];
+}
+
 const STORAGE_KEY_WORKER_URL = "markupsidedown:workerUrl";
 const STORAGE_KEY_SETUP_DONE = "markupsidedown:setupDone";
 const STORAGE_KEY_ALLOW_IMAGE = "markupsidedown:allowImageConversion";
@@ -8,7 +21,7 @@ export function getWorkerUrl() {
   return localStorage.getItem(STORAGE_KEY_WORKER_URL) || "";
 }
 
-export function setWorkerUrl(url) {
+export function setWorkerUrl(url: string) {
   if (url) {
     localStorage.setItem(STORAGE_KEY_WORKER_URL, url.replace(/\/+$/, ""));
   } else {
@@ -24,7 +37,7 @@ export function isImageConversionAllowed() {
   return localStorage.getItem(STORAGE_KEY_ALLOW_IMAGE) !== "0";
 }
 
-function setImageConversionAllowed(allowed) {
+function setImageConversionAllowed(allowed: boolean) {
   localStorage.setItem(STORAGE_KEY_ALLOW_IMAGE, allowed ? "1" : "0");
 }
 
@@ -32,9 +45,9 @@ function markSetupDone() {
   localStorage.setItem(STORAGE_KEY_SETUP_DONE, "1");
 }
 
-let currentTestStatus = null; // cached last test result
+let currentTestStatus: WorkerStatus | null = null; // cached last test result
 
-function featureRows(status) {
+function featureRows(status: WorkerStatus | null) {
   const hasWorker = Boolean(status && status.reachable);
   const hasConvert = Boolean(status && status.convert_available);
   const hasRender = Boolean(status && status.render_available);
@@ -56,7 +69,8 @@ function featureRows(status) {
   ];
 }
 
-function renderFeatureList(container, status) {
+function renderFeatureList(container: HTMLElement | null, status: WorkerStatus | null) {
+  if (!container) return;
   const rows = featureRows(status);
   container.innerHTML = rows
     .map(
@@ -80,7 +94,7 @@ const SETUP_STEPS = [
   { id: "verify", label: "Verify" },
 ];
 
-function renderSetupProgress(container, currentStep, stepStates) {
+function renderSetupProgress(container: HTMLElement, _currentStep: string, stepStates: Record<string, string>) {
   container.innerHTML = SETUP_STEPS.map((step) => {
     const state = stepStates[step.id] || "pending";
     let icon, cls;
@@ -104,25 +118,29 @@ function renderSetupProgress(container, currentStep, stepStates) {
   }).join("");
 }
 
-async function startAutoSetup(progressContainer, urlInput, onComplete) {
-  const states = {};
-  const update = (id, state) => {
+async function startAutoSetup(
+  progressContainer: HTMLElement,
+  urlInput: HTMLInputElement,
+  onComplete: (workerUrl: string | null, testStatus: WorkerStatus | null) => void,
+) {
+  const states: Record<string, string> = {};
+  const update = (id: string, state: string) => {
     states[id] = state;
     renderSetupProgress(progressContainer, id, states);
   };
-  const fail = (id, message) => {
+  const fail = (id: string, message: string) => {
     update(id, "error");
     showSetupError(progressContainer, message);
     onComplete(null, null);
   };
 
-  let accountId = null;
+  let accountId: string | null = null;
 
   // Step 1: Check wrangler
   update("wrangler", "running");
-  let status;
+  let status: WranglerStatus;
   try {
-    status = await invoke("check_wrangler_status");
+    status = await invoke<WranglerStatus>("check_wrangler_status");
   } catch (e) {
     return fail("wrangler", `Failed to check wrangler: ${e}`);
   }
@@ -139,7 +157,7 @@ async function startAutoSetup(progressContainer, urlInput, onComplete) {
     update("login", "running");
     try {
       await invoke("wrangler_login");
-      status = await invoke("check_wrangler_status");
+      status = await invoke<WranglerStatus>("check_wrangler_status");
       if (!status.logged_in) {
         return fail("login", "Login failed. Please try again.");
       }
@@ -164,9 +182,9 @@ async function startAutoSetup(progressContainer, urlInput, onComplete) {
 
   // Step 3: Deploy
   update("deploy", "running");
-  let workerUrl;
+  let workerUrl: string;
   try {
-    workerUrl = await invoke("deploy_worker", { accountId });
+    workerUrl = await invoke<string>("deploy_worker", { accountId });
   } catch (e) {
     return fail("deploy", `Deploy failed: ${e}`);
   }
@@ -205,7 +223,7 @@ async function startAutoSetup(progressContainer, urlInput, onComplete) {
   update("verify", "running");
   urlInput.value = workerUrl;
   try {
-    const testStatus = await invoke("test_worker_url", {
+    const testStatus = await invoke<WorkerStatus>("test_worker_url", {
       workerUrl: workerUrl.replace(/\/+$/, ""),
     });
     currentTestStatus = testStatus;
@@ -227,21 +245,21 @@ async function startAutoSetup(progressContainer, urlInput, onComplete) {
   }
 }
 
-function showSetupError(container, message) {
+function showSetupError(container: HTMLElement, message: string) {
   const errDiv = container.querySelector(".setup-error") || document.createElement("div");
   errDiv.className = "setup-error";
   errDiv.textContent = message;
   if (!errDiv.parentNode) container.appendChild(errDiv);
 }
 
-function showSetupSuccess(container, url) {
+function showSetupSuccess(container: HTMLElement, url: string) {
   const div = container.querySelector(".setup-success") || document.createElement("div");
   div.className = "setup-success";
   div.textContent = `Setup complete! Worker: ${url}`;
   if (!div.parentNode) container.appendChild(div);
 }
 
-function showAccountPicker(container, accounts) {
+function showAccountPicker(container: HTMLElement, accounts: { id: string; name: string }[]): Promise<string> {
   return new Promise((resolve) => {
     const pickerDiv = document.createElement("div");
     pickerDiv.className = "setup-account-picker";
@@ -272,7 +290,7 @@ function showAccountPicker(container, accounts) {
   });
 }
 
-function showApiTokenInput(container) {
+function showApiTokenInput(container: HTMLElement): Promise<string> {
   return new Promise((resolve, reject) => {
     const div = document.createElement("div");
     div.className = "setup-token-input";
@@ -293,10 +311,10 @@ function showApiTokenInput(container) {
     `;
     container.appendChild(div);
 
-    const input = div.querySelector(".setup-token-field");
+    const input = div.querySelector<HTMLInputElement>(".setup-token-field")!;
     input.focus();
 
-    div.querySelector(".setup-token-confirm").addEventListener("click", () => {
+    div.querySelector(".setup-token-confirm")!.addEventListener("click", () => {
       const val = input.value.trim();
       if (!val) return;
       div.remove();
@@ -312,7 +330,7 @@ function showApiTokenInput(container) {
       }
     });
 
-    div.querySelector(".setup-token-skip").addEventListener("click", () => {
+    div.querySelector(".setup-token-skip")!.addEventListener("click", () => {
       div.remove();
       reject("Skipped — secrets not configured");
     });
@@ -321,7 +339,7 @@ function showApiTokenInput(container) {
 
 // --- Settings Panel ---
 
-export function showSettings({ onSave, onClose: onCloseCallback } = {}) {
+export function showSettings({ onSave, onClose: onCloseCallback }: { onSave?: (url: string) => void; onClose?: () => void } = {}) {
   document.getElementById("settings-panel")?.remove();
 
   const overlay = document.createElement("div");
@@ -402,13 +420,13 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
 
   document.body.appendChild(overlay);
 
-  const urlInput = document.getElementById("settings-worker-url");
-  const testBtn = document.getElementById("settings-test-btn");
-  const testResult = document.getElementById("settings-test-result");
-  const featureList = document.getElementById("settings-feature-list");
-  const secretsHelp = document.getElementById("settings-secrets-help");
-  const autoSetupBtn = document.getElementById("settings-auto-setup-btn");
-  const setupProgress = document.getElementById("settings-setup-progress");
+  const urlInput = document.getElementById("settings-worker-url") as HTMLInputElement;
+  const testBtn = document.getElementById("settings-test-btn") as HTMLButtonElement;
+  const testResult = document.getElementById("settings-test-result")!;
+  const featureList = document.getElementById("settings-feature-list")!;
+  const secretsHelp = document.getElementById("settings-secrets-help") as HTMLElement;
+  const autoSetupBtn = document.getElementById("settings-auto-setup-btn") as HTMLButtonElement;
+  const setupProgress = document.getElementById("settings-setup-progress")!;
 
   // Initial feature list
   renderFeatureList(featureList, currentTestStatus);
@@ -416,7 +434,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
     secretsHelp.style.display = "";
   }
 
-  const allowImageCheckbox = document.getElementById("settings-allow-image");
+  const allowImageCheckbox = document.getElementById("settings-allow-image") as HTMLInputElement;
   allowImageCheckbox.checked = isImageConversionAllowed();
 
   urlInput.focus();
@@ -454,7 +472,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
     testResult.textContent = "Connecting\u2026";
 
     try {
-      const status = await invoke("test_worker_url", { workerUrl: url });
+      const status = await invoke<WorkerStatus>("test_worker_url", { workerUrl: url });
       currentTestStatus = status;
 
       if (!status.reachable) {
@@ -472,7 +490,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
       }
 
       renderFeatureList(featureList, status);
-      secretsHelp.style.display = status.reachable && !status.render_available ? "" : "none";
+      secretsHelp.style.display = (status.reachable && !status.render_available) ? "" : "none";
     } catch (e) {
       testResult.className = "settings-test-result test-error";
       testResult.textContent = `Error: ${e}`;
@@ -502,11 +520,11 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
     if (onSave) onSave(url);
   };
 
-  document.getElementById("settings-close").addEventListener("click", close);
-  document.getElementById("settings-cancel").addEventListener("click", close);
-  document.getElementById("settings-save").addEventListener("click", saveAndClose);
+  document.getElementById("settings-close")!.addEventListener("click", close);
+  document.getElementById("settings-cancel")!.addEventListener("click", close);
+  document.getElementById("settings-save")!.addEventListener("click", saveAndClose);
 
-  document.getElementById("settings-clear").addEventListener("click", () => {
+  document.getElementById("settings-clear")!.addEventListener("click", () => {
     urlInput.value = "";
     currentTestStatus = null;
     testResult.className = "settings-test-result";
@@ -530,7 +548,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
 
 // Returns the worker URL, or shows settings panel if not configured.
 // Returns a Promise that resolves to the URL or null.
-export function ensureWorkerUrl() {
+export function ensureWorkerUrl(): Promise<string | null> {
   const url = getWorkerUrl();
   if (url) return Promise.resolve(url);
 

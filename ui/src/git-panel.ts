@@ -2,18 +2,30 @@ const { invoke } = window.__TAURI__.core;
 
 // --- State ---
 
-let panelEl = null;
-let repoPath = null;
-let gitData = null; // { branch, files, is_repo }
-let onFileClick = null;
+interface GitFile {
+  path: string;
+  status: string;
+  staged: boolean;
+}
 
-export function initGitPanel(el, { onOpen }) {
+interface GitData {
+  branch: string;
+  files: GitFile[];
+  is_repo: boolean;
+}
+
+let panelEl: HTMLElement | null = null;
+let repoPath: string | null = null;
+let gitData: GitData | null = null;
+let onFileClick: ((path: string) => void) | null = null;
+
+export function initGitPanel(el: HTMLElement, { onOpen }: { onOpen: (path: string) => void }) {
   panelEl = el;
   onFileClick = onOpen;
   render();
 }
 
-export function setRepoPath(path) {
+export function setRepoPath(path: string | null) {
   repoPath = path;
   if (path) {
     refresh();
@@ -26,27 +38,27 @@ export function setRepoPath(path) {
 export async function refresh() {
   if (!repoPath) return;
   try {
-    gitData = await invoke("git_status", { repoPath });
+    gitData = await invoke<GitData>("git_status", { repoPath });
   } catch {
     gitData = null;
   }
   render();
 }
 
-export function getFileStatus(filePath) {
+export function getFileStatus(filePath: string): GitFile | null {
   if (!gitData || !gitData.is_repo) return null;
   // Match by relative path suffix
   for (const f of gitData.files) {
-    if (filePath.endsWith(f.path) || f.path.endsWith(filePath.split("/").pop())) {
+    if (filePath.endsWith(f.path) || f.path.endsWith(filePath.split("/").pop() ?? "")) {
       return f;
     }
   }
   return null;
 }
 
-export function getStatusMap() {
+export function getStatusMap(): Map<string, GitFile> {
   if (!gitData || !gitData.is_repo) return new Map();
-  const map = new Map();
+  const map = new Map<string, GitFile>();
   for (const f of gitData.files) {
     // Use the highest-priority status (staged > unstaged)
     if (!map.has(f.path) || f.staged) {
@@ -58,7 +70,7 @@ export function getStatusMap() {
 
 // --- Actions ---
 
-async function stageFile(filePath) {
+async function stageFile(filePath: string) {
   if (!repoPath) return;
   try {
     await invoke("git_stage", { repoPath, filePath });
@@ -68,7 +80,7 @@ async function stageFile(filePath) {
   }
 }
 
-async function unstageFile(filePath) {
+async function unstageFile(filePath: string) {
   if (!repoPath) return;
   try {
     await invoke("git_unstage", { repoPath, filePath });
@@ -80,12 +92,12 @@ async function unstageFile(filePath) {
 
 async function commitChanges() {
   if (!repoPath) return;
-  const input = panelEl.querySelector(".git-commit-input");
+  const input = panelEl!.querySelector<HTMLInputElement>(".git-commit-input");
   const message = input?.value.trim();
   if (!message) return;
   try {
     await invoke("git_commit", { repoPath, message });
-    input.value = "";
+    input!.value = "";
     await refresh();
   } catch (e) {
     alert(`Commit failed: ${e}`);
@@ -124,7 +136,7 @@ async function gitFetch() {
 
 // --- Render ---
 
-function statusLabel(status) {
+function statusLabel(status: string): string {
   switch (status) {
     case "M":
       return "modified";
@@ -141,7 +153,7 @@ function statusLabel(status) {
   }
 }
 
-export function statusClass(status) {
+export function statusClass(status: string): string {
   switch (status) {
     case "M":
       return "git-modified";
@@ -228,7 +240,7 @@ function render() {
     ["Fetch", gitFetch],
     ["Pull", gitPull],
     ["Push", gitPush],
-  ]) {
+  ] as const) {
     const btn = document.createElement("button");
     btn.className = "git-action-btn";
     btn.textContent = label;
@@ -239,7 +251,7 @@ function render() {
   panelEl.appendChild(actions);
 }
 
-function createSection(title, files, isStaged) {
+function createSection(title: string, files: GitFile[], isStaged: boolean): HTMLElement {
   const section = document.createElement("div");
   section.className = "git-section";
 

@@ -25,6 +25,8 @@
     "mermaid": "^11.13.0"
   },
   "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "typescript": "^5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",
     "vite-plus": "latest"
   },

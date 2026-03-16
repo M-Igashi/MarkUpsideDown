@@ -1,10 +1,25 @@
+import type { Text } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
+
 // --- Markdown Table Parser ---
 
-function parseMarkdownTable(text) {
+interface TableData {
+  headers: string[];
+  alignments: string[];
+  rows: string[][];
+}
+
+interface TableRange {
+  table: TableData;
+  from: number;
+  to: number;
+}
+
+function parseMarkdownTable(text: string): TableData | null {
   const lines = text.split("\n").filter((l) => l.trim());
   if (lines.length < 2) return null;
 
-  const parseRow = (line) =>
+  const parseRow = (line: string): string[] =>
     line
       .replace(/^\|/, "")
       .replace(/\|$/, "")
@@ -15,7 +30,7 @@ function parseMarkdownTable(text) {
   const sepLine = lines[1].trim();
   if (!/^\|?[\s:]*-{3,}[\s:]*(\|[\s:]*-{3,}[\s:]*)*\|?$/.test(sepLine)) return null;
 
-  const alignments = parseRow(lines[1]).map((c) => {
+  const alignments: string[] = parseRow(lines[1]).map((c) => {
     const left = c.startsWith(":");
     const right = c.endsWith(":");
     if (left && right) return "center";
@@ -26,7 +41,7 @@ function parseMarkdownTable(text) {
   const rows = lines.slice(2).map(parseRow);
   const colCount = header.length;
 
-  const normalize = (row) => {
+  const normalize = (row: string[]): string[] => {
     while (row.length < colCount) row.push("");
     return row.slice(0, colCount);
   };
@@ -38,7 +53,7 @@ function parseMarkdownTable(text) {
   };
 }
 
-function generateMarkdownTable(table) {
+function generateMarkdownTable(table: TableData): string {
   const { headers, alignments, rows } = table;
   const colCount = headers.length;
 
@@ -47,7 +62,7 @@ function generateMarkdownTable(table) {
     return Math.max(3, ...cells.map((c) => c.length));
   });
 
-  const pad = (str, width, align) => {
+  const pad = (str: string, width: number, align: string): string => {
     const s = str || "";
     const diff = width - s.length;
     if (diff <= 0) return s;
@@ -59,7 +74,7 @@ function generateMarkdownTable(table) {
     return s + " ".repeat(diff);
   };
 
-  const formatRow = (cells) =>
+  const formatRow = (cells: string[]): string =>
     "| " + cells.map((c, i) => pad(c, widths[i], alignments[i])).join(" | ") + " |";
 
   const sepRow =
@@ -80,8 +95,8 @@ function generateMarkdownTable(table) {
 
 // --- Find table range in editor (uses CodeMirror line API) ---
 
-function findTableAtCursor(doc, pos) {
-  const isTableLine = (text) => text.trim().startsWith("|") || /\|.*\|/.test(text);
+function findTableAtCursor(doc: Text, pos: number): TableRange | null {
+  const isTableLine = (text: string): boolean => text.trim().startsWith("|") || /\|.*\|/.test(text);
 
   const cursorLine = doc.lineAt(pos);
   if (!isTableLine(cursorLine.text)) return null;
@@ -92,7 +107,7 @@ function findTableAtCursor(doc, pos) {
   let endLine = cursorLine.number;
   while (endLine < doc.lines && isTableLine(doc.line(endLine + 1).text)) endLine++;
 
-  const tableLines = [];
+  const tableLines: string[] = [];
   for (let i = startLine; i <= endLine; i++) tableLines.push(doc.line(i).text);
 
   const tableText = tableLines.join("\n");
@@ -107,15 +122,15 @@ function findTableAtCursor(doc, pos) {
 
 // --- Spreadsheet UI ---
 
-function escapeAttr(str) {
+function escapeAttr(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
-export function showTableEditor(editor, existingTable) {
+export function showTableEditor(editor: EditorView, existingTable: TableRange | null): void {
   document.getElementById("table-editor-dialog")?.remove();
 
-  let table;
-  let tableRange = null;
+  let table: TableData;
+  let tableRange: { from: number; to: number } | null = null;
 
   if (existingTable) {
     table = existingTable.table;
@@ -129,15 +144,15 @@ export function showTableEditor(editor, existingTable) {
   }
 
   // Undo stack
-  const undoStack = [];
-  const redoStack = [];
+  const undoStack: TableData[] = [];
+  const redoStack: TableData[] = [];
 
   function snapshot() {
     undoStack.push(JSON.parse(JSON.stringify(table)));
     redoStack.length = 0;
   }
 
-  function restoreSnapshot(snap) {
+  function restoreSnapshot(snap: TableData): void {
     table.headers = snap.headers;
     table.alignments = snap.alignments;
     table.rows = snap.rows;
@@ -146,14 +161,14 @@ export function showTableEditor(editor, existingTable) {
   function undo() {
     if (undoStack.length === 0) return;
     redoStack.push(JSON.parse(JSON.stringify(table)));
-    restoreSnapshot(undoStack.pop());
+    restoreSnapshot(undoStack.pop()!);
     renderGrid();
   }
 
   function redo() {
     if (redoStack.length === 0) return;
     undoStack.push(JSON.parse(JSON.stringify(table)));
-    restoreSnapshot(redoStack.pop());
+    restoreSnapshot(redoStack.pop()!);
     renderGrid();
   }
 
@@ -189,8 +204,8 @@ export function showTableEditor(editor, existingTable) {
   `;
   document.body.appendChild(overlay);
 
-  const gridEl = overlay.querySelector(".table-editor-grid");
-  const alignSelect = overlay.querySelector('[data-action="align"]');
+  const gridEl = overlay.querySelector(".table-editor-grid") as HTMLTableElement;
+  const alignSelect = overlay.querySelector('[data-action="align"]') as HTMLSelectElement;
   let activeCol = 0;
   let focusValueOnEntry = "";
 
@@ -214,44 +229,52 @@ export function showTableEditor(editor, existingTable) {
 
   // Event delegation on grid
   gridEl.addEventListener("input", (e) => {
-    if (e.target.tagName !== "INPUT") return;
-    const row = parseInt(e.target.dataset.row);
-    const col = parseInt(e.target.dataset.col);
+    const target = e.target as HTMLElement;
+    if (target.tagName !== "INPUT") return;
+    const input = target as HTMLInputElement;
+    const row = parseInt(input.dataset.row!);
+    const col = parseInt(input.dataset.col!);
     if (row === -1) {
-      table.headers[col] = e.target.value;
+      table.headers[col] = input.value;
     } else {
-      table.rows[row][col] = e.target.value;
+      table.rows[row][col] = input.value;
     }
   });
 
   gridEl.addEventListener("focusin", (e) => {
-    if (e.target.tagName !== "INPUT") return;
-    activeCol = parseInt(e.target.dataset.col);
+    const target = e.target as HTMLElement;
+    if (target.tagName !== "INPUT") return;
+    const input = target as HTMLInputElement;
+    activeCol = parseInt(input.dataset.col!);
     alignSelect.value = table.alignments[activeCol] || "left";
-    focusValueOnEntry = e.target.value;
-    e.target.select();
+    focusValueOnEntry = input.value;
+    input.select();
   });
 
   gridEl.addEventListener("focusout", (e) => {
-    if (e.target.tagName !== "INPUT") return;
-    if (e.target.value !== focusValueOnEntry) {
+    const target = e.target as HTMLElement;
+    if (target.tagName !== "INPUT") return;
+    const input = target as HTMLInputElement;
+    if (input.value !== focusValueOnEntry) {
       snapshot();
     }
   });
 
   gridEl.addEventListener("keydown", (e) => {
-    if (e.target.tagName !== "INPUT") return;
-    handleCellKeydown(e);
+    const target = e.target as HTMLElement;
+    if (target.tagName !== "INPUT") return;
+    handleCellKeydown(e as KeyboardEvent);
   });
 
-  function handleCellKeydown(e) {
-    const row = parseInt(e.target.dataset.row);
-    const col = parseInt(e.target.dataset.col);
+  function handleCellKeydown(e: KeyboardEvent): void {
+    const target = e.target as HTMLInputElement;
+    const row = parseInt(target.dataset.row!);
+    const col = parseInt(target.dataset.col!);
     const colCount = table.headers.length;
     const rowCount = table.rows.length;
 
-    const focusCell = (r, c) => {
-      const el = gridEl.querySelector(`input[data-row="${r}"][data-col="${c}"]`);
+    const focusCell = (r: number, c: number): void => {
+      const el = gridEl.querySelector<HTMLInputElement>(`input[data-row="${r}"][data-col="${c}"]`);
       if (el) el.focus();
     };
 
@@ -274,10 +297,10 @@ export function showTableEditor(editor, existingTable) {
       e.preventDefault();
       if (row < rowCount - 1) focusCell(row + 1, col);
       else if (row === -1) focusCell(0, col);
-    } else if (e.key === "ArrowUp" && e.target.selectionStart === e.target.selectionEnd) {
+    } else if (e.key === "ArrowUp" && target.selectionStart === target.selectionEnd) {
       e.preventDefault();
       if (row > -1) focusCell(row - 1, col);
-    } else if (e.key === "ArrowDown" && e.target.selectionStart === e.target.selectionEnd) {
+    } else if (e.key === "ArrowDown" && target.selectionStart === target.selectionEnd) {
       e.preventDefault();
       if (row === -1) focusCell(0, col);
       else if (row < rowCount - 1) focusCell(row + 1, col);
@@ -285,8 +308,8 @@ export function showTableEditor(editor, existingTable) {
   }
 
   // Toolbar actions
-  overlay.querySelector(".table-editor-toolbar").addEventListener("click", (e) => {
-    const action = e.target.dataset?.action;
+  overlay.querySelector(".table-editor-toolbar")!.addEventListener("click", (e) => {
+    const action = (e.target as HTMLElement).dataset?.action;
     if (!action) return;
     const colCount = table.headers.length;
 
@@ -316,7 +339,7 @@ export function showTableEditor(editor, existingTable) {
   });
 
   // Clipboard paste: TSV/CSV -> table cells
-  gridEl.addEventListener("paste", (e) => {
+  gridEl.addEventListener("paste", (e: ClipboardEvent) => {
     const text = e.clipboardData?.getData("text/plain");
     if (!text || (!text.includes("\t") && !text.includes(","))) return;
 
@@ -331,8 +354,9 @@ export function showTableEditor(editor, existingTable) {
 
     if (pastedRows.length === 0) return;
 
-    const focusedRow = parseInt(document.activeElement?.dataset?.row ?? "-1");
-    const focusedCol = parseInt(document.activeElement?.dataset?.col ?? "0");
+    const active = document.activeElement as HTMLInputElement | null;
+    const focusedRow = parseInt(active?.dataset?.row ?? "-1");
+    const focusedCol = parseInt(active?.dataset?.col ?? "0");
 
     const neededCols = focusedCol + pastedRows[0].length;
     while (table.headers.length < neededCols) {
@@ -377,14 +401,14 @@ export function showTableEditor(editor, existingTable) {
   });
 
   // Close / Apply
-  const close = () => overlay.remove();
+  const close = (): void => overlay.remove();
 
-  document.getElementById("table-editor-cancel").addEventListener("click", close);
+  document.getElementById("table-editor-cancel")!.addEventListener("click", close);
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) close();
   });
 
-  document.getElementById("table-editor-ok").addEventListener("click", () => {
+  document.getElementById("table-editor-ok")!.addEventListener("click", () => {
     const md = generateMarkdownTable(table);
     if (tableRange) {
       editor.dispatch({
@@ -403,14 +427,14 @@ export function showTableEditor(editor, existingTable) {
 
   renderGrid();
   setTimeout(() => {
-    const first = gridEl.querySelector("input");
+    const first = gridEl.querySelector<HTMLInputElement>("input");
     if (first) first.focus();
   }, 50);
 }
 
 // --- Edit table at cursor ---
 
-export function editTableAtCursor(editor) {
+export function editTableAtCursor(editor: EditorView): void {
   const pos = editor.state.selection.main.head;
   const found = findTableAtCursor(editor.state.doc, pos);
   showTableEditor(editor, found);
