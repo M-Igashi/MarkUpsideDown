@@ -141,7 +141,7 @@ function statusLabel(status) {
   }
 }
 
-function statusClass(status) {
+export function statusClass(status) {
   switch (status) {
     case "M":
       return "git-modified";

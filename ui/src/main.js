@@ -535,7 +535,7 @@ previewRenderer.code = function ({ text, lang, _sourceLine }) {
   const language = lang && hljs.getLanguage(lang) ? lang : null;
   const highlighted = language
     ? hljs.highlight(text, { language }).value
-    : hljs.highlightAuto(text).value;
+    : text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const langClass = language ? ` class="hljs language-${lang}"` : ' class="hljs"';
   return `<pre${sl}><code${langClass}>${highlighted}</code></pre>`;
 };

@@ -1,3 +1,5 @@
+import { statusClass } from "./git-panel.js";
+
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog, confirm } = window.__TAURI__.dialog;
 const { readTextFile } = window.__TAURI__.fs;
@@ -145,6 +147,8 @@ async function renderDirectory(dirPath, container, depth, gen) {
   const entries = await invoke("list_directory", { path: dirPath });
   if (gen !== refreshGeneration) return;
 
+  // Render items and collect expanded subdirectories for parallel fetch
+  const expandedChildren = [];
   for (const entry of entries) {
     const item = createTreeItem(entry, depth);
     container.appendChild(item);
@@ -153,15 +157,22 @@ async function renderDirectory(dirPath, container, depth, gen) {
       const childContainer = document.createElement("div");
       childContainer.className = "sidebar-tree-children";
       container.appendChild(childContainer);
-      await renderDirectory(entry.path, childContainer, depth + 1, gen);
-      if (gen !== refreshGeneration) return;
+      expandedChildren.push({ path: entry.path, container: childContainer });
     }
+  }
+
+  // Recurse into expanded subdirectories in parallel
+  if (expandedChildren.length > 0) {
+    await Promise.all(
+      expandedChildren.map(({ path, container: c }) => renderDirectory(path, c, depth + 1, gen)),
+    );
   }
 }
 
 function createTreeItem(entry, depth) {
   const item = document.createElement("div");
   item.className = "sidebar-tree-item";
+  item.dataset.path = entry.path;
   if (entry.path === selectedPath) {
     item.classList.add("selected");
   }
@@ -194,31 +205,11 @@ function createTreeItem(entry, depth) {
     const badge = document.createElement("span");
     badge.className = "sidebar-git-badge";
     badge.textContent = gitStatus.status;
-    switch (gitStatus.status) {
-      case "M":
-        badge.classList.add("git-modified");
-        break;
-      case "A":
-        badge.classList.add("git-added");
-        break;
-      case "D":
-        badge.classList.add("git-deleted");
-        break;
-      case "?":
-        badge.classList.add("git-untracked");
-        break;
-    }
+    badge.classList.add(statusClass(gitStatus.status));
     item.appendChild(badge);
-    name.classList.add(
-      "sidebar-name-" +
-        (gitStatus.status === "?"
-          ? "untracked"
-          : gitStatus.status === "A"
-            ? "added"
-            : gitStatus.status === "D"
-              ? "deleted"
-              : "modified"),
-    );
+    const cls = statusClass(gitStatus.status);
+    const suffix = cls.replace("git-", "");
+    name.classList.add(`sidebar-name-${suffix}`);
   }
 
   // Click handler
@@ -282,7 +273,7 @@ async function toggleDirectory(dirPath) {
 }
 
 async function selectAndOpenFile(entry) {
-  selectedPath = entry.path;
+  setSelectedPath(entry.path);
   if (onFileOpen) {
     try {
       const content = await readTextFile(entry.path);
@@ -291,7 +282,6 @@ async function selectAndOpenFile(entry) {
       console.error("Failed to open file:", e);
     }
   }
-  await refreshTree();
 }
 
 // --- Context Menu ---
@@ -454,7 +444,17 @@ async function promptDelete(entry) {
 
 export function setSelectedPath(path) {
   selectedPath = path;
-  if (treeEl) refreshTree();
+  if (!treeEl) return;
+  // Targeted DOM update: swap .selected class without full tree re-render
+  for (const el of treeEl.querySelectorAll(".sidebar-tree-item.selected")) {
+    el.classList.remove("selected");
+  }
+  if (path) {
+    const target = treeEl.querySelector(`.sidebar-tree-item[data-path="${CSS.escape(path)}"]`);
+    if (target) {
+      target.classList.add("selected");
+    }
+  }
 }
 
 export function getSidebarState() {

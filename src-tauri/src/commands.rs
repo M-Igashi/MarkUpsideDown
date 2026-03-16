@@ -627,26 +627,28 @@ pub struct GitStatus {
 pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
     let rp = repo_path;
     tokio::task::spawn_blocking(move || {
-        // Check if it's a git repo
-        if run_git(&rp, &["rev-parse", "--is-inside-work-tree"]).is_err() {
-            return Ok(GitStatus {
-                branch: String::new(),
-                files: Vec::new(),
-                is_repo: false,
-            });
-        }
+        // Single command: -b gives branch info, --porcelain=v1 gives file statuses
+        let output = match run_git(&rp, &["status", "-b", "--porcelain=v1"]) {
+            Ok(o) => o,
+            Err(_) => {
+                return Ok(GitStatus {
+                    branch: String::new(),
+                    files: Vec::new(),
+                    is_repo: false,
+                });
+            }
+        };
 
-        // Get branch name
-        let branch = run_git(&rp, &["branch", "--show-current"])
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+        let mut lines = output.lines();
+        // First line: "## branch...tracking" or "## HEAD (no branch)"
+        let branch = lines
+            .next()
+            .and_then(|line| line.strip_prefix("## "))
+            .map(|b| b.split("...").next().unwrap_or(b).to_string())
+            .unwrap_or_default();
 
-        // Get file statuses with porcelain format
-        let output = run_git(&rp, &["status", "--porcelain=v1"])?;
         let mut files = Vec::new();
-
-        for line in output.lines() {
+        for line in lines {
             if line.len() < 4 {
                 continue;
             }
