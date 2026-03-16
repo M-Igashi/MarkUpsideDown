@@ -14,8 +14,10 @@ On first launch, MarkUpsideDown opens the Settings panel with a **Setup with Clo
 1. Checks that `wrangler` is installed globally
 2. Runs `wrangler login` (opens browser for Cloudflare OAuth)
 3. Deploys the Worker to your account
-4. Configures secrets (auto-detects API token, or prompts for manual entry)
+4. **(Optional)** Configures secrets for Render JS — you can skip this step
 5. Verifies the deployment
+
+After step 3, Document Import is ready to use. Step 4 (secrets) is only needed for Render JS (fetching JavaScript-rendered pages). If the auto-token detection fails, you'll be asked to paste an API token or skip. You can always add secrets later.
 
 If you have multiple Cloudflare accounts, you'll be prompted to select one.
 

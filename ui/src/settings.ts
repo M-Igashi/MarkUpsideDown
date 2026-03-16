@@ -194,7 +194,7 @@ async function startAutoSetup(
   }
   update("deploy", "done");
 
-  // Step 4: Secrets
+  // Step 4: Secrets (optional — only needed for Render JS)
   update("secrets", "running");
   let secretsOk = false;
   try {
@@ -209,19 +209,11 @@ async function startAutoSetup(
         apiToken: userToken,
       });
       secretsOk = true;
-    } catch (manualErr) {
-      update("secrets", "error");
-      urlInput.value = workerUrl;
-      showSetupError(
-        progressContainer,
-        `Worker deployed at ${workerUrl} but secret setup failed: ${manualErr}\nYou can set secrets manually or use Import without Render JS.`,
-      );
-      onComplete(workerUrl, null);
-      return;
+    } catch {
+      // User skipped or manual entry failed — continue without secrets
     }
   }
-  if (!secretsOk) return;
-  update("secrets", "done");
+  update("secrets", secretsOk ? "done" : "skipped");
 
   // Step 5: Verify
   update("verify", "running");
@@ -233,7 +225,14 @@ async function startAutoSetup(
     currentTestStatus = testStatus;
     if (testStatus.reachable) {
       update("verify", "done");
-      showSetupSuccess(progressContainer, workerUrl);
+      if (testStatus.render_available) {
+        showSetupSuccess(progressContainer, workerUrl);
+      } else {
+        showSetupInfo(
+          progressContainer,
+          `Worker ready at ${workerUrl}\nImport works. To enable Render JS, add secrets later from the panel below.`,
+        );
+      }
     } else {
       update("verify", "error");
       showSetupError(
@@ -254,6 +253,13 @@ function showSetupError(container: HTMLElement, message: string) {
   errDiv.className = "setup-error";
   errDiv.textContent = message;
   if (!errDiv.parentNode) container.appendChild(errDiv);
+}
+
+function showSetupInfo(container: HTMLElement, message: string) {
+  const div = container.querySelector(".setup-info") || document.createElement("div");
+  div.className = "setup-info";
+  div.textContent = message;
+  if (!div.parentNode) container.appendChild(div);
 }
 
 function showSetupSuccess(container: HTMLElement, url: string) {
@@ -303,12 +309,12 @@ function showApiTokenInput(container: HTMLElement): Promise<string> {
     div.className = "setup-token-input";
     div.innerHTML = `
       <div class="setup-token-label">
-        Automatic token creation failed.<br>
-        Paste your Cloudflare API token to configure secrets:
+        <strong>Optional:</strong> Add an API token to enable Render JS (JS-rendered page fetching).<br>
+        You can skip this — document import will work without it.
       </div>
       <input type="password" class="setup-token-field" placeholder="API Token" />
       <div class="setup-token-actions">
-        <button class="setup-token-skip">Skip</button>
+        <button class="setup-token-skip">Skip for now</button>
         <button class="setup-token-confirm primary">Set Secrets</button>
       </div>
       <div class="setup-token-hint">

@@ -11,6 +11,7 @@
   --success: #2e7d32;
   --success-bg: #e8f5e9;
   --warning: #b8860b;
+  --warning-bg: #fdf6e3;
   --error: #b33a3a;
   --error-bg: #fbe9e7;
   --error-border: #d4a0a0;
@@ -1440,6 +1441,17 @@ body {
   border-radius: 4px;
   padding: 8px 10px;
   margin-top: 4px;
+}
+
+.setup-info {
+  font-size: 11px;
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .setup-account-picker {
