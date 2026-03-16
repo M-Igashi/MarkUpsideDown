@@ -7,6 +7,7 @@ interface TauriDialog {
   open(options?: Record<string, unknown>): Promise<string | null>;
   save(options?: Record<string, unknown>): Promise<string | null>;
   confirm(message: string, options?: Record<string, unknown>): Promise<boolean>;
+  message(message: string, options?: Record<string, unknown>): Promise<void>;
 }
 
 interface TauriFs {

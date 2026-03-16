@@ -12,7 +12,10 @@
     "fs:default",
     "fs:allow-read",
     "fs:allow-write",
-    "fs:allow-write-text-file",
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "$HOME/**" }]
+    },
     "shell:default",
     "core:event:allow-listen"
   ]

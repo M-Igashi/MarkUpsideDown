@@ -1,7 +1,41 @@
 import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
 
 const { invoke } = window.__TAURI__.core;
-const { open: openDialog, confirm } = window.__TAURI__.dialog;
+const { open: openDialog, confirm, message } = window.__TAURI__.dialog;
+
+function promptInput(label: string, defaultValue = ""): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "prompt-overlay";
+    const box = document.createElement("div");
+    box.className = "prompt-box";
+    box.innerHTML = `
+      <label>${label}</label>
+      <input type="text" value="${defaultValue.replace(/"/g, "&quot;")}" />
+      <div class="prompt-buttons">
+        <button class="prompt-cancel">Cancel</button>
+        <button class="prompt-ok">OK</button>
+      </div>`;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    const input = box.querySelector("input")!;
+    input.select();
+    input.focus();
+    const close = (value: string | null) => {
+      overlay.remove();
+      resolve(value);
+    };
+    box.querySelector(".prompt-cancel")!.addEventListener("click", () => close(null));
+    box.querySelector(".prompt-ok")!.addEventListener("click", () => close(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") close(input.value);
+      if (e.key === "Escape") close(null);
+    });
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close(null);
+    });
+  });
+}
 
 const STORAGE_KEY = "markupsidedown:sidebar";
 
@@ -555,7 +589,7 @@ async function revealInFinder(path: string) {
   try {
     await invoke("reveal_in_finder", { path });
   } catch (e) {
-    alert(`Failed to reveal in Finder: ${e}`);
+    message(`Failed to reveal in Finder: ${e}`, { kind: "error" });
   }
 }
 
@@ -566,12 +600,12 @@ async function duplicateEntry(entry: DirEntry) {
     // Select the new duplicate
     setSelectedPath(newPath);
   } catch (e) {
-    alert(`Failed to duplicate: ${e}`);
+    message(`Failed to duplicate: ${e}`, { kind: "error" });
   }
 }
 
 async function promptNewFile(dirPath: string) {
-  const name = prompt("New file name:");
+  const name = await promptInput("New file name:");
   if (!name) return;
   try {
     const path = `${dirPath}/${name}`;
@@ -582,12 +616,12 @@ async function promptNewFile(dirPath: string) {
     saveState();
     await refreshTree();
   } catch (e) {
-    alert(`Failed to create file: ${e}`);
+    message(`Failed to create file: ${e}`, { kind: "error" });
   }
 }
 
 async function promptNewFolder(dirPath: string) {
-  const name = prompt("New folder name:");
+  const name = await promptInput("New folder name:");
   if (!name) return;
   try {
     const path = `${dirPath}/${name}`;
@@ -598,12 +632,12 @@ async function promptNewFolder(dirPath: string) {
     saveState();
     await refreshTree();
   } catch (e) {
-    alert(`Failed to create folder: ${e}`);
+    message(`Failed to create folder: ${e}`, { kind: "error" });
   }
 }
 
 async function promptRename(entry: DirEntry) {
-  const newName = prompt("New name:", entry.name);
+  const newName = await promptInput("New name:", entry.name);
   if (!newName || newName === entry.name) return;
   try {
     const parentDir = entry.path.substring(0, entry.path.lastIndexOf("/"));
@@ -629,7 +663,7 @@ async function promptRename(entry: DirEntry) {
     saveState();
     await refreshTree();
   } catch (e) {
-    alert(`Failed to rename: ${e}`);
+    message(`Failed to rename: ${e}`, { kind: "error" });
   }
 }
 
@@ -648,7 +682,7 @@ async function promptDelete(entry: DirEntry) {
     saveState();
     await refreshTree();
   } catch (e) {
-    alert(`Failed to delete: ${e}`);
+    message(`Failed to delete: ${e}`, { kind: "error" });
   }
 }
 
