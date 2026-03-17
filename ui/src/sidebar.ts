@@ -58,6 +58,7 @@ let expandedDirs = new Set<string>();
 let selectedPath: string | null = null;
 let onFileOpen: ((content: string, filePath: string) => void) | null = null;
 let onFolderChange: ((rootPath: string) => void) | null = null;
+let onSidebarFold: (() => void) | null = null;
 let gitStatusMap: Map<string, GitStatus> = new Map();
 let refreshGeneration = 0; // guards against concurrent refreshTree() races
 
@@ -80,11 +81,17 @@ export function initSidebar(
   {
     onOpen,
     onFolder,
-  }: { onOpen: (content: string, filePath: string) => void; onFolder: (rootPath: string) => void },
+    onFold,
+  }: {
+    onOpen: (content: string, filePath: string) => void;
+    onFolder: (rootPath: string) => void;
+    onFold?: () => void;
+  },
 ) {
   sidebarEl = el;
   onFileOpen = onOpen;
   onFolderChange = onFolder;
+  onSidebarFold = onFold ?? null;
 
   // Restore state
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -162,6 +169,13 @@ function render() {
   actions.className = "sidebar-header-actions";
 
   populateHeaderActions(actions);
+
+  const foldBtn = document.createElement("button");
+  foldBtn.className = "panel-fold-btn";
+  foldBtn.title = "Collapse Sidebar (⌘B)";
+  foldBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"/></svg>`;
+  foldBtn.addEventListener("click", () => onSidebarFold?.());
+  actions.appendChild(foldBtn);
 
   header.appendChild(actions);
   sidebarEl.appendChild(header);

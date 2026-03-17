@@ -18,7 +18,6 @@ let editor: EditorView;
 let previewPane: HTMLElement;
 let cmScroller: HTMLElement;
 
-let scrollAnchors: ScrollAnchor[] = [];
 let programmaticScrollAt = 0;
 let lastPreviewClickAt = 0;
 
@@ -48,92 +47,224 @@ function getCodeBlockLineInfo(preEl: HTMLElement) {
   return { codeEl, lines, rect, lineHeight };
 }
 
-export function buildScrollAnchors() {
-  const elements = previewPane.querySelectorAll("[data-source-line]");
+// --- Helpers for finding surrounding data-source-line elements ---
 
-  const anchors: ScrollAnchor[] = [{ editorY: 0, previewY: 0 }];
-  const previewRect = previewPane.getBoundingClientRect();
-  const previewScrollTop = previewPane.scrollTop;
+function findSurroundingEls(elements: HTMLElement[], targetLine: number) {
+  let before: HTMLElement | null = null;
+  let after: HTMLElement | null = null;
+  let beforeLine = -1;
+  let afterLine = Infinity;
 
   for (const el of elements) {
-    const lineNum = parseInt((el as HTMLElement).dataset.sourceLine!, 10);
-    if (lineNum < 1 || lineNum > editor.state.doc.lines) continue;
-    const line = editor.state.doc.line(lineNum);
-    const block = editor.lineBlockAt(line.from);
-    const editorY = block.top;
-    const previewY = el.getBoundingClientRect().top - previewRect.top + previewScrollTop;
-    anchors.push({ editorY, previewY });
+    const sl = parseInt(el.dataset.sourceLine!, 10);
+    if (isNaN(sl)) continue;
+    if (sl <= targetLine && sl > beforeLine) {
+      before = el;
+      beforeLine = sl;
+    }
+    if (sl >= targetLine && sl < afterLine) {
+      after = el;
+      afterLine = sl;
+    }
+  }
 
-    if (el.tagName === "PRE") {
-      const info = getCodeBlockLineInfo(el as HTMLElement);
-      if (info.lines.length > 1) {
-        for (let i = 0; i < info.lines.length; i++) {
-          const srcLine = lineNum + 1 + i;
-          if (srcLine > editor.state.doc.lines) break;
-          const editorLine = editor.state.doc.line(srcLine);
-          const editorBlock = editor.lineBlockAt(editorLine.from);
-          const subPreviewY =
-            info.rect.top - previewRect.top + previewScrollTop + i * info.lineHeight;
-          anchors.push({ editorY: editorBlock.top, previewY: subPreviewY });
-        }
+  if (!before && !after) return null;
+  if (!before) {
+    before = after;
+    beforeLine = afterLine;
+  }
+  if (!after) {
+    after = before;
+    afterLine = beforeLine;
+  }
+
+  return { before: before!, after: after!, beforeLine, afterLine };
+}
+
+function computePreviewY(
+  surr: { before: HTMLElement; after: HTMLElement; beforeLine: number; afterLine: number },
+  targetLine: number,
+) {
+  const previewRect = previewPane.getBoundingClientRect();
+  const pst = previewPane.scrollTop;
+
+  // Fine-grained sync within code blocks
+  if (surr.before.tagName === "PRE" && targetLine > surr.beforeLine) {
+    const info = getCodeBlockLineInfo(surr.before);
+    if (info.lines.length > 1) {
+      const lineIndex = targetLine - surr.beforeLine - 1;
+      if (lineIndex >= 0 && lineIndex < info.lines.length) {
+        return info.rect.top - previewRect.top + pst + lineIndex * info.lineHeight;
       }
     }
   }
 
-  const editorMax = cmScroller.scrollHeight - cmScroller.clientHeight;
-  const previewMax = previewPane.scrollHeight - previewPane.clientHeight;
-  if (editorMax > 0 && previewMax > 0) {
-    anchors.push({ editorY: editorMax, previewY: previewMax });
+  const beforeY = surr.before.getBoundingClientRect().top - previewRect.top + pst;
+  if (surr.before === surr.after || surr.beforeLine === surr.afterLine) {
+    return beforeY;
   }
-
-  anchors.sort((a, b) => a.editorY - b.editorY);
-  scrollAnchors = anchors;
+  const afterY = surr.after.getBoundingClientRect().top - previewRect.top + pst;
+  const t = (targetLine - surr.beforeLine) / (surr.afterLine - surr.beforeLine);
+  return beforeY + t * (afterY - beforeY);
 }
 
-function interpolate(
-  anchors: ScrollAnchor[],
-  fromKey: keyof ScrollAnchor,
-  toKey: keyof ScrollAnchor,
-  value: number,
-) {
-  if (anchors.length < 2) return 0;
+// --- Scroll anchor build (kept for resize and post-render) ---
 
-  let lo = 0;
-  let hi = anchors.length - 1;
-  while (lo < hi - 1) {
-    const mid = (lo + hi) >> 1;
-    if (anchors[mid][fromKey] <= value) lo = mid;
-    else hi = mid;
-  }
-
-  const a = anchors[lo];
-  const b = anchors[hi];
-  const range = b[fromKey] - a[fromKey];
-  if (range <= 0) return a[toKey];
-
-  const t = Math.max(0, Math.min(1, (value - a[fromKey]) / range));
-  return a[toKey] + t * (b[toKey] - a[toKey]);
+export function buildScrollAnchors() {
+  // Refresh cached source-line elements (used by all sync functions)
+  scrollState.cachedSourceLineEls = Array.from(
+    previewPane.querySelectorAll("[data-source-line]"),
+  ) as HTMLElement[];
 }
+
+// --- Viewport-based scroll sync ---
+// Uses posAtCoords / live getBoundingClientRect instead of pre-computed anchors.
+// This avoids CodeMirror's estimated lineBlockAt positions for off-screen lines.
 
 export function syncToPreview() {
-  if (scrollState.renderingPreview || scrollAnchors.length < 2) return;
-  const target = Math.round(
-    interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop),
-  );
+  if (scrollState.renderingPreview) return;
+  const elements = scrollState.cachedSourceLineEls;
+  if (elements.length === 0) return;
+
+  // Edge: top
+  if (cmScroller.scrollTop <= 0) {
+    if (previewPane.scrollTop < 1) return;
+    markProgrammaticScroll();
+    previewPane.scrollTop = 0;
+    return;
+  }
+
+  // Edge: bottom
+  const editorMax = cmScroller.scrollHeight - cmScroller.clientHeight;
+  if (cmScroller.scrollTop >= editorMax - 1) {
+    const previewMax = previewPane.scrollHeight - previewPane.clientHeight;
+    if (Math.abs(previewPane.scrollTop - previewMax) < 1) return;
+    markProgrammaticScroll();
+    previewPane.scrollTop = previewMax;
+    return;
+  }
+
+  // Find the document position at the top of the visible editor
+  const cmRect = cmScroller.getBoundingClientRect();
+  const topPos = editor.posAtCoords({ x: cmRect.left + 1, y: cmRect.top + 1 });
+  if (topPos == null) return;
+
+  const topLine = editor.state.doc.lineAt(topPos).number;
+  const topBlock = editor.lineBlockAt(topPos);
+  // Sub-line offset: how many px of the top line are scrolled above the viewport
+  const editorSubOffset = cmScroller.scrollTop - topBlock.top;
+
+  const surr = findSurroundingEls(elements, topLine);
+  if (!surr) return;
+
+  const previewY = computePreviewY(surr, topLine);
+  const target = Math.max(0, Math.round(previewY + editorSubOffset));
   if (Math.abs(previewPane.scrollTop - target) < 1) return;
   markProgrammaticScroll();
   previewPane.scrollTop = target;
 }
 
 export function syncToEditor() {
-  if (scrollState.renderingPreview || scrollAnchors.length < 2) return;
-  const target = Math.round(
-    interpolate(scrollAnchors, "previewY", "editorY", previewPane.scrollTop),
-  );
+  if (scrollState.renderingPreview) return;
+  const elements = scrollState.cachedSourceLineEls;
+  if (elements.length === 0) return;
+
+  // Edge: top
+  if (previewPane.scrollTop <= 0) {
+    if (cmScroller.scrollTop < 1) return;
+    markProgrammaticScroll();
+    cmScroller.scrollTop = 0;
+    return;
+  }
+
+  // Edge: bottom
+  const previewMax = previewPane.scrollHeight - previewPane.clientHeight;
+  if (previewPane.scrollTop >= previewMax - 1) {
+    const editorMax = cmScroller.scrollHeight - cmScroller.clientHeight;
+    if (Math.abs(cmScroller.scrollTop - editorMax) < 1) return;
+    markProgrammaticScroll();
+    cmScroller.scrollTop = editorMax;
+    return;
+  }
+
+  // Find the preview element nearest to the viewport top
+  const previewRect = previewPane.getBoundingClientRect();
+  const pst = previewPane.scrollTop;
+
+  let before: HTMLElement | null = null;
+  let after: HTMLElement | null = null;
+  let beforeLine = -1;
+  let afterLine = Infinity;
+  let beforeAbsY = -Infinity;
+  let afterAbsY = Infinity;
+
+  for (const el of elements) {
+    const sl = parseInt(el.dataset.sourceLine!, 10);
+    if (isNaN(sl)) continue;
+    const absY = el.getBoundingClientRect().top - previewRect.top + pst;
+    if (absY <= pst && absY > beforeAbsY) {
+      before = el;
+      beforeLine = sl;
+      beforeAbsY = absY;
+    }
+    if (absY > pst && absY < afterAbsY) {
+      after = el;
+      afterLine = sl;
+      afterAbsY = absY;
+    }
+  }
+
+  if (!before && !after) return;
+  if (!before) {
+    before = after!;
+    beforeLine = afterLine;
+    beforeAbsY = afterAbsY;
+  }
+  if (!after) {
+    after = before!;
+    afterLine = beforeLine;
+    afterAbsY = beforeAbsY;
+  }
+
+  // Determine the source line at the preview viewport top
+  let targetLine: number;
+  let previewSubOffset = 0;
+
+  if (before!.tagName === "PRE" && pst > beforeAbsY) {
+    const info = getCodeBlockLineInfo(before!);
+    if (info.lineHeight > 0 && info.lines.length > 1) {
+      const offsetInBlock = pst - beforeAbsY;
+      const lineIndex = Math.min(
+        info.lines.length - 1,
+        Math.floor(offsetInBlock / info.lineHeight),
+      );
+      targetLine = beforeLine + 1 + lineIndex;
+      previewSubOffset = offsetInBlock - lineIndex * info.lineHeight;
+    } else {
+      targetLine = beforeLine;
+      previewSubOffset = pst - beforeAbsY;
+    }
+  } else if (before === after || afterAbsY <= beforeAbsY) {
+    targetLine = beforeLine;
+    previewSubOffset = pst - beforeAbsY;
+  } else {
+    const t = Math.max(0, Math.min(1, (pst - beforeAbsY) / (afterAbsY - beforeAbsY)));
+    targetLine = Math.round(beforeLine + t * (afterLine - beforeLine));
+  }
+
+  if (targetLine < 1) targetLine = 1;
+  if (targetLine > editor.state.doc.lines) targetLine = editor.state.doc.lines;
+
+  const line = editor.state.doc.line(targetLine);
+  const block = editor.lineBlockAt(line.from);
+
+  const target = Math.max(0, Math.round(block.top + previewSubOffset));
   if (Math.abs(cmScroller.scrollTop - target) < 1) return;
   markProgrammaticScroll();
   cmScroller.scrollTop = target;
 }
+
+// --- Cursor-based sync (unchanged — already uses live measurements) ---
 
 export function syncPreviewToCursor() {
   if (scrollState.renderingPreview || scrollState.pendingRender) return;
@@ -146,60 +277,10 @@ export function syncPreviewToCursor() {
   const elements = scrollState.cachedSourceLineEls;
   if (elements.length === 0) return;
 
-  let before: HTMLElement | null = null;
-  let after: HTMLElement | null = null;
-  let beforeLine = -1;
-  let afterLine = Infinity;
+  const surr = findSurroundingEls(elements, cursorLine);
+  if (!surr) return;
 
-  for (const el of elements) {
-    const sl = parseInt(el.dataset.sourceLine!, 10);
-    if (isNaN(sl)) continue;
-    if (sl <= cursorLine && sl > beforeLine) {
-      before = el;
-      beforeLine = sl;
-    }
-    if (sl >= cursorLine && sl < afterLine) {
-      after = el;
-      afterLine = sl;
-    }
-  }
-
-  if (!before && !after) return;
-  if (!before) {
-    before = after;
-    beforeLine = afterLine;
-  }
-  if (!after) {
-    after = before;
-    afterLine = beforeLine;
-  }
-
-  const previewRect = previewPane.getBoundingClientRect();
-  const previewScrollTop = previewPane.scrollTop;
-
-  let previewTargetY: number | undefined;
-
-  if (before!.tagName === "PRE" && cursorLine > beforeLine) {
-    const info = getCodeBlockLineInfo(before!);
-    if (info.lines.length > 1) {
-      const lineIndex = cursorLine - beforeLine - 1;
-      if (lineIndex >= 0 && lineIndex < info.lines.length) {
-        previewTargetY =
-          info.rect.top - previewRect.top + previewScrollTop + lineIndex * info.lineHeight;
-      }
-    }
-  }
-
-  if (previewTargetY === undefined) {
-    const beforeY = before!.getBoundingClientRect().top - previewRect.top + previewScrollTop;
-    if (before === after || beforeLine === afterLine) {
-      previewTargetY = beforeY;
-    } else {
-      const afterY = after!.getBoundingClientRect().top - previewRect.top + previewScrollTop;
-      const t = (cursorLine - beforeLine) / (afterLine - beforeLine);
-      previewTargetY = beforeY + t * (afterY - beforeY);
-    }
-  }
+  const previewTargetY = computePreviewY(surr, cursorLine);
 
   const lineVisibleY = block.top - cmScroller.scrollTop;
   const scrollTarget = Math.max(0, Math.round(previewTargetY - lineVisibleY));

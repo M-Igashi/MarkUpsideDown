@@ -320,6 +320,7 @@ previewPane.addEventListener("mouseout", (e) => {
 
 const divider = document.getElementById("divider")!;
 const editorContainer = document.getElementById("editor-container")!;
+const previewWrapper = document.getElementById("preview-wrapper")!;
 
 let isDragging = false;
 let dragEditorLeft = 0;
@@ -328,14 +329,14 @@ let dragAvailableWidth = 0;
 divider.addEventListener("mousedown", () => {
   isDragging = true;
   dragEditorLeft = editorContainer.getBoundingClientRect().left;
-  dragAvailableWidth = previewPane.getBoundingClientRect().right - dragEditorLeft;
+  dragAvailableWidth = previewWrapper.getBoundingClientRect().right - dragEditorLeft;
 });
 document.addEventListener("mousemove", (e) => {
   if (!isDragging) return;
   const ratio = (e.clientX - dragEditorLeft) / dragAvailableWidth;
   const clamped = Math.max(0.2, Math.min(0.8, ratio));
-  (editorContainer as HTMLElement).style.flex = `${clamped}`;
-  (previewPane as HTMLElement).style.flex = `${1 - clamped}`;
+  editorContainer.style.flex = `${clamped}`;
+  previewWrapper.style.flex = `${1 - clamped}`;
 });
 document.addEventListener("mouseup", () => {
   isDragging = false;
@@ -361,6 +362,7 @@ initSidebar(sidebarEl, {
     setRepoPath(rootPath);
     refreshGitAndSync();
   },
+  onFold: () => toggleSidebar(),
 });
 
 const gitPanelEl = getGitPanelEl();
@@ -394,11 +396,9 @@ if (initialRoot) {
 }
 
 function toggleSidebar() {
-  sidebarEl.classList.toggle("collapsed");
-  localStorage.setItem(
-    STORAGE_KEY_SIDEBAR_COLLAPSED,
-    String(sidebarEl.classList.contains("collapsed")),
-  );
+  const collapsed = sidebarEl.classList.toggle("collapsed");
+  sidebarUnfoldBtn.classList.toggle("visible", collapsed);
+  localStorage.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, String(collapsed));
 }
 
 let isSidebarDragging = false;
@@ -411,6 +411,7 @@ document.addEventListener("mousemove", (e) => {
   const width = Math.max(120, Math.min(400, e.clientX));
   sidebarEl.style.width = `${width}px`;
   sidebarEl.classList.remove("collapsed");
+  sidebarUnfoldBtn.classList.remove("visible");
 });
 document.addEventListener("mouseup", () => {
   if (isSidebarDragging) {
@@ -418,6 +419,86 @@ document.addEventListener("mouseup", () => {
     localStorage.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, "false");
   }
 });
+
+// --- Panel Fold/Unfold ---
+
+const STORAGE_KEY_EDITOR_COLLAPSED = "markupsidedown:editorCollapsed";
+const STORAGE_KEY_PREVIEW_COLLAPSED = "markupsidedown:previewCollapsed";
+
+const SVG_CHEVRON_LEFT = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"/></svg>`;
+const SVG_CHEVRON_RIGHT = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l4 4-4 4"/></svg>`;
+
+// Editor fold button (in tab-bar, right side)
+const editorFoldBtn = document.createElement("button");
+editorFoldBtn.className = "panel-fold-btn";
+editorFoldBtn.title = "Collapse Editor (⌘E)";
+editorFoldBtn.innerHTML = SVG_CHEVRON_LEFT;
+
+// Preview header with fold button
+const previewHeader = document.createElement("div");
+previewHeader.className = "preview-header";
+const previewFoldBtn = document.createElement("button");
+previewFoldBtn.className = "panel-fold-btn";
+previewFoldBtn.title = "Collapse Preview (⌘\\)";
+previewFoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
+previewHeader.appendChild(previewFoldBtn);
+previewWrapper.insertBefore(previewHeader, previewPane);
+
+// Unfold buttons (thin strips shown when panel is collapsed)
+const appEl = document.getElementById("app")!;
+
+const sidebarUnfoldBtn = document.createElement("button");
+sidebarUnfoldBtn.className = "panel-unfold-btn";
+sidebarUnfoldBtn.title = "Expand Sidebar (⌘B)";
+sidebarUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
+appEl.insertBefore(sidebarUnfoldBtn, sidebarDivider);
+
+const editorUnfoldBtn = document.createElement("button");
+editorUnfoldBtn.className = "panel-unfold-btn";
+editorUnfoldBtn.title = "Expand Editor (⌘E)";
+editorUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
+appEl.insertBefore(editorUnfoldBtn, divider);
+
+const previewUnfoldBtn = document.createElement("button");
+previewUnfoldBtn.className = "panel-unfold-btn";
+previewUnfoldBtn.title = "Expand Preview (⌘\\)";
+previewUnfoldBtn.innerHTML = SVG_CHEVRON_LEFT;
+appEl.appendChild(previewUnfoldBtn);
+
+function toggleEditor() {
+  const collapsed = editorContainer.classList.toggle("collapsed");
+  divider.classList.toggle("hidden", collapsed);
+  editorUnfoldBtn.classList.toggle("visible", collapsed);
+  localStorage.setItem(STORAGE_KEY_EDITOR_COLLAPSED, String(collapsed));
+}
+
+function togglePreview() {
+  const collapsed = previewWrapper.classList.toggle("collapsed");
+  divider.classList.toggle("hidden", collapsed);
+  previewUnfoldBtn.classList.toggle("visible", collapsed);
+  localStorage.setItem(STORAGE_KEY_PREVIEW_COLLAPSED, String(collapsed));
+}
+
+sidebarUnfoldBtn.addEventListener("click", toggleSidebar);
+editorFoldBtn.addEventListener("click", toggleEditor);
+previewFoldBtn.addEventListener("click", togglePreview);
+editorUnfoldBtn.addEventListener("click", toggleEditor);
+previewUnfoldBtn.addEventListener("click", togglePreview);
+
+// Restore collapsed states
+if (sidebarCollapsed) {
+  sidebarUnfoldBtn.classList.add("visible");
+}
+if (localStorage.getItem(STORAGE_KEY_EDITOR_COLLAPSED) === "true") {
+  editorContainer.classList.add("collapsed");
+  divider.classList.add("hidden");
+  editorUnfoldBtn.classList.add("visible");
+}
+if (localStorage.getItem(STORAGE_KEY_PREVIEW_COLLAPSED) === "true") {
+  previewWrapper.classList.add("collapsed");
+  divider.classList.add("hidden");
+  previewUnfoldBtn.classList.add("visible");
+}
 
 // --- Tabs ---
 
@@ -444,6 +525,9 @@ initTabs(tabBarEl, {
     }
   },
 });
+
+// Append editor fold button to editor-header (stays at right edge)
+document.getElementById("editor-header")!.appendChild(editorFoldBtn);
 
 // --- Keyboard Shortcuts ---
 
@@ -475,6 +559,12 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "b") {
       e.preventDefault();
       toggleSidebar();
+    } else if (e.key === "e") {
+      e.preventDefault();
+      toggleEditor();
+    } else if (e.key === "\\") {
+      e.preventDefault();
+      togglePreview();
     }
   }
 });

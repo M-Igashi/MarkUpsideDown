@@ -262,6 +262,7 @@ export async function renderPreview(source: string) {
   cancelAnimationFrame(scrollState.syncRAF);
 
   const savedScrollTop = previewPane.scrollTop;
+  const savedActiveSide = scrollState.activeSide;
 
   let mermaidRenderCount = 0;
 
@@ -285,6 +286,11 @@ export async function renderPreview(source: string) {
       ],
     },
   );
+
+  // Mark programmatic scroll BEFORE morph — morphing adds/removes DOM nodes
+  // which can trigger scroll events on previewPane. Without this mark, those
+  // events would be treated as user scrolls and corrupt activeSide/schedule syncs.
+  markProgrammaticScroll();
 
   Idiomorph.morph(previewPane, sanitizedHtml, {
     morphStyle: "innerHTML",
@@ -395,11 +401,16 @@ export async function renderPreview(source: string) {
     }
   }
 
+  // Restore scroll position — mark as programmatic so scroll event handlers
+  // don't treat the morph-triggered scrollTop change as a user scroll
+  markProgrammaticScroll();
   previewPane.scrollTop = savedScrollTop;
+
+  // Cancel any sync RAFs that morph-triggered scroll events may have scheduled
+  cancelAnimationFrame(scrollState.syncRAF);
+  scrollState.activeSide = savedActiveSide;
+
   buildScrollAnchors();
-  scrollState.cachedSourceLineEls = Array.from(
-    previewPane.querySelectorAll("[data-source-line]"),
-  ) as HTMLElement[];
   scrollState.pendingRender = false;
   scrollState.renderingPreview = false;
 
