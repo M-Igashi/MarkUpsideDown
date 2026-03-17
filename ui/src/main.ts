@@ -38,7 +38,13 @@ import {
   switchToPrevTab,
   switchToNextTab,
   updateActiveTab,
+  getActiveTab,
+  getTabByPath,
+  getTabs,
+  isTabDirty,
+  markTabSaved,
 } from "./tabs.ts";
+import { initFileWatcher, startWatching, stopWatching } from "./file-watcher.ts";
 import "katex/dist/katex.min.css";
 
 import {
@@ -520,6 +526,35 @@ if (localStorage.getItem(STORAGE_KEY_PREVIEW_COLLAPSED) === "true") {
 
 const tabBarEl = document.getElementById("tab-bar")!;
 
+// --- File Watcher ---
+
+const { confirm: confirmDialog } = window.__TAURI__.dialog;
+
+initFileWatcher({
+  getTabByPath,
+  getActiveTab,
+  isTabDirty,
+  reloadTab: async (path: string) => {
+    const content = await invoke<string>("read_text_file", { path });
+    const tab = getTabByPath(path);
+    if (!tab) return;
+    tab.content = content;
+    tab.savedContent = content;
+    markTabSaved(tab.id);
+    // If this is the active tab, update the editor view
+    if (tab.id === getActiveTab()?.id) {
+      loadContent(content, path);
+    }
+  },
+  confirmReload: async (path: string) => {
+    const fileName = path.split("/").pop() || path;
+    return confirmDialog(
+      `"${fileName}" has been modified externally.\nReload and discard your unsaved changes?`,
+      { title: "File Changed", kind: "warning" },
+    );
+  },
+});
+
 initTabs(tabBarEl, {
   onSwitch: (tab: { content: string; path: string | null }) => {
     autoSave();
@@ -532,7 +567,6 @@ initTabs(tabBarEl, {
     if (!tab.path) return;
     try {
       const content = await invoke<string>("read_text_file", { path: tab.path });
-      const { markTabSaved } = await import("./tabs.ts");
       updateActiveTab({ content });
       markTabSaved(tab.id);
       loadContent(content, tab.path);
@@ -540,7 +574,18 @@ initTabs(tabBarEl, {
       loadContent("", tab.path);
     }
   },
+  onOpen: (tab) => {
+    if (tab.path) startWatching(tab.path);
+  },
+  onClose: (tab) => {
+    if (tab.path) stopWatching(tab.path);
+  },
 });
+
+// Start watching all previously open file-backed tabs
+for (const tab of getTabs()) {
+  if (tab.path) startWatching(tab.path);
+}
 
 // Append editor fold button to editor-header (stays at right edge)
 document.getElementById("editor-header")!.appendChild(editorFoldBtn);

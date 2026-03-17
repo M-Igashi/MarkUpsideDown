@@ -2,6 +2,7 @@ import type { EditorView } from "@codemirror/view";
 import { getWorkerUrl } from "./settings.ts";
 import { getActiveTab, markTabSaved, updateActiveTab } from "./tabs.ts";
 import { getRootPath } from "./sidebar.ts";
+import { suppressNext } from "./file-watcher.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -97,6 +98,7 @@ export function initBridgeListeners() {
     const path = event.payload || currentFilePath;
     if (!path) return;
     try {
+      suppressNext(path);
       await writeTextFile(path, editor.state.doc.toString());
       if (!currentFilePath) {
         setCurrentFilePath(path);

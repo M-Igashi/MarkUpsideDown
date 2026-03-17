@@ -2,6 +2,7 @@ import type { EditorView } from "@codemirror/view";
 import { ensureWorkerUrl, isImageConversionAllowed, isAutoSaveEnabled } from "./settings.ts";
 import { getRootPath } from "./sidebar.ts";
 import { getActiveTab, isTabDirty, markTabSaved, updateActiveTab } from "./tabs.ts";
+import { suppressNext } from "./file-watcher.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open, save, confirm } = window.__TAURI__.dialog;
@@ -76,6 +77,7 @@ export async function saveFile() {
   try {
     const content = editor.state.doc.toString();
     if (currentFilePath) {
+      suppressNext(currentFilePath);
       await writeTextFile(currentFilePath, content);
       const tab = getActiveTab();
       if (tab) markTabSaved(tab.id);
@@ -84,6 +86,7 @@ export async function saveFile() {
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (path) {
+        suppressNext(path);
         await writeTextFile(path, content);
         setCurrentFilePath(path);
         updateActiveTab({ path, name: path.split("/").pop()! });
@@ -114,6 +117,7 @@ export async function autoSave() {
   const tab = getActiveTab();
   if (!tab || !tab.path || !isTabDirty(tab)) return;
   try {
+    suppressNext(currentFilePath);
     await writeTextFile(currentFilePath, editor.state.doc.toString());
     markTabSaved(tab.id);
     if (getRootPath()) refreshGitAndSync();

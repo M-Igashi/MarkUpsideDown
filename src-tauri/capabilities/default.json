@@ -18,6 +18,7 @@
     },
     "shell:default",
     "shell:allow-open",
-    "core:event:allow-listen"
+    "core:event:allow-listen",
+    "fs:allow-watch"
   ]
 }

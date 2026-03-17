@@ -18,6 +18,8 @@ let activeTabId: string | null = null;
 let tabBarEl: HTMLElement | null = null;
 let onTabSwitch: ((tab: Tab) => void) | null = null;
 let onTabEmpty: (() => void) | null = null;
+let onTabOpen: ((tab: Tab) => void) | null = null;
+let onTabClose: ((tab: Tab) => void) | null = null;
 
 let nextId = 1;
 
@@ -31,15 +33,21 @@ export function initTabs(
     onSwitch,
     onEmpty,
     onReload,
+    onOpen,
+    onClose,
   }: {
     onSwitch: (tab: Tab) => void;
     onEmpty: () => void;
     onReload?: (tab: Tab) => void;
+    onOpen?: (tab: Tab) => void;
+    onClose?: (tab: Tab) => void;
   },
 ): void {
   tabBarEl = el;
   onTabSwitch = onSwitch;
   onTabEmpty = onEmpty;
+  onTabOpen = onOpen || null;
+  onTabClose = onClose || null;
 
   // Restore state
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -119,6 +127,7 @@ export function openTab(path: string | null, name: string, content: string): Tab
     savedContent: path ? (content ?? "") : null,
   };
   tabs.push(tab);
+  onTabOpen?.(tab);
   switchTab(tab.id);
   return tab;
 }
@@ -139,7 +148,9 @@ export function closeTab(id: string): void {
   const idx = tabs.findIndex((t) => t.id === id);
   if (idx === -1) return;
 
+  const closedTab = tabs[idx];
   tabs.splice(idx, 1);
+  onTabClose?.(closedTab);
 
   if (activeTabId === id) {
     if (tabs.length > 0) {
