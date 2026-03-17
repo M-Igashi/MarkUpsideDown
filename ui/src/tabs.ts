@@ -234,6 +234,77 @@ export function getDirtyFileTabs(): Tab[] {
   return tabs.filter(isTabDirty);
 }
 
+// --- Drag-and-drop reorder ---
+
+let dragTabId: string | null = null;
+let dragOverTabId: string | null = null;
+let dropIndicatorSide: "left" | "right" | null = null;
+
+function handleTabDragStart(e: DragEvent, tabId: string) {
+  dragTabId = tabId;
+  e.dataTransfer!.effectAllowed = "move";
+  e.dataTransfer!.setData("text/plain", tabId);
+  (e.target as HTMLElement).classList.add("dragging");
+}
+
+function handleTabDragOver(e: DragEvent, tabId: string) {
+  if (!dragTabId || dragTabId === tabId) {
+    clearDropIndicator();
+    return;
+  }
+  e.preventDefault();
+  e.dataTransfer!.dropEffect = "move";
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const mid = rect.left + rect.width / 2;
+  const side = e.clientX < mid ? "left" : "right";
+  if (dragOverTabId !== tabId || dropIndicatorSide !== side) {
+    clearDropIndicator();
+    dragOverTabId = tabId;
+    dropIndicatorSide = side;
+    (e.currentTarget as HTMLElement).classList.add(`drop-${side}`);
+  }
+}
+
+function handleTabDrop(e: DragEvent, targetTabId: string) {
+  e.preventDefault();
+  if (!dragTabId || dragTabId === targetTabId) return;
+  const fromIdx = tabs.findIndex((t) => t.id === dragTabId);
+  const toIdx = tabs.findIndex((t) => t.id === targetTabId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const [moved] = tabs.splice(fromIdx, 1);
+  const insertIdx =
+    dropIndicatorSide === "right"
+      ? toIdx > fromIdx
+        ? toIdx
+        : toIdx + 1
+      : toIdx > fromIdx
+        ? toIdx - 1
+        : toIdx;
+  tabs.splice(Math.max(0, insertIdx), 0, moved);
+  saveState();
+  cleanupDrag();
+  renderTabs();
+}
+
+function handleTabDragEnd() {
+  cleanupDrag();
+  renderTabs();
+}
+
+function clearDropIndicator() {
+  if (!tabBarEl) return;
+  for (const el of tabBarEl.querySelectorAll(".drop-left, .drop-right")) {
+    el.classList.remove("drop-left", "drop-right");
+  }
+  dragOverTabId = null;
+  dropIndicatorSide = null;
+}
+
+function cleanupDrag() {
+  dragTabId = null;
+  clearDropIndicator();
+}
+
 // --- Render ---
 
 function renderTabs(): void {
@@ -251,6 +322,12 @@ function renderTabs(): void {
     el.className = "tab-item";
     if (tab.id === activeTabId) el.classList.add("active");
     if (isTabDirty(tab)) el.classList.add("dirty");
+    el.draggable = true;
+
+    el.addEventListener("dragstart", (e) => handleTabDragStart(e, tab.id));
+    el.addEventListener("dragover", (e) => handleTabDragOver(e, tab.id));
+    el.addEventListener("drop", (e) => handleTabDrop(e, tab.id));
+    el.addEventListener("dragend", handleTabDragEnd);
 
     const nameEl = document.createElement("span");
     nameEl.className = "tab-name";

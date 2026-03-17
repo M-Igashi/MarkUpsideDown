@@ -61,6 +61,8 @@ let onFolderChange: ((rootPath: string) => void) | null = null;
 let onSidebarFold: (() => void) | null = null;
 let gitStatusMap: Map<string, GitStatus> = new Map();
 let refreshGeneration = 0; // guards against concurrent refreshTree() races
+let filterQuery = "";
+let dragSourcePath: string | null = null;
 
 export type SidebarPanel = "files" | "git" | "github";
 let activePanel: SidebarPanel = "files";
@@ -183,6 +185,32 @@ function render() {
   // Files panel (tree container)
   filesContainer = document.createElement("div");
   filesContainer.className = "sidebar-panel-content";
+
+  // Search/filter input
+  const searchWrap = document.createElement("div");
+  searchWrap.className = "sidebar-search";
+  const searchInput = document.createElement("input");
+  searchInput.className = "sidebar-search-input";
+  searchInput.type = "text";
+  searchInput.placeholder = "Filter files…";
+  searchInput.value = filterQuery;
+  let filterTimeout: ReturnType<typeof setTimeout> | null = null;
+  searchInput.addEventListener("input", () => {
+    if (filterTimeout) clearTimeout(filterTimeout);
+    filterTimeout = setTimeout(() => {
+      filterQuery = searchInput.value.trim().toLowerCase();
+      refreshTree();
+    }, 150);
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      searchInput.value = "";
+      filterQuery = "";
+      refreshTree();
+    }
+  });
+  searchWrap.appendChild(searchInput);
+  filesContainer.appendChild(searchWrap);
 
   treeEl = document.createElement("div");
   treeEl.className = "sidebar-tree";
@@ -345,39 +373,70 @@ async function renderDirectory(
   container: HTMLElement,
   depth: number,
   gen: number,
-) {
+): Promise<boolean> {
   const entries = await invoke<DirEntry[]>("list_directory", {
     path: dirPath,
     repoRoot: rootPath,
   });
-  if (gen !== refreshGeneration) return;
+  if (gen !== refreshGeneration) return false;
 
   // Deduplicate by path (safety net)
   const seen = new Set<string>();
+  const isFiltering = filterQuery.length > 0;
 
-  // Render items and collect expanded subdirectories for parallel fetch
-  const expandedChildren = [];
+  // When filtering, we need to recurse into all directories to find matches
+  // Collect items and expanded children
+  const pendingItems: { entry: DirEntry; item: HTMLElement; childContainer?: HTMLElement }[] = [];
+
   for (const entry of entries) {
     if (seen.has(entry.path)) continue;
     seen.add(entry.path);
 
-    const item = createTreeItem(entry, depth);
-    container.appendChild(item);
-
-    if (entry.is_dir && expandedDirs.has(entry.path)) {
+    if (entry.is_dir) {
+      const item = createTreeItem(entry, depth);
       const childContainer = document.createElement("div");
       childContainer.className = "sidebar-tree-children";
-      container.appendChild(childContainer);
-      expandedChildren.push({ path: entry.path, container: childContainer });
+      pendingItems.push({ entry, item, childContainer });
+    } else {
+      if (isFiltering && !entry.name.toLowerCase().includes(filterQuery)) continue;
+      const item = createTreeItem(entry, depth);
+      pendingItems.push({ entry, item });
     }
   }
 
-  // Recurse into expanded subdirectories in parallel
-  if (expandedChildren.length > 0) {
-    await Promise.all(
-      expandedChildren.map(({ path, container: c }) => renderDirectory(path, c, depth + 1, gen)),
+  // Recurse into directories (expanded ones always, all when filtering)
+  const dirItems = pendingItems.filter((p) => p.entry.is_dir && p.childContainer);
+  let dirHasMatch: Map<string, boolean> = new Map();
+  if (dirItems.length > 0) {
+    const results = await Promise.all(
+      dirItems.map(async ({ entry, childContainer }) => {
+        const shouldExpand = isFiltering || expandedDirs.has(entry.path);
+        if (!shouldExpand) return false;
+        return renderDirectory(entry.path, childContainer!, depth + 1, gen);
+      }),
     );
+    dirItems.forEach(({ entry }, i) => {
+      dirHasMatch.set(entry.path, results[i]);
+    });
   }
+  if (gen !== refreshGeneration) return false;
+
+  // Append items to container, skipping filtered-out directories
+  let hasAnyMatch = false;
+  for (const { entry, item, childContainer } of pendingItems) {
+    if (entry.is_dir && isFiltering) {
+      const nameMatch = entry.name.toLowerCase().includes(filterQuery);
+      const childMatch = dirHasMatch.get(entry.path) ?? false;
+      if (!nameMatch && !childMatch) continue;
+    }
+    container.appendChild(item);
+    if (entry.is_dir && childContainer && (isFiltering || expandedDirs.has(entry.path))) {
+      container.appendChild(childContainer);
+    }
+    hasAnyMatch = true;
+  }
+
+  return hasAnyMatch;
 }
 
 function createTreeItem(entry: DirEntry, depth: number) {
@@ -415,6 +474,44 @@ function createTreeItem(entry: DirEntry, depth: number) {
   if (gitStatus) {
     item.appendChild(createGitBadge(gitStatus.status));
     applyGitNameStyle(name, gitStatus.status);
+  }
+
+  // Drag-and-drop for file/folder move
+  item.draggable = true;
+  item.addEventListener("dragstart", (e) => {
+    e.stopPropagation();
+    dragSourcePath = entry.path;
+    e.dataTransfer!.effectAllowed = "move";
+    e.dataTransfer!.setData("text/plain", entry.path);
+    item.classList.add("dragging");
+  });
+  item.addEventListener("dragend", () => {
+    item.classList.remove("dragging");
+    dragSourcePath = null;
+    clearTreeDropTarget();
+  });
+  if (entry.is_dir) {
+    item.addEventListener("dragover", (e) => {
+      if (!dragSourcePath || dragSourcePath === entry.path) return;
+      // Don't allow dropping into own subtree
+      if (dragSourcePath && entry.path.startsWith(dragSourcePath + "/")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer!.dropEffect = "move";
+      clearTreeDropTarget();
+      item.classList.add("drop-target");
+    });
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("drop-target");
+    });
+    item.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      item.classList.remove("drop-target");
+      if (!dragSourcePath || dragSourcePath === entry.path) return;
+      moveEntry(dragSourcePath, entry.path);
+      dragSourcePath = null;
+    });
   }
 
   // Click handler
@@ -486,6 +583,38 @@ async function selectAndOpenFile(entry: DirEntry) {
     } catch (e) {
       console.error("Failed to open file:", e);
     }
+  }
+}
+
+// --- Drag-and-drop helpers ---
+
+function clearTreeDropTarget() {
+  if (!treeEl) return;
+  for (const el of treeEl.querySelectorAll(".drop-target")) {
+    el.classList.remove("drop-target");
+  }
+}
+
+async function moveEntry(sourcePath: string, targetDirPath: string) {
+  const fileName = sourcePath.split("/").pop();
+  if (!fileName) return;
+  const newPath = `${targetDirPath}/${fileName}`;
+  if (sourcePath === newPath) return;
+  try {
+    await invoke("rename_entry", { from: sourcePath, to: newPath });
+    // Update selected path if the moved item was selected
+    if (sourcePath === selectedPath) {
+      selectedPath = newPath;
+    }
+    // Expand the target directory
+    if (!expandedDirs.has(targetDirPath)) {
+      expandedDirs.add(targetDirPath);
+    }
+    saveState();
+    await refreshTree();
+  } catch (e) {
+    const { message: showMessage } = window.__TAURI__.dialog;
+    showMessage(`Failed to move: ${e}`, { kind: "error" });
   }
 }
 
