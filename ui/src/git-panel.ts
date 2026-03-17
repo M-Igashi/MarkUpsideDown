@@ -35,10 +35,10 @@ export function initGitPanel(
   render();
 }
 
-export function setRepoPath(path: string | null) {
+export function setRepoPath(path: string | null, skipRefresh = false) {
   repoPath = path;
   if (path) {
-    refresh();
+    if (!skipRefresh) refresh();
   } else {
     gitData = null;
     render();

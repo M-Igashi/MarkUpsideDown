@@ -294,11 +294,14 @@ export function switchPanel(panel: SidebarPanel) {
   // Update header title
   const titleEl = sidebarEl?.querySelector(".sidebar-title");
   if (titleEl) titleEl.textContent = panelTitle();
-  // Update header actions
+  // Update header actions (preserve fold button)
   const actionsEl = sidebarEl?.querySelector(".sidebar-header-actions");
   if (actionsEl) {
+    // Keep fold button, rebuild only panel-specific actions
+    const foldBtn = actionsEl.querySelector(".panel-fold-btn");
     actionsEl.innerHTML = "";
     populateHeaderActions(actionsEl);
+    if (foldBtn) actionsEl.appendChild(foldBtn);
   }
   updatePanelVisibility();
   updateNavButtons();
@@ -314,6 +317,17 @@ function updateNavButtons() {
   if (!navBar) return;
   for (const btn of navBar.querySelectorAll(".sidebar-nav-btn") as NodeListOf<HTMLElement>) {
     btn.classList.toggle("active", btn.dataset.panel === activePanel);
+    // Sync git badge with current count
+    if (btn.dataset.panel === "git") {
+      const existing = btn.querySelector(".sidebar-nav-badge");
+      if (existing) existing.remove();
+      if (gitChangeCount > 0) {
+        const badge = document.createElement("span");
+        badge.className = "sidebar-nav-badge";
+        badge.textContent = String(gitChangeCount);
+        btn.appendChild(badge);
+      }
+    }
   }
 }
 

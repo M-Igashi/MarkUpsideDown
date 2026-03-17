@@ -373,7 +373,7 @@ initSidebar(sidebarEl, {
     loadContentAsTab(content, filePath);
   },
   onFolder: (rootPath: string) => {
-    setRepoPath(rootPath);
+    setRepoPath(rootPath, true);
     refreshGitAndSyncNow();
   },
   onFold: () => toggleSidebar(),
@@ -409,7 +409,7 @@ if (ghPanelEl) {
 
 const initialRoot = getRootPath();
 if (initialRoot) {
-  setRepoPath(initialRoot);
+  setRepoPath(initialRoot, true);
   refreshGitAndSyncNow();
 }
 
