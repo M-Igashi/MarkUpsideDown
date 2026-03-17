@@ -280,6 +280,7 @@ body {
 #preview-pane {
   flex: 1;
   overflow-y: auto;
+  overflow-anchor: none;
   padding: 16px;
   background: var(--bg);
   contain: paint style;
