@@ -281,6 +281,7 @@ export async function renderPreview(source: string) {
         "data-math-display",
         "data-math-rendered",
         "data-hljs-lang",
+        "data-hljs-rendered",
       ],
     },
   );
@@ -304,6 +305,15 @@ export async function renderPreview(source: string) {
         ) {
           return false;
         }
+        // Preserve already-highlighted code blocks if source unchanged
+        if (
+          oldNode.dataset.hljsRendered &&
+          oldNode.tagName === "CODE" &&
+          oldNode.dataset.hljsLang === newNode.dataset.hljsLang &&
+          oldNode.textContent === newNode.textContent
+        ) {
+          return false;
+        }
         // Preserve inlined SVGs
         if (oldNode.classList.contains("inline-svg")) {
           return false;
@@ -320,7 +330,7 @@ export async function renderPreview(source: string) {
     img.decoding = "async";
   }
 
-  const codeEls = previewPane.querySelectorAll("code[data-hljs-lang]");
+  const codeEls = previewPane.querySelectorAll("code[data-hljs-lang]:not([data-hljs-rendered])");
   if (codeEls.length > 0) {
     try {
       const hljs = await getHljs();
@@ -329,6 +339,7 @@ export async function renderPreview(source: string) {
         if (hljs.getLanguage(lang)) {
           el.innerHTML = hljs.highlight(el.textContent!, { language: lang }).value;
           el.classList.add(`language-${lang}`);
+          (el as HTMLElement).dataset.hljsRendered = "true";
         }
       }
     } catch (err) {

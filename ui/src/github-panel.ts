@@ -24,12 +24,6 @@ function render() {
   if (!panelEl) return;
   panelEl.innerHTML = "";
 
-  // Header
-  const header = document.createElement("div");
-  header.className = "gh-panel-header";
-  header.textContent = "GitHub";
-  panelEl.appendChild(header);
-
   // Input row
   const inputRow = document.createElement("div");
   inputRow.className = "gh-input-row";
