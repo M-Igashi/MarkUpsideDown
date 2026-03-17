@@ -14,6 +14,8 @@ interface GitData {
   branch: string;
   files: GitFile[];
   is_repo: boolean;
+  ahead: number;
+  behind: number;
 }
 
 let panelEl: HTMLElement | null = null;
@@ -308,14 +310,14 @@ function render() {
   const pullBtn = document.createElement("button");
   pullBtn.className = "git-icon-btn";
   pullBtn.title = "Pull";
-  pullBtn.innerHTML = "↓ Pull";
+  pullBtn.innerHTML = gitData.behind > 0 ? `↓ Pull <span class="git-count-badge">${gitData.behind}</span>` : "↓ Pull";
   pullBtn.addEventListener("click", () => gitRemoteAction("git_pull", "Pull", pullBtn));
   leftActions.appendChild(pullBtn);
 
   const pushBtn = document.createElement("button");
   pushBtn.className = "git-icon-btn";
   pushBtn.title = "Push";
-  pushBtn.innerHTML = "↑ Push";
+  pushBtn.innerHTML = gitData.ahead > 0 ? `↑ Push <span class="git-count-badge">${gitData.ahead}</span>` : "↑ Push";
   pushBtn.addEventListener("click", () => gitRemoteAction("git_push", "Push", pushBtn));
   leftActions.appendChild(pushBtn);
 

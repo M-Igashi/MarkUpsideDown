@@ -835,6 +835,8 @@ pub struct GitStatus {
     pub branch: String,
     pub files: Vec<GitFileStatus>,
     pub is_repo: bool,
+    pub ahead: u32,
+    pub behind: u32,
 }
 
 #[tauri::command]
@@ -862,17 +864,38 @@ pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
                     branch: String::new(),
                     files: Vec::new(),
                     is_repo: false,
+                    ahead: 0,
+                    behind: 0,
                 });
             }
         };
 
         let mut lines = output.lines();
-        // First line: "## branch...tracking" or "## HEAD (no branch)"
-        let branch = lines
+        // First line: "## branch...tracking [ahead N, behind M]" or "## HEAD (no branch)"
+        let first_line = lines
             .next()
             .and_then(|line| line.strip_prefix("## "))
-            .map(|b| b.split("...").next().unwrap_or(b).to_string())
-            .unwrap_or_default();
+            .unwrap_or("");
+        let branch = first_line.split("...").next().unwrap_or(first_line).to_string();
+        let mut ahead: u32 = 0;
+        let mut behind: u32 = 0;
+        if let Some(bracket) = first_line.find('[') {
+            let info = &first_line[bracket..];
+            if let Some(n) = info
+                .find("ahead ")
+                .and_then(|i| info[i + 6..].split(|c: char| !c.is_ascii_digit()).next())
+                .and_then(|s| s.parse().ok())
+            {
+                ahead = n;
+            }
+            if let Some(n) = info
+                .find("behind ")
+                .and_then(|i| info[i + 7..].split(|c: char| !c.is_ascii_digit()).next())
+                .and_then(|s| s.parse().ok())
+            {
+                behind = n;
+            }
+        }
 
         let mut unstaged_stats: std::collections::HashMap<String, (u32, u32)> =
             std::collections::HashMap::new();
@@ -949,6 +972,8 @@ pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
             branch,
             files,
             is_repo: true,
+            ahead,
+            behind,
         })
     })
     .await

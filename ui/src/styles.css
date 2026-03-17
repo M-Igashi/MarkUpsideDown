@@ -919,6 +919,22 @@ body {
   cursor: default;
 }
 
+.git-count-badge {
+  display: inline-block;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  text-align: center;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
 .git-commit-btn {
   background: var(--accent);
   color: var(--bg);
