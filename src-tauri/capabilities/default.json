@@ -17,6 +17,7 @@
       "allow": [{ "path": "$HOME/**" }]
     },
     "shell:default",
+    "shell:allow-open",
     "core:event:allow-listen"
   ]
 }

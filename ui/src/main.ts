@@ -1178,6 +1178,16 @@ window.addEventListener("resize", () => {
   resizeRAF = requestAnimationFrame(buildScrollAnchors);
 });
 previewPane.addEventListener("click", (e) => {
+  // Open external links in default browser instead of navigating the WebView
+  const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
+  if (anchor) {
+    const href = anchor.getAttribute("href") ?? "";
+    if (/^https?:\/\//.test(href)) {
+      e.preventDefault();
+      invoke("plugin:shell|open", { path: href });
+      return;
+    }
+  }
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed) return;
   syncPreviewClickToEditor(e);
