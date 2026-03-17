@@ -239,6 +239,13 @@ body {
   opacity: 1;
 }
 
+.tab-item.dirty .tab-name::before {
+  content: "●";
+  margin-right: 4px;
+  color: var(--accent);
+  font-size: 8px;
+}
+
 .tab-close:hover {
   background: var(--border);
   color: var(--text);
@@ -1041,7 +1048,7 @@ body {
   margin: 0 auto;
   background: var(--page);
   border-radius: 8px;
-  padding: 40px 48px;
+  padding: 40px 24px;
   box-shadow:
     0 1px 8px rgba(0, 0, 0, 0.08),
     0 4px 24px rgba(0, 0, 0, 0.04);

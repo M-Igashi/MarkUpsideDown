@@ -16,6 +16,7 @@ interface WranglerStatus {
 const STORAGE_KEY_WORKER_URL = "markupsidedown:workerUrl";
 const STORAGE_KEY_SETUP_DONE = "markupsidedown:setupDone";
 const STORAGE_KEY_ALLOW_IMAGE = "markupsidedown:allowImageConversion";
+const STORAGE_KEY_AUTOSAVE = "markupsidedown:autosave";
 
 export function getWorkerUrl() {
   return localStorage.getItem(STORAGE_KEY_WORKER_URL) || "";
@@ -35,6 +36,14 @@ export function isSetupDone() {
 
 export function isImageConversionAllowed() {
   return localStorage.getItem(STORAGE_KEY_ALLOW_IMAGE) !== "0";
+}
+
+export function isAutoSaveEnabled() {
+  return localStorage.getItem(STORAGE_KEY_AUTOSAVE) !== "0";
+}
+
+function setAutoSaveEnabled(enabled: boolean) {
+  localStorage.setItem(STORAGE_KEY_AUTOSAVE, enabled ? "1" : "0");
 }
 
 function setImageConversionAllowed(allowed: boolean) {
@@ -410,6 +419,14 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
       </div>
 
       <div class="settings-section">
+        <div class="settings-section-title">Editor</div>
+        <label class="settings-toggle-row">
+          <input type="checkbox" id="settings-autosave" />
+          <span class="settings-toggle-label">Auto-save files (2 seconds after last edit)</span>
+        </label>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-section-title">Import Options</div>
         <label class="settings-toggle-row">
           <input type="checkbox" id="settings-allow-image" />
@@ -484,6 +501,9 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
 
   const allowImageCheckbox = document.getElementById("settings-allow-image") as HTMLInputElement;
   allowImageCheckbox.checked = isImageConversionAllowed();
+
+  const autosaveCheckbox = document.getElementById("settings-autosave") as HTMLInputElement;
+  autosaveCheckbox.checked = isAutoSaveEnabled();
 
   // --- MCP Integration Section ---
   initMcpSection();
@@ -566,6 +586,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
     const url = urlInput.value.trim();
     setWorkerUrl(url);
     setImageConversionAllowed(allowImageCheckbox.checked);
+    setAutoSaveEnabled(autosaveCheckbox.checked);
     markSetupDone();
     close();
     if (onSave) onSave(url);

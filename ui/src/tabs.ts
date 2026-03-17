@@ -8,6 +8,7 @@ export interface Tab {
   name: string;
   content: string;
   scrollTop: number;
+  savedContent: string | null; // runtime-only, not serialized
 }
 
 // --- State ---
@@ -47,10 +48,11 @@ export function initTabs(
       const state = JSON.parse(saved);
       tabs = state.tabs || [];
       activeTabId = state.activeTabId || null;
-      // Ensure IDs are unique
+      // Ensure IDs are unique and initialize runtime-only fields
       for (const tab of tabs) {
         const num = parseInt(tab.id?.replace("tab-", ""), 10);
         if (num >= nextId) nextId = num + 1;
+        tab.savedContent = null; // will be set on reload from disk
       }
     } catch {
       // ignore
@@ -96,6 +98,7 @@ export function openTab(path: string | null, name: string, content: string): Tab
     const existing = tabs.find((t) => t.path === path);
     if (existing) {
       existing.content = content;
+      existing.savedContent = content;
       if (existing.id === activeTabId) {
         // Already active but content was refreshed — update the editor
         onTabSwitch?.(existing);
@@ -107,12 +110,13 @@ export function openTab(path: string | null, name: string, content: string): Tab
     }
   }
 
-  const tab = {
+  const tab: Tab = {
     id: genId(),
     path: path || null,
     name: name || "Untitled",
     content: content ?? "",
     scrollTop: 0,
+    savedContent: path ? (content ?? "") : null,
   };
   tabs.push(tab);
   switchTab(tab.id);
@@ -214,6 +218,22 @@ export function getTabs(): Tab[] {
   return tabs;
 }
 
+export function isTabDirty(tab: Tab): boolean {
+  return tab.path !== null && tab.savedContent !== null && tab.content !== tab.savedContent;
+}
+
+export function markTabSaved(id: string): void {
+  const tab = tabs.find((t) => t.id === id);
+  if (tab) {
+    tab.savedContent = tab.content;
+    renderTabs();
+  }
+}
+
+export function getDirtyFileTabs(): Tab[] {
+  return tabs.filter(isTabDirty);
+}
+
 // --- Render ---
 
 function renderTabs(): void {
@@ -230,6 +250,7 @@ function renderTabs(): void {
     const el = document.createElement("div");
     el.className = "tab-item";
     if (tab.id === activeTabId) el.classList.add("active");
+    if (isTabDirty(tab)) el.classList.add("dirty");
 
     const nameEl = document.createElement("span");
     nameEl.className = "tab-name";

@@ -17,6 +17,7 @@ import {
   ensureWorkerUrl,
   getWorkerUrl,
   isImageConversionAllowed,
+  isAutoSaveEnabled,
   checkFirstRun,
 } from "./settings.ts";
 import {
@@ -44,6 +45,9 @@ import {
   switchToPrevTab,
   switchToNextTab,
   updateActiveTab,
+  getActiveTab,
+  isTabDirty,
+  markTabSaved,
 } from "./tabs.ts";
 import { marked } from "marked";
 import "katex/dist/katex.min.css";
@@ -518,6 +522,7 @@ const updatePreview = EditorView.updateListener.of((update) => {
       updateStatus(update.state);
     }, 100);
     updateActiveTab({ content });
+    scheduleAutoSave();
     syncEditorState(content);
   }
   // Sync preview when cursor moves — skip if a render is pending (anchors stale)
@@ -812,6 +817,8 @@ async function saveFile() {
     const content = editor.state.doc.toString();
     if (currentFilePath) {
       await writeTextFile(currentFilePath, content);
+      const tab = getActiveTab();
+      if (tab) markTabSaved(tab.id);
     } else {
       const path = await save({
         filters: [{ name: "Markdown", extensions: ["md"] }],
@@ -820,6 +827,8 @@ async function saveFile() {
         await writeTextFile(path, content);
         currentFilePath = path;
         updateActiveTab({ path, name: path.split("/").pop()! });
+        const tab = getActiveTab();
+        if (tab) markTabSaved(tab.id);
         updateStatus(editor.state);
       }
     }
@@ -831,6 +840,35 @@ async function saveFile() {
 }
 
 document.getElementById("btn-save")!.addEventListener("click", saveFile);
+
+// --- Auto-save ---
+
+let autoSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+const AUTO_SAVE_DELAY = 2000;
+
+function scheduleAutoSave() {
+  if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
+  autoSaveTimeout = setTimeout(autoSave, AUTO_SAVE_DELAY);
+}
+
+async function autoSave() {
+  if (!isAutoSaveEnabled()) return;
+  if (!currentFilePath) return;
+  const tab = getActiveTab();
+  if (!tab || !tab.path || !isTabDirty(tab)) return;
+  try {
+    await writeTextFile(currentFilePath, editor.state.doc.toString());
+    markTabSaved(tab.id);
+    if (getRootPath()) refreshGitAndSync();
+  } catch (e) {
+    statusEl.textContent = `Auto-save failed: ${e}`;
+  }
+}
+
+window.addEventListener("blur", autoSave);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) autoSave();
+});
 
 // --- URL Bar (Fetch URL) ---
 
@@ -1142,6 +1180,8 @@ if (window.__TAURI__?.event) {
         updateActiveTab({ path, name: path.split("/").pop()! });
         updateStatus(editor.state);
       }
+      const tab = getActiveTab();
+      if (tab) markTabSaved(tab.id);
       if (getRootPath()) refreshGitAndSync();
     } catch (e) {
       statusEl.textContent = `Save failed: ${e}`;
@@ -1295,16 +1335,18 @@ const tabBarEl = document.getElementById("tab-bar")!;
 
 initTabs(tabBarEl, {
   onSwitch: (tab: { content: string; path: string | null }) => {
+    autoSave(); // save previous tab immediately before switching
     loadContent(tab.content, tab.path);
   },
   onEmpty: () => {
     loadContent("# Welcome to MarkUpsideDown\n\nStart typing your Markdown here…\n");
   },
-  onReload: async (tab: { content: string; path: string | null }) => {
+  onReload: async (tab: { content: string; path: string | null; id: string }) => {
     if (!tab.path) return;
     try {
       const content = await invoke<string>("read_text_file", { path: tab.path });
       updateActiveTab({ content });
+      markTabSaved(tab.id);
       loadContent(content, tab.path);
     } catch {
       loadContent("", tab.path);
