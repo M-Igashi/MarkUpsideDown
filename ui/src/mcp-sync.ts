@@ -1,0 +1,118 @@
+import type { EditorView } from "@codemirror/view";
+import { getWorkerUrl } from "./settings.ts";
+
+const { invoke } = window.__TAURI__.core;
+
+let editor: EditorView;
+let statusEl: HTMLElement;
+let getCurrentFilePath: () => string | null;
+let setCurrentFilePath: (p: string | null) => void;
+let loadContentAsTab: (content: string, filePath?: string) => void;
+let renderPreview: (source: string) => Promise<void>;
+let updateStatus: () => void;
+let refreshGitAndSync: () => void;
+
+let syncTimeout: ReturnType<typeof setTimeout> | null = null;
+let lastSyncedContent: string | null = null;
+let lastSyncedFilePath: string | null = null;
+
+export function initMcpSync(deps: {
+  editor: EditorView;
+  statusEl: HTMLElement;
+  getCurrentFilePath: () => string | null;
+  setCurrentFilePath: (p: string | null) => void;
+  loadContentAsTab: (content: string, filePath?: string) => void;
+  renderPreview: (source: string) => Promise<void>;
+  updateStatus: () => void;
+  refreshGitAndSync: () => void;
+}) {
+  editor = deps.editor;
+  statusEl = deps.statusEl;
+  getCurrentFilePath = deps.getCurrentFilePath;
+  setCurrentFilePath = deps.setCurrentFilePath;
+  loadContentAsTab = deps.loadContentAsTab;
+  renderPreview = deps.renderPreview;
+  updateStatus = deps.updateStatus;
+  refreshGitAndSync = deps.refreshGitAndSync;
+}
+
+export function syncEditorState(cachedContent?: string) {
+  if (syncTimeout) clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(() => {
+    const currentFilePath = getCurrentFilePath();
+    const content = cachedContent ?? editor.state.doc.toString();
+    if (content === lastSyncedContent && currentFilePath === lastSyncedFilePath) return;
+    lastSyncedContent = content;
+    lastSyncedFilePath = currentFilePath;
+    const cursorPos = editor.state.selection.main.head;
+    invoke("sync_editor_state", {
+      content,
+      filePath: currentFilePath,
+      cursorPos: cursorPos,
+      workerUrl: getWorkerUrl() || null,
+    }).catch(() => {});
+  }, 2000);
+}
+
+export function initBridgeListeners() {
+  if (!window.__TAURI__?.event) return;
+
+  const { listen } = window.__TAURI__.event;
+  const { writeTextFile } = window.__TAURI__.fs;
+
+  listen<string>("bridge:set-content", (event) => {
+    loadContentAsTab(event.payload);
+  });
+
+  listen<{ text: string; position: string }>("bridge:insert-text", (event) => {
+    const { text, position } = event.payload;
+    let pos: number;
+    if (position === "start") {
+      pos = 0;
+    } else if (position === "end") {
+      pos = editor.state.doc.length;
+    } else {
+      pos = editor.state.selection.main.head;
+    }
+    editor.dispatch({ changes: { from: pos, insert: text } });
+    renderPreview(editor.state.doc.toString());
+    updateStatus();
+  });
+
+  listen<string>("bridge:open-file", async (event) => {
+    const path = event.payload;
+    try {
+      const content = await invoke<string>("read_text_file", { path: path });
+      loadContentAsTab(content, path);
+      syncEditorState();
+    } catch (e) {
+      statusEl.textContent = `Open failed: ${e}`;
+    }
+  });
+
+  listen<string>("bridge:save-file", async (event) => {
+    const currentFilePath = getCurrentFilePath();
+    const path = event.payload || currentFilePath;
+    if (!path) return;
+    try {
+      await writeTextFile(path, editor.state.doc.toString());
+      if (!currentFilePath) {
+        setCurrentFilePath(path);
+        const { updateActiveTab } = await import("./tabs.ts");
+        updateActiveTab({ path, name: path.split("/").pop()! });
+        updateStatus();
+      }
+      const { getActiveTab, markTabSaved } = await import("./tabs.ts");
+      const tab = getActiveTab();
+      if (tab) markTabSaved(tab.id);
+      const { getRootPath } = await import("./sidebar.ts");
+      if (getRootPath()) refreshGitAndSync();
+    } catch (e) {
+      statusEl.textContent = `Save failed: ${e}`;
+    }
+  });
+
+  listen("bridge:export-pdf", () => {
+    window.print();
+  });
+}

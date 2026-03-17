@@ -14,10 +14,6 @@ import { editorTheme } from "./theme.ts";
 import { editTableAtCursor } from "./table-editor.ts";
 import {
   showSettings,
-  ensureWorkerUrl,
-  getWorkerUrl,
-  isImageConversionAllowed,
-  isAutoSaveEnabled,
   checkFirstRun,
 } from "./settings.ts";
 import {
@@ -45,476 +41,55 @@ import {
   switchToPrevTab,
   switchToNextTab,
   updateActiveTab,
-  getActiveTab,
-  isTabDirty,
-  markTabSaved,
 } from "./tabs.ts";
-import { marked } from "marked";
 import "katex/dist/katex.min.css";
-import DOMPurify from "dompurify";
 
-// --- Type Definitions ---
+import {
+  initScrollSync,
+  scrollState,
+  isProgrammaticScroll,
+  syncToPreview,
+  syncToEditor,
+  syncPreviewToCursor,
+  syncPreviewClickToEditor,
+  buildScrollAnchors,
+} from "./scroll-sync.ts";
+import { initPreview, renderPreview, clearSvgCache } from "./preview-render.ts";
+import {
+  initFileOps,
+  saveFile,
+  autoSave,
+  scheduleAutoSave,
+  openFile,
+  fetchUrl,
+  renderUrl,
+  importFile,
+  initDragDrop,
+} from "./file-ops.ts";
+import { initClipboard, copyRichText, copyMarkdown } from "./clipboard.ts";
+import { initMcpSync, syncEditorState, initBridgeListeners } from "./mcp-sync.ts";
 
-interface ScrollAnchor {
-  editorY: number;
-  previewY: number;
-}
-
-interface FetchResult {
-  body: string;
-  is_markdown: boolean;
-}
-
-interface ConvertResult {
-  markdown: string;
-  is_image: boolean;
-  original_size: number;
-  warning?: string;
-}
-
-// KaTeX math extension for marked — renders placeholders, resolved async in renderPreview
-const mathExtension = {
-  extensions: [
-    {
-      name: "mathBlock",
-      level: "block" as const,
-      start(src: string) {
-        return src.indexOf("$$");
-      },
-      tokenizer(src: string) {
-        const match = src.match(/^\$\$([\s\S]+?)\$\$/);
-        if (match) {
-          return { type: "mathBlock", raw: match[0], text: match[1].trim() };
-        }
-      },
-      renderer(token: { text: string }) {
-        return `<div class="math-block" data-math-source="${encodeURIComponent(token.text)}" data-math-display="true"></div>`;
-      },
-    },
-    {
-      name: "mathInline",
-      level: "inline" as const,
-      start(src: string) {
-        return src.indexOf("$");
-      },
-      tokenizer(src: string) {
-        const match = src.match(/^\$([^\s$](?:[^$]*[^\s$])?)\$/);
-        if (match) {
-          return { type: "mathInline", raw: match[0], text: match[1] };
-        }
-      },
-      renderer(token: { text: string }) {
-        return `<span data-math-source="${encodeURIComponent(token.text)}" data-math-display="false"></span>`;
-      },
-    },
-  ],
-};
-
-marked.use(mathExtension);
-
-let hljsModule: any = null;
-
-const HLJS_LANGUAGES: [string, () => Promise<any>][] = [
-  ["bash", () => import("highlight.js/lib/languages/bash")],
-  ["c", () => import("highlight.js/lib/languages/c")],
-  ["cpp", () => import("highlight.js/lib/languages/cpp")],
-  ["csharp", () => import("highlight.js/lib/languages/csharp")],
-  ["css", () => import("highlight.js/lib/languages/css")],
-  ["diff", () => import("highlight.js/lib/languages/diff")],
-  ["go", () => import("highlight.js/lib/languages/go")],
-  ["graphql", () => import("highlight.js/lib/languages/graphql")],
-  ["ini", () => import("highlight.js/lib/languages/ini")],
-  ["java", () => import("highlight.js/lib/languages/java")],
-  ["javascript", () => import("highlight.js/lib/languages/javascript")],
-  ["json", () => import("highlight.js/lib/languages/json")],
-  ["kotlin", () => import("highlight.js/lib/languages/kotlin")],
-  ["markdown", () => import("highlight.js/lib/languages/markdown")],
-  ["perl", () => import("highlight.js/lib/languages/perl")],
-  ["python", () => import("highlight.js/lib/languages/python")],
-  ["ruby", () => import("highlight.js/lib/languages/ruby")],
-  ["rust", () => import("highlight.js/lib/languages/rust")],
-  ["shell", () => import("highlight.js/lib/languages/shell")],
-  ["sql", () => import("highlight.js/lib/languages/sql")],
-  ["swift", () => import("highlight.js/lib/languages/swift")],
-  ["typescript", () => import("highlight.js/lib/languages/typescript")],
-  ["xml", () => import("highlight.js/lib/languages/xml")],
-  ["yaml", () => import("highlight.js/lib/languages/yaml")],
-];
-
-async function getHljs() {
-  if (hljsModule) return hljsModule;
-  const { default: hljs } = await import("highlight.js/lib/core");
-  const loaded = await Promise.all(HLJS_LANGUAGES.map(([, fn]) => fn()));
-  HLJS_LANGUAGES.forEach(([name], i) => hljs.registerLanguage(name, loaded[i].default));
-  hljsModule = hljs;
-  return hljs;
-}
-
-let katexModule: any = null;
-
-async function getKaTeX() {
-  if (katexModule) return katexModule;
-  const { default: katex } = await import("katex");
-  katexModule = katex;
-  return katex;
-}
-
-let mermaidModule: any = null;
-
-async function getMermaid() {
-  if (mermaidModule) return mermaidModule;
-  const { default: mermaid } = await import("mermaid");
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: "default",
-    themeVariables: {
-      primaryColor: "#dce4f0",
-      primaryTextColor: "#2c2c2c",
-      primaryBorderColor: "#4a7ab5",
-      lineColor: "#8a8578",
-      secondaryColor: "#eee8e0",
-      tertiaryColor: "#f5f1eb",
-      background: "#faf7f2",
-      mainBkg: "#dce4f0",
-      nodeBorder: "#4a7ab5",
-      clusterBkg: "#f5f1eb",
-      titleColor: "#2c2c2c",
-      edgeLabelBackground: "#faf7f2",
-    },
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
-  });
-  mermaidModule = mermaid;
-  return mermaid;
-}
+// --- Tauri APIs ---
 
 const { invoke } = window.__TAURI__.core;
-const { open, save, confirm } = window.__TAURI__.dialog;
-const { writeTextFile } = window.__TAURI__.fs;
+
+// --- Shared state ---
 
 let currentFilePath: string | null = null;
 let previewTimeout: ReturnType<typeof setTimeout> | null = null;
 
-// --- Scroll Sync ---
-//
-// Design: single-direction-at-a-time with programmatic-scroll detection.
-//   activeSide = which pane the user last interacted with (scroll / click / cursor)
-//   programmaticScrollAt = timestamp to ignore echo-back scroll events
-//   pendingRender = true while a debounced re-render is queued (anchors stale)
-
-let scrollAnchors: ScrollAnchor[] = [];
-let cachedSourceLineEls: HTMLElement[] = [];
-let syncRAF = 0;
-let renderingPreview = false;
-let pendingRender = false;
-let activeSide: "editor" | "preview" = "editor";
-let programmaticScrollAt = 0;
-let lastPreviewClickAt = 0;
-
-const PROG_SCROLL_MS = 80;
-const CLICK_SUPPRESS_MS = 150;
-
-function isProgrammaticScroll() {
-  return performance.now() - programmaticScrollAt < PROG_SCROLL_MS;
+function getCurrentFilePath() {
+  return currentFilePath;
 }
-function markProgrammaticScroll() {
-  programmaticScrollAt = performance.now();
+function setCurrentFilePath(p: string | null) {
+  currentFilePath = p;
 }
-
-function getCodeBlockLineInfo(preEl: HTMLElement) {
-  const codeEl = preEl.querySelector("code") || preEl;
-  const lines = codeEl.textContent!.split("\n");
-  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-  const rect = codeEl.getBoundingClientRect();
-  const lineHeight = lines.length > 0 ? rect.height / lines.length : 0;
-  return { codeEl, lines, rect, lineHeight };
-}
-
-function countNewlines(str: string, from: number, to: number) {
-  let n = 0;
-  for (let i = from; i < to; i++) {
-    if (str.charCodeAt(i) === 10) n++;
-  }
-  return n;
-}
-
-function annotateTokensWithSourceLines(tokens: any[]) {
-  let lineNum = 1;
-  for (const token of tokens) {
-    if (!token.raw) continue;
-    if (token.type === "space") {
-      lineNum += countNewlines(token.raw, 0, token.raw.length);
-      continue;
-    }
-    token._sourceLine = lineNum;
-    lineNum += countNewlines(token.raw, 0, token.raw.length);
-  }
-}
-
-function slAttr(sourceLine: number | undefined) {
-  return sourceLine ? ` data-source-line="${sourceLine}"` : "";
-}
-
-function buildScrollAnchors() {
-  const elements = previewPane.querySelectorAll("[data-source-line]");
-
-  const anchors: ScrollAnchor[] = [{ editorY: 0, previewY: 0 }];
-  const previewRect = previewPane.getBoundingClientRect();
-  const previewScrollTop = previewPane.scrollTop;
-
-  for (const el of elements) {
-    const lineNum = parseInt((el as HTMLElement).dataset.sourceLine!, 10);
-    if (lineNum < 1 || lineNum > editor.state.doc.lines) continue;
-    const line = editor.state.doc.line(lineNum);
-    const block = editor.lineBlockAt(line.from);
-    const editorY = block.top;
-    const previewY = el.getBoundingClientRect().top - previewRect.top + previewScrollTop;
-    anchors.push({ editorY, previewY });
-
-    // Add sub-line anchors within code blocks for precise per-line sync
-    if (el.tagName === "PRE") {
-      const info = getCodeBlockLineInfo(el as HTMLElement);
-      if (info.lines.length > 1) {
-        // data-source-line points to the opening ```, code content starts at lineNum + 1
-        for (let i = 0; i < info.lines.length; i++) {
-          const srcLine = lineNum + 1 + i;
-          if (srcLine > editor.state.doc.lines) break;
-          const editorLine = editor.state.doc.line(srcLine);
-          const editorBlock = editor.lineBlockAt(editorLine.from);
-          const subPreviewY =
-            info.rect.top - previewRect.top + previewScrollTop + i * info.lineHeight;
-          anchors.push({ editorY: editorBlock.top, previewY: subPreviewY });
-        }
-      }
-    }
-  }
-
-  const editorMax = cmScroller.scrollHeight - cmScroller.clientHeight;
-  const previewMax = previewPane.scrollHeight - previewPane.clientHeight;
-  if (editorMax > 0 && previewMax > 0) {
-    anchors.push({ editorY: editorMax, previewY: previewMax });
-  }
-
-  anchors.sort((a, b) => a.editorY - b.editorY);
-  scrollAnchors = anchors;
-}
-
-function interpolate(
-  anchors: ScrollAnchor[],
-  fromKey: keyof ScrollAnchor,
-  toKey: keyof ScrollAnchor,
-  value: number,
-) {
-  if (anchors.length < 2) return 0;
-
-  let lo = 0;
-  let hi = anchors.length - 1;
-  while (lo < hi - 1) {
-    const mid = (lo + hi) >> 1;
-    if (anchors[mid][fromKey] <= value) lo = mid;
-    else hi = mid;
-  }
-
-  const a = anchors[lo];
-  const b = anchors[hi];
-  const range = b[fromKey] - a[fromKey];
-  if (range <= 0) return a[toKey];
-
-  const t = Math.max(0, Math.min(1, (value - a[fromKey]) / range));
-  return a[toKey] + t * (b[toKey] - a[toKey]);
-}
-
-function syncToPreview() {
-  if (renderingPreview || scrollAnchors.length < 2) return;
-  const target = Math.round(
-    interpolate(scrollAnchors, "editorY", "previewY", cmScroller.scrollTop),
-  );
-  if (Math.abs(previewPane.scrollTop - target) < 1) return;
-  markProgrammaticScroll();
-  previewPane.scrollTop = target;
-}
-
-function syncToEditor() {
-  if (renderingPreview || scrollAnchors.length < 2) return;
-  const target = Math.round(
-    interpolate(scrollAnchors, "previewY", "editorY", previewPane.scrollTop),
-  );
-  if (Math.abs(cmScroller.scrollTop - target) < 1) return;
-  markProgrammaticScroll();
-  cmScroller.scrollTop = target;
-}
-
-function syncPreviewToCursor() {
-  if (renderingPreview || pendingRender) return;
-  if (performance.now() - lastPreviewClickAt < CLICK_SUPPRESS_MS) return;
-
-  const pos = editor.state.selection.main.head;
-  const cursorLine = editor.state.doc.lineAt(pos).number;
-  const block = editor.lineBlockAt(pos);
-
-  const elements = cachedSourceLineEls;
-  if (elements.length === 0) return;
-
-  // Find the two elements bracketing the cursor line
-  let before: HTMLElement | null = null;
-  let after: HTMLElement | null = null;
-  let beforeLine = -1;
-  let afterLine = Infinity;
-
-  for (const el of elements) {
-    const sl = parseInt(el.dataset.sourceLine!, 10);
-    if (isNaN(sl)) continue;
-    if (sl <= cursorLine && sl > beforeLine) {
-      before = el;
-      beforeLine = sl;
-    }
-    if (sl >= cursorLine && sl < afterLine) {
-      after = el;
-      afterLine = sl;
-    }
-  }
-
-  if (!before && !after) return;
-  if (!before) {
-    before = after;
-    beforeLine = afterLine;
-  }
-  if (!after) {
-    after = before;
-    afterLine = beforeLine;
-  }
-
-  const previewRect = previewPane.getBoundingClientRect();
-  const previewScrollTop = previewPane.scrollTop;
-
-  let previewTargetY: number | undefined;
-
-  // Check if cursor is inside a code block represented by 'before' PRE element
-  if (before!.tagName === "PRE" && cursorLine > beforeLine) {
-    const info = getCodeBlockLineInfo(before!);
-    if (info.lines.length > 1) {
-      const lineIndex = cursorLine - beforeLine - 1;
-      if (lineIndex >= 0 && lineIndex < info.lines.length) {
-        previewTargetY =
-          info.rect.top - previewRect.top + previewScrollTop + lineIndex * info.lineHeight;
-      }
-    }
-  }
-
-  // If not resolved by code block, interpolate between bracketing elements
-  if (previewTargetY === undefined) {
-    const beforeY = before!.getBoundingClientRect().top - previewRect.top + previewScrollTop;
-    if (before === after || beforeLine === afterLine) {
-      previewTargetY = beforeY;
-    } else {
-      const afterY = after!.getBoundingClientRect().top - previewRect.top + previewScrollTop;
-      const t = (cursorLine - beforeLine) / (afterLine - beforeLine);
-      previewTargetY = beforeY + t * (afterY - beforeY);
-    }
-  }
-
-  // Align: same visual offset from viewport top in both panes
-  const lineVisibleY = block.top - cmScroller.scrollTop;
-  const scrollTarget = Math.max(0, Math.round(previewTargetY - lineVisibleY));
-  if (Math.abs(previewPane.scrollTop - scrollTarget) < 1) return;
-  markProgrammaticScroll();
-  previewPane.scrollTop = scrollTarget;
-}
-
-function syncPreviewClickToEditor(event: MouseEvent) {
-  let el = event.target as HTMLElement | null;
-  while (el && el !== event.currentTarget) {
-    if (el.dataset && el.dataset.sourceLine) break;
-    el = el.parentElement;
-  }
-  if (!el || !el.dataset || !el.dataset.sourceLine) return;
-
-  let lineNum = parseInt(el.dataset.sourceLine, 10);
-  if (lineNum < 1 || lineNum > editor.state.doc.lines) return;
-
-  if (el.tagName === "PRE") {
-    const info = getCodeBlockLineInfo(el);
-    if (info.lines.length > 1) {
-      const clickY = event.clientY - info.rect.top;
-      const lineIndex = Math.max(
-        0,
-        Math.min(info.lines.length - 1, Math.floor(clickY / info.lineHeight)),
-      );
-      const targetLine = lineNum + 1 + lineIndex;
-      if (targetLine >= 1 && targetLine <= editor.state.doc.lines) {
-        lineNum = targetLine;
-      }
-    }
-  }
-
-  lastPreviewClickAt = performance.now();
-  activeSide = "preview";
-  const line = editor.state.doc.line(lineNum);
-  editor.dispatch({ selection: { anchor: line.from } });
-
-  const clickVisibleY = event.clientY - previewPane.getBoundingClientRect().top;
-  const block = editor.lineBlockAt(line.from);
-  const editorTarget = block.top - clickVisibleY;
-  markProgrammaticScroll();
-  cmScroller.scrollTo({ top: Math.max(0, editorTarget), behavior: "instant" });
-  editor.focus();
-}
-
-function loadContent(content: string, filePath?: string | null) {
-  editor.dispatch({
-    changes: { from: 0, to: editor.state.doc.length, insert: content },
-  });
-  if (filePath !== undefined) {
-    currentFilePath = filePath ?? null;
-    setSelectedPath(filePath ?? null);
-  }
-  svgCache.clear();
-  renderPreview(content);
-  // Cancel the debounced render scheduled by the doc change listener to avoid a duplicate render
-  if (previewTimeout) {
-    clearTimeout(previewTimeout);
-    previewTimeout = null;
-  }
-  pendingRender = false;
-  updateStatus(editor.state);
-}
-
-function loadContentAsTab(content: string, filePath?: string) {
-  const name = filePath ? filePath.split("/").pop()! : "Untitled";
-  openTab(filePath || null, name, content);
-  // openTab triggers onSwitch which calls loadContent
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-const IMPORT_EXTENSIONS = [
-  "pdf",
-  "docx",
-  "xlsx",
-  "pptx",
-  "html",
-  "htm",
-  "csv",
-  "xml",
-  "jpg",
-  "jpeg",
-  "png",
-  "gif",
-  "webp",
-  "bmp",
-  "tiff",
-  "tif",
-];
 
 // --- CodeMirror Editor ---
 
-const updatePreview = EditorView.updateListener.of((update) => {
+const updatePreviewListener = EditorView.updateListener.of((update) => {
   if (update.docChanged) {
-    pendingRender = true;
+    scrollState.pendingRender = true;
     const content = update.state.doc.toString();
     if (previewTimeout) clearTimeout(previewTimeout);
     previewTimeout = setTimeout(() => {
@@ -525,11 +100,10 @@ const updatePreview = EditorView.updateListener.of((update) => {
     scheduleAutoSave();
     syncEditorState(content);
   }
-  // Sync preview when cursor moves — skip if a render is pending (anchors stale)
-  if (update.selectionSet && !update.docChanged && !pendingRender) {
-    activeSide = "editor";
-    cancelAnimationFrame(syncRAF);
-    syncRAF = requestAnimationFrame(syncPreviewToCursor);
+  if (update.selectionSet && !update.docChanged && !scrollState.pendingRender) {
+    scrollState.activeSide = "editor";
+    cancelAnimationFrame(scrollState.syncRAF);
+    scrollState.syncRAF = requestAnimationFrame(syncPreviewToCursor);
   }
 });
 
@@ -547,244 +121,48 @@ const editor = new EditorView({
       editorTheme,
       search(),
       keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
-      updatePreview,
+      updatePreviewListener,
       EditorView.lineWrapping,
     ],
   }),
   parent: document.getElementById("editor-pane")!,
 });
 
-// --- Cached DOM references (used by scroll sync & preview) ---
+// --- DOM references ---
 
 const previewPane = document.getElementById("preview-pane")!;
 const cmScroller = editor.dom.querySelector(".cm-scroller")! as HTMLElement;
 const statusEl = document.getElementById("status")!;
 
-// --- Preview ---
+// --- Initialize modules ---
 
-// SVG cache: URL -> sanitized SVG string
-const svgCache = new Map<string, string>();
+initScrollSync(editor, previewPane, cmScroller);
+initPreview(previewPane);
+initClipboard(editor, previewPane, statusEl);
 
-async function inlineSvgImages(container: HTMLElement) {
-  const imgs = container.querySelectorAll('img[src$=".svg"]');
-  if (imgs.length === 0) return false;
-  let changed = false;
-  const tasks = Array.from(imgs).map(async (img) => {
-    const url = (img as HTMLImageElement).src;
-    if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return;
+// --- Orchestration functions ---
 
-    try {
-      let svgText: string | undefined;
-      if (svgCache.has(url)) {
-        svgText = svgCache.get(url);
-      } else {
-        svgText = await invoke<string>("fetch_svg", { url });
-        svgCache.set(url, svgText);
-      }
-
-      const wrapper = document.createElement("span");
-      wrapper.className = "inline-svg";
-      wrapper.innerHTML = svgText!;
-
-      // Preserve alt text as aria-label
-      const alt = (img as HTMLImageElement).alt;
-      const svgEl = wrapper.querySelector("svg");
-      if (svgEl && alt) {
-        svgEl.setAttribute("aria-label", alt);
-        svgEl.setAttribute("role", "img");
-      }
-
-      img.replaceWith(wrapper);
-      changed = true;
-    } catch {
-      // Leave as <img> on failure — browser may still render it
-    }
+function loadContent(content: string, filePath?: string | null) {
+  editor.dispatch({
+    changes: { from: 0, to: editor.state.doc.length, insert: content },
   });
-  await Promise.all(tasks);
-  return changed;
+  if (filePath !== undefined) {
+    currentFilePath = filePath ?? null;
+    setSelectedPath(filePath ?? null);
+  }
+  clearSvgCache();
+  renderPreview(content);
+  if (previewTimeout) {
+    clearTimeout(previewTimeout);
+    previewTimeout = null;
+  }
+  scrollState.pendingRender = false;
+  updateStatus(editor.state);
 }
 
-// Shared renderer — stateless, reused across renders
-const previewRenderer = new marked.Renderer() as any;
-previewRenderer.code = function ({ text, lang, _sourceLine }: any) {
-  const sl = slAttr(_sourceLine);
-  if (lang === "mermaid") {
-    return `<div${sl} class="mermaid-container" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
-  }
-  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const langAttr = lang ? ` data-hljs-lang="${lang}"` : "";
-  return `<pre${sl}><code class="hljs"${langAttr}>${escaped}</code></pre>`;
-};
-previewRenderer.heading = function (this: any, { tokens, depth, _sourceLine }: any) {
-  return `<h${depth}${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</h${depth}>\n`;
-};
-previewRenderer.paragraph = function (this: any, { tokens, _sourceLine }: any) {
-  return `<p${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</p>\n`;
-};
-previewRenderer.blockquote = function (this: any, { tokens, _sourceLine }: any) {
-  return `<blockquote${slAttr(_sourceLine)}>\n${this.parser.parse(tokens)}</blockquote>\n`;
-};
-previewRenderer.list = function (this: any, { items, ordered, start, _sourceLine }: any) {
-  const tag = ordered ? "ol" : "ul";
-  const startAttr = ordered && start !== 1 ? ` start="${start}"` : "";
-  const body = items.map((item: any) => this.listitem(item)).join("");
-  return `<${tag}${startAttr}${slAttr(_sourceLine)}>\n${body}</${tag}>\n`;
-};
-previewRenderer.table = function (this: any, { header, rows, _sourceLine }: any) {
-  const headerRow = `<tr>${header.map((h: any) => `<th${h.align ? ` align="${h.align}"` : ""}>${this.parser.parseInline(h.tokens)}</th>`).join("")}</tr>`;
-  const bodyRows = rows
-    .map(
-      (row: any) =>
-        `<tr>${row.map((c: any) => `<td${c.align ? ` align="${c.align}"` : ""}>${this.parser.parseInline(c.tokens)}</td>`).join("")}</tr>`,
-    )
-    .join("\n");
-  const tbody = bodyRows ? `<tbody>${bodyRows}</tbody>` : "";
-  return `<table${slAttr(_sourceLine)}><thead>${headerRow}</thead>${tbody}</table>\n`;
-};
-previewRenderer.hr = function ({ _sourceLine }: any) {
-  return `<hr${slAttr(_sourceLine)}>\n`;
-};
-previewRenderer.html = function ({ text, _sourceLine }: any) {
-  return _sourceLine ? text.replace(/^<(\w+)/, `<$1${slAttr(_sourceLine)}`) : text;
-};
-
-async function renderPreview(source: string) {
-  const hasMermaid = /```mermaid\b/.test(source);
-
-  renderingPreview = true;
-  cancelAnimationFrame(syncRAF);
-
-  // Save scroll position to prevent visual flash during innerHTML replacement
-  const savedScrollTop = previewPane.scrollTop;
-
-  let mermaidRenderCount = 0;
-
-  // Lex source and annotate top-level tokens with source line numbers
-  const tokens = marked.lexer(source);
-  annotateTokensWithSourceLines(tokens);
-
-  const html = marked.parser(tokens, { renderer: previewRenderer });
-
-  previewPane.innerHTML = DOMPurify.sanitize(
-    `<article class="preview-page" lang="en">${html}</article>`,
-    {
-      ADD_TAGS: ["foreignObject"],
-      ADD_ATTR: [
-        "data-mermaid-source",
-        "data-source-line",
-        "data-math-source",
-        "data-math-display",
-        "data-hljs-lang",
-      ],
-    },
-  );
-
-  // Optimize image loading (Safari Reader-style)
-  for (const img of previewPane.querySelectorAll(
-    ".preview-page img",
-  ) as NodeListOf<HTMLImageElement>) {
-    img.loading = "lazy";
-    img.decoding = "async";
-  }
-
-  // Wrap tables in scrollable containers for overflow handling
-  for (const table of previewPane.querySelectorAll(
-    ".preview-page > table",
-  ) as NodeListOf<HTMLTableElement>) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "table-wrapper";
-    // Transfer data-source-line to wrapper so scroll sync finds it
-    if (table.dataset.sourceLine) {
-      wrapper.dataset.sourceLine = table.dataset.sourceLine;
-      table.removeAttribute("data-source-line");
-    }
-    table.parentNode!.insertBefore(wrapper, table);
-    wrapper.appendChild(table);
-  }
-
-  // Highlight code blocks (lazy-load highlight.js on first use)
-  const codeEls = previewPane.querySelectorAll("code[data-hljs-lang]");
-  if (codeEls.length > 0) {
-    try {
-      const hljs = await getHljs();
-      for (const el of codeEls) {
-        const lang = (el as HTMLElement).dataset.hljsLang!;
-        if (hljs.getLanguage(lang)) {
-          el.innerHTML = hljs.highlight(el.textContent!, { language: lang }).value;
-          el.classList.add(`language-${lang}`);
-        }
-      }
-    } catch (err) {
-      console.error("highlight.js failed to load:", err);
-    }
-  }
-
-  if (hasMermaid) {
-    try {
-      const mermaid = await getMermaid();
-      const containers = previewPane.querySelectorAll(".mermaid-container");
-      await Promise.all(
-        Array.from(containers).map(async (el) => {
-          const src = decodeURIComponent((el as HTMLElement).dataset.mermaidSource!);
-          const id = `mmd-${mermaidRenderCount++}`;
-          try {
-            const { svg } = await mermaid.render(id, src);
-            el.innerHTML = svg;
-            el.classList.add("mermaid-rendered");
-          } catch (err) {
-            const pre = document.createElement("pre");
-            pre.className = "mermaid-error";
-            pre.textContent = (err as Error).message || String(err);
-            el.replaceChildren(pre);
-            document.getElementById(id)?.remove();
-          }
-        }),
-      );
-    } catch (err) {
-      console.error("Mermaid failed to load:", err);
-    }
-  }
-
-  // Render math placeholders (lazy-load KaTeX on first use)
-  const mathEls = previewPane.querySelectorAll("[data-math-source]");
-  if (mathEls.length > 0) {
-    try {
-      const katex = await getKaTeX();
-      for (const el of mathEls) {
-        const src = decodeURIComponent((el as HTMLElement).dataset.mathSource!);
-        const display = (el as HTMLElement).dataset.mathDisplay === "true";
-        try {
-          el.innerHTML = katex.renderToString(src, { displayMode: display, throwOnError: false });
-        } catch {
-          el.innerHTML = `<code class="math-error">${src}</code>`;
-        }
-      }
-    } catch (err) {
-      console.error("KaTeX failed to load:", err);
-    }
-  }
-
-  // Restore scroll approximately (prevents flash), then build fresh anchors
-  previewPane.scrollTop = savedScrollTop;
-  buildScrollAnchors();
-  cachedSourceLineEls = Array.from(
-    previewPane.querySelectorAll("[data-source-line]"),
-  ) as HTMLElement[];
-  pendingRender = false;
-  renderingPreview = false;
-
-  // Re-sync preview to cursor so it never drifts from the editing position
-  if (activeSide === "editor") {
-    markProgrammaticScroll();
-    syncPreviewToCursor();
-  }
-
-  // Inline SVG images — rebuild anchors only if layout changed
-  inlineSvgImages(previewPane)
-    .then((changed) => {
-      if (changed) buildScrollAnchors();
-    })
-    .catch(() => {});
+function loadContentAsTab(content: string, filePath?: string) {
+  const name = filePath ? filePath.split("/").pop()! : "Untitled";
+  openTab(filePath || null, name, content);
 }
 
 function updateStatus(state: EditorState) {
@@ -796,306 +174,52 @@ function updateStatus(state: EditorState) {
   statusEl.textContent = `${lines} lines | ${chars} chars${pathInfo}${branchInfo}`;
 }
 
-// Initial render
+async function refreshGitAndSync() {
+  await refreshGit();
+  setGitStatus(getStatusMap());
+  updateGitChangeCount(getChangeCount());
+  updateStatus(editor.state);
+}
+
+// --- Initialize file-ops and MCP sync (need orchestration functions) ---
+
+initFileOps({
+  editor,
+  statusEl,
+  getCurrentFilePath,
+  setCurrentFilePath,
+  loadContentAsTab,
+  refreshGitAndSync,
+});
+
+initMcpSync({
+  editor,
+  statusEl,
+  getCurrentFilePath,
+  setCurrentFilePath,
+  loadContentAsTab,
+  renderPreview,
+  updateStatus: () => updateStatus(editor.state),
+  refreshGitAndSync,
+});
+
+// --- Initial render ---
+
 renderPreview(editor.state.doc.toString()).catch(() => {});
 updateStatus(editor.state);
 
 // --- Toolbar Actions ---
 
-document.getElementById("btn-open")!.addEventListener("click", async () => {
-  const path = await open({
-    filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx"] }],
-  });
-  if (path) {
-    const content = await invoke<string>("read_text_file", { path: path });
-    loadContentAsTab(content, path);
-  }
-});
-
-async function saveFile() {
-  try {
-    const content = editor.state.doc.toString();
-    if (currentFilePath) {
-      await writeTextFile(currentFilePath, content);
-      const tab = getActiveTab();
-      if (tab) markTabSaved(tab.id);
-    } else {
-      const path = await save({
-        filters: [{ name: "Markdown", extensions: ["md"] }],
-      });
-      if (path) {
-        await writeTextFile(path, content);
-        currentFilePath = path;
-        updateActiveTab({ path, name: path.split("/").pop()! });
-        const tab = getActiveTab();
-        if (tab) markTabSaved(tab.id);
-        updateStatus(editor.state);
-      }
-    }
-    // Refresh git status after save
-    if (getRootPath()) refreshGitAndSync();
-  } catch (e) {
-    statusEl.textContent = `Save failed: ${e}`;
-  }
-}
-
+document.getElementById("btn-open")!.addEventListener("click", openFile);
 document.getElementById("btn-save")!.addEventListener("click", saveFile);
-
-// --- Auto-save ---
-
-let autoSaveTimeout: ReturnType<typeof setTimeout> | null = null;
-const AUTO_SAVE_DELAY = 2000;
-
-function scheduleAutoSave() {
-  if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
-  autoSaveTimeout = setTimeout(autoSave, AUTO_SAVE_DELAY);
-}
-
-async function autoSave() {
-  if (!isAutoSaveEnabled()) return;
-  if (!currentFilePath) return;
-  const tab = getActiveTab();
-  if (!tab || !tab.path || !isTabDirty(tab)) return;
-  try {
-    await writeTextFile(currentFilePath, editor.state.doc.toString());
-    markTabSaved(tab.id);
-    if (getRootPath()) refreshGitAndSync();
-  } catch (e) {
-    statusEl.textContent = `Auto-save failed: ${e}`;
-  }
-}
-
-window.addEventListener("blur", autoSave);
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) autoSave();
-});
-
-// --- URL Bar (Fetch URL) ---
-
-const urlBar = document.getElementById("url-bar")!;
-const urlInput = document.getElementById("url-input")! as HTMLInputElement;
-
-async function fetchUrl() {
-  const url = urlInput.value.trim();
-  if (!url) return;
-
-  urlBar.classList.add("loading");
-  urlInput.disabled = true;
-  statusEl.textContent = "Fetching page…";
-
-  try {
-    const result = await invoke<FetchResult>("fetch_url_as_markdown", { url });
-    loadContentAsTab(result.body);
-    statusEl.textContent = result.is_markdown
-      ? `Fetched (Markdown): ${url}`
-      : `Fetched (HTML→Markdown): ${url}`;
-  } catch (e) {
-    statusEl.textContent = `Fetch error: ${e}`;
-  } finally {
-    urlBar.classList.remove("loading");
-    urlInput.disabled = false;
-  }
-}
-
-async function renderUrl() {
-  const url = urlInput.value.trim();
-  if (!url) return;
-
-  const workerUrl = await ensureWorkerUrl();
-  if (!workerUrl) return;
-
-  urlBar.classList.add("loading");
-  urlInput.disabled = true;
-  statusEl.textContent = "Rendering page (this may take a moment)…";
-
-  try {
-    const markdown = await invoke<string>("fetch_rendered_url_as_markdown", { url, workerUrl });
-    loadContentAsTab(markdown);
-    statusEl.textContent = "Rendered: " + url;
-  } catch (e) {
-    statusEl.textContent = `Render error: ${e}`;
-  } finally {
-    urlBar.classList.remove("loading");
-    urlInput.disabled = false;
-  }
-}
-
-document.getElementById("btn-fetch")!.addEventListener("click", fetchUrl);
-document.getElementById("btn-render")!.addEventListener("click", renderUrl);
-urlInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") fetchUrl();
-});
-
-// --- Import Document ---
-
-async function convertFile(filePath: string) {
-  const workerUrl = await ensureWorkerUrl();
-  if (!workerUrl) return;
-
-  const isImage = await invoke<boolean>("detect_file_is_image", { filePath });
-
-  if (isImage) {
-    if (!isImageConversionAllowed()) {
-      statusEl.textContent = "Image conversion is disabled in Settings";
-      return;
-    }
-    const imageFileName = filePath.split("/").pop()!;
-    const ok = await confirm(
-      `"${imageFileName}" will be sent to Workers AI for OCR.\n\nThis uses AI Neurons (billed per request). Typical cost: ~720 neurons per image.\n\nContinue?`,
-      { title: "Image Conversion Cost", kind: "warning" },
-    );
-    if (!ok) return;
-  }
-
-  statusEl.textContent = "Converting…";
-
-  try {
-    const result = await invoke<ConvertResult>("convert_file_to_markdown", {
-      filePath,
-      workerUrl,
-    });
-    loadContentAsTab(result.markdown, filePath);
-    const tag = result.is_image ? " (image OCR)" : "";
-    const fileName = filePath.split("/").pop()!;
-    const mdSize = new Blob([result.markdown]).size;
-    const words = result.markdown.split(/\s+/).filter(Boolean).length;
-    const warn = result.warning ? ` ⚠ ${result.warning}` : "";
-    if (result.original_size && result.original_size > 0 && mdSize < result.original_size) {
-      const reduction = Math.round((1 - mdSize / result.original_size) * 100);
-      statusEl.textContent = `Converted${tag}: ${fileName} | ${formatBytes(result.original_size)} → ${formatBytes(mdSize)} (${reduction}% reduction) | ~${words.toLocaleString()} words${warn}`;
-    } else {
-      statusEl.textContent = `Converted${tag}: ${fileName} | ~${words.toLocaleString()} words${warn}`;
-    }
-  } catch (e) {
-    statusEl.textContent = `Convert error: ${e}`;
-  }
-}
-
-document.getElementById("btn-import")!.addEventListener("click", async () => {
-  const path = await open({
-    filters: [
-      {
-        name: "Documents",
-        extensions: IMPORT_EXTENSIONS,
-      },
-    ],
-  });
-  if (path) await convertFile(path);
-});
-
-// --- Drag & Drop ---
-
-const appEl = document.getElementById("app")!;
-
-appEl.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  appEl.classList.add("drop-active");
-});
-
-appEl.addEventListener("dragleave", (e) => {
-  if (!appEl.contains(e.relatedTarget as Node)) {
-    appEl.classList.remove("drop-active");
-  }
-});
-
-appEl.addEventListener("drop", async (e) => {
-  e.preventDefault();
-  appEl.classList.remove("drop-active");
-
-  const paths = e.dataTransfer?.files;
-  if (!paths || paths.length === 0) return;
-
-  // Tauri exposes dropped file paths via the event
-  // For web drag-and-drop, we need to use Tauri's drag-drop event instead
-  // Fall back to prompting the user to use the Import button
-  statusEl.textContent =
-    "Drop detected — use the Import button to select files (Tauri security restriction)";
-});
-
-// Tauri file drop event (works with native file drops)
-if (window.__TAURI__?.event) {
-  window.__TAURI__.event.listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
-    const paths = event.payload.paths;
-    if (!paths || paths.length === 0) return;
-
-    const filePath = paths[0];
-    const ext = filePath.split(".").pop()?.toLowerCase() || "";
-
-    if (IMPORT_EXTENSIONS.includes(ext)) {
-      await convertFile(filePath);
-    } else if (ext === "md" || ext === "markdown" || ext === "mdx") {
-      const content = await invoke<string>("read_text_file", { path: filePath });
-      loadContentAsTab(content, filePath);
-    } else {
-      statusEl.textContent = `Unsupported file type: .${ext}`;
-    }
-  });
-}
-
-// --- Table Editor ---
-
+document.getElementById("btn-import")!.addEventListener("click", importFile);
+document.getElementById("btn-copy-rich")!.addEventListener("click", copyRichText);
 document.getElementById("btn-table")!.addEventListener("click", () => {
   editTableAtCursor(editor);
 });
-
-// --- Export PDF ---
-
 document.getElementById("btn-export-pdf")!.addEventListener("click", () => {
   window.print();
 });
-
-// --- Copy as Rich Text ---
-
-async function copyRichText() {
-  const sel = window.getSelection();
-  const hasSelection = sel && !sel.isCollapsed && previewPane.contains(sel.anchorNode);
-
-  let html: string;
-  let text: string;
-  if (hasSelection) {
-    const range = sel.getRangeAt(0);
-    const container = document.createElement("div");
-    container.appendChild(range.cloneContents());
-    html = container.innerHTML;
-    text = sel.toString();
-  } else {
-    html = previewPane.innerHTML;
-    text = (previewPane as HTMLElement).innerText;
-  }
-
-  try {
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        "text/html": new Blob([html], { type: "text/html" }),
-        "text/plain": new Blob([text], { type: "text/plain" }),
-      }),
-    ]);
-    statusEl.textContent = hasSelection ? "Copied selection as rich text" : "Copied as rich text";
-  } catch (e) {
-    statusEl.textContent = `Copy failed: ${e}`;
-  }
-}
-
-document.getElementById("btn-copy-rich")!.addEventListener("click", copyRichText);
-
-// --- Copy as Markdown ---
-
-async function copyMarkdown() {
-  const state = editor.state;
-  const sel = state.selection.main;
-  const hasSelection = !sel.empty;
-  const text = hasSelection ? state.sliceDoc(sel.from, sel.to) : state.doc.toString();
-
-  try {
-    await navigator.clipboard.writeText(text);
-    statusEl.textContent = hasSelection ? "Copied selection as Markdown" : "Copied as Markdown";
-  } catch (e) {
-    statusEl.textContent = `Copy failed: ${e}`;
-  }
-}
-
-// --- Settings ---
-
 document.getElementById("btn-settings")!.addEventListener("click", () => {
   showSettings({
     onSave: (url: string) => {
@@ -1104,112 +228,31 @@ document.getElementById("btn-settings")!.addEventListener("click", () => {
   });
 });
 
-// --- Resizable divider ---
+// --- Auto-save ---
 
-const divider = document.getElementById("divider")!;
-const editorContainer = document.getElementById("editor-container")!;
-
-let isDragging = false;
-
-divider.addEventListener("mousedown", () => {
-  isDragging = true;
-});
-document.addEventListener("mousemove", (e) => {
-  if (!isDragging) return;
-  // Calculate ratio within the editor+preview area (excluding sidebar)
-  const editorLeft = editorContainer.getBoundingClientRect().left;
-  const previewRight = previewPane.getBoundingClientRect().right;
-  const availableWidth = previewRight - editorLeft;
-  const ratio = (e.clientX - editorLeft) / availableWidth;
-  const clamped = Math.max(0.2, Math.min(0.8, ratio));
-  (editorContainer as HTMLElement).style.flex = `${clamped}`;
-  (previewPane as HTMLElement).style.flex = `${1 - clamped}`;
-});
-document.addEventListener("mouseup", () => {
-  isDragging = false;
+window.addEventListener("blur", autoSave);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) autoSave();
 });
 
-// --- MCP Bridge: State Sync & Event Listeners ---
+// --- URL Bar ---
 
-let syncTimeout: ReturnType<typeof setTimeout> | null = null;
-let lastSyncedContent: string | null = null;
-let lastSyncedFilePath: string | null = null;
+const urlBar = document.getElementById("url-bar")!;
+const urlInput = document.getElementById("url-input")! as HTMLInputElement;
 
-function syncEditorState(cachedContent?: string) {
-  if (syncTimeout) clearTimeout(syncTimeout);
-  syncTimeout = setTimeout(() => {
-    const content = cachedContent ?? editor.state.doc.toString();
-    if (content === lastSyncedContent && currentFilePath === lastSyncedFilePath) return;
-    lastSyncedContent = content;
-    lastSyncedFilePath = currentFilePath;
-    const cursorPos = editor.state.selection.main.head;
-    invoke("sync_editor_state", {
-      content,
-      filePath: currentFilePath,
-      cursorPos: cursorPos,
-      workerUrl: getWorkerUrl() || null,
-    }).catch(() => {});
-  }, 2000);
-}
+document.getElementById("btn-fetch")!.addEventListener("click", () => fetchUrl(urlInput, urlBar));
+document.getElementById("btn-render")!.addEventListener("click", () => renderUrl(urlInput, urlBar));
+urlInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") fetchUrl(urlInput, urlBar);
+});
 
-// Bridge event listeners
-if (window.__TAURI__?.event) {
-  const { listen } = window.__TAURI__.event;
+// --- Drag & Drop ---
 
-  listen<string>("bridge:set-content", (event) => {
-    loadContentAsTab(event.payload);
-  });
+initDragDrop(document.getElementById("app")!);
 
-  listen<{ text: string; position: string }>("bridge:insert-text", (event) => {
-    const { text, position } = event.payload;
-    let pos: number;
-    if (position === "start") {
-      pos = 0;
-    } else if (position === "end") {
-      pos = editor.state.doc.length;
-    } else {
-      pos = editor.state.selection.main.head;
-    }
-    editor.dispatch({ changes: { from: pos, insert: text } });
-    renderPreview(editor.state.doc.toString());
-    updateStatus(editor.state);
-  });
+// --- MCP Bridge ---
 
-  listen<string>("bridge:open-file", async (event) => {
-    const path = event.payload;
-    try {
-      const content = await invoke<string>("read_text_file", { path: path });
-      loadContentAsTab(content, path);
-      syncEditorState();
-    } catch (e) {
-      statusEl.textContent = `Open failed: ${e}`;
-    }
-  });
-
-  listen<string>("bridge:save-file", async (event) => {
-    const path = event.payload || currentFilePath;
-    if (!path) return;
-    try {
-      await writeTextFile(path, editor.state.doc.toString());
-      if (!currentFilePath) {
-        currentFilePath = path;
-        updateActiveTab({ path, name: path.split("/").pop()! });
-        updateStatus(editor.state);
-      }
-      const tab = getActiveTab();
-      if (tab) markTabSaved(tab.id);
-      if (getRootPath()) refreshGitAndSync();
-    } catch (e) {
-      statusEl.textContent = `Save failed: ${e}`;
-    }
-  });
-
-  listen("bridge:export-pdf", () => {
-    window.print();
-  });
-}
-
-// Initial sync
+initBridgeListeners();
 syncEditorState();
 
 // --- Scroll Sync Event Listeners ---
@@ -1218,9 +261,9 @@ cmScroller.addEventListener(
   "scroll",
   () => {
     if (isProgrammaticScroll()) return;
-    activeSide = "editor";
-    cancelAnimationFrame(syncRAF);
-    syncRAF = requestAnimationFrame(syncToPreview);
+    scrollState.activeSide = "editor";
+    cancelAnimationFrame(scrollState.syncRAF);
+    scrollState.syncRAF = requestAnimationFrame(syncToPreview);
   },
   { passive: true },
 );
@@ -1228,9 +271,9 @@ previewPane.addEventListener(
   "scroll",
   () => {
     if (isProgrammaticScroll()) return;
-    activeSide = "preview";
-    cancelAnimationFrame(syncRAF);
-    syncRAF = requestAnimationFrame(syncToEditor);
+    scrollState.activeSide = "preview";
+    cancelAnimationFrame(scrollState.syncRAF);
+    scrollState.syncRAF = requestAnimationFrame(syncToEditor);
   },
   { passive: true },
 );
@@ -1240,7 +283,6 @@ window.addEventListener("resize", () => {
   resizeRAF = requestAnimationFrame(buildScrollAnchors);
 });
 previewPane.addEventListener("click", (e) => {
-  // Open external links in default browser instead of navigating the WebView
   const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
   if (anchor) {
     const href = anchor.getAttribute("href") ?? "";
@@ -1255,6 +297,30 @@ previewPane.addEventListener("click", (e) => {
   syncPreviewClickToEditor(e);
 });
 
+// --- Resizable divider ---
+
+const divider = document.getElementById("divider")!;
+const editorContainer = document.getElementById("editor-container")!;
+
+let isDragging = false;
+
+divider.addEventListener("mousedown", () => {
+  isDragging = true;
+});
+document.addEventListener("mousemove", (e) => {
+  if (!isDragging) return;
+  const editorLeft = editorContainer.getBoundingClientRect().left;
+  const previewRight = previewPane.getBoundingClientRect().right;
+  const availableWidth = previewRight - editorLeft;
+  const ratio = (e.clientX - editorLeft) / availableWidth;
+  const clamped = Math.max(0.2, Math.min(0.8, ratio));
+  (editorContainer as HTMLElement).style.flex = `${clamped}`;
+  (previewPane as HTMLElement).style.flex = `${1 - clamped}`;
+});
+document.addEventListener("mouseup", () => {
+  isDragging = false;
+});
+
 // --- Sidebar ---
 
 const sidebarEl = document.getElementById("sidebar")!;
@@ -1262,7 +328,6 @@ const sidebarDivider = document.getElementById("sidebar-divider")!;
 
 const STORAGE_KEY_SIDEBAR_COLLAPSED = "markupsidedown:sidebarCollapsed";
 
-// Restore collapsed state
 const sidebarCollapsed = localStorage.getItem(STORAGE_KEY_SIDEBAR_COLLAPSED) === "true";
 if (sidebarCollapsed) {
   sidebarEl.classList.add("collapsed");
@@ -1278,7 +343,6 @@ initSidebar(sidebarEl, {
   },
 });
 
-// Initialize git panel after sidebar renders
 const gitPanelEl = getGitPanelEl();
 if (gitPanelEl) {
   initGitPanel(gitPanelEl, {
@@ -1293,7 +357,6 @@ if (gitPanelEl) {
   });
 }
 
-// Initialize GitHub panel
 const ghPanelEl = getGitHubPanelEl();
 if (ghPanelEl) {
   initGitHubPanel(ghPanelEl, {
@@ -1304,14 +367,6 @@ if (ghPanelEl) {
   });
 }
 
-async function refreshGitAndSync() {
-  await refreshGit();
-  setGitStatus(getStatusMap());
-  updateGitChangeCount(getChangeCount());
-  updateStatus(editor.state);
-}
-
-// Initialize git for restored sidebar root path
 const initialRoot = getRootPath();
 if (initialRoot) {
   setRepoPath(initialRoot);
@@ -1326,7 +381,6 @@ function toggleSidebar() {
   );
 }
 
-// Sidebar resizable divider
 let isSidebarDragging = false;
 
 sidebarDivider.addEventListener("mousedown", () => {
@@ -1351,7 +405,7 @@ const tabBarEl = document.getElementById("tab-bar")!;
 
 initTabs(tabBarEl, {
   onSwitch: (tab: { content: string; path: string | null }) => {
-    autoSave(); // save previous tab immediately before switching
+    autoSave();
     loadContent(tab.content, tab.path);
   },
   onEmpty: () => {
@@ -1361,6 +415,7 @@ initTabs(tabBarEl, {
     if (!tab.path) return;
     try {
       const content = await invoke<string>("read_text_file", { path: tab.path });
+      const { markTabSaved } = await import("./tabs.ts");
       updateActiveTab({ content });
       markTabSaved(tab.id);
       loadContent(content, tab.path);
@@ -1370,7 +425,8 @@ initTabs(tabBarEl, {
   },
 });
 
-// Unified keyboard shortcut handler
+// --- Keyboard Shortcuts ---
+
 document.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
@@ -1403,5 +459,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// First-run: show settings if Worker not configured
+// --- First-run ---
+
 checkFirstRun();

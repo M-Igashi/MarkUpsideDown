@@ -1,0 +1,384 @@
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import {
+  scrollState,
+  buildScrollAnchors,
+  markProgrammaticScroll,
+  syncPreviewToCursor,
+} from "./scroll-sync.ts";
+
+const { invoke } = window.__TAURI__.core;
+
+// --- Lazy-loaded modules ---
+
+let hljsModule: any = null;
+
+const HLJS_LANGUAGES: [string, () => Promise<any>][] = [
+  ["bash", () => import("highlight.js/lib/languages/bash")],
+  ["c", () => import("highlight.js/lib/languages/c")],
+  ["cpp", () => import("highlight.js/lib/languages/cpp")],
+  ["csharp", () => import("highlight.js/lib/languages/csharp")],
+  ["css", () => import("highlight.js/lib/languages/css")],
+  ["diff", () => import("highlight.js/lib/languages/diff")],
+  ["go", () => import("highlight.js/lib/languages/go")],
+  ["graphql", () => import("highlight.js/lib/languages/graphql")],
+  ["ini", () => import("highlight.js/lib/languages/ini")],
+  ["java", () => import("highlight.js/lib/languages/java")],
+  ["javascript", () => import("highlight.js/lib/languages/javascript")],
+  ["json", () => import("highlight.js/lib/languages/json")],
+  ["kotlin", () => import("highlight.js/lib/languages/kotlin")],
+  ["markdown", () => import("highlight.js/lib/languages/markdown")],
+  ["perl", () => import("highlight.js/lib/languages/perl")],
+  ["python", () => import("highlight.js/lib/languages/python")],
+  ["ruby", () => import("highlight.js/lib/languages/ruby")],
+  ["rust", () => import("highlight.js/lib/languages/rust")],
+  ["shell", () => import("highlight.js/lib/languages/shell")],
+  ["sql", () => import("highlight.js/lib/languages/sql")],
+  ["swift", () => import("highlight.js/lib/languages/swift")],
+  ["typescript", () => import("highlight.js/lib/languages/typescript")],
+  ["xml", () => import("highlight.js/lib/languages/xml")],
+  ["yaml", () => import("highlight.js/lib/languages/yaml")],
+];
+
+async function getHljs() {
+  if (hljsModule) return hljsModule;
+  const { default: hljs } = await import("highlight.js/lib/core");
+  const loaded = await Promise.all(HLJS_LANGUAGES.map(([, fn]) => fn()));
+  HLJS_LANGUAGES.forEach(([name], i) => hljs.registerLanguage(name, loaded[i].default));
+  hljsModule = hljs;
+  return hljs;
+}
+
+let katexModule: any = null;
+
+async function getKaTeX() {
+  if (katexModule) return katexModule;
+  const { default: katex } = await import("katex");
+  katexModule = katex;
+  return katex;
+}
+
+let mermaidModule: any = null;
+
+async function getMermaid() {
+  if (mermaidModule) return mermaidModule;
+  const { default: mermaid } = await import("mermaid");
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme: "default",
+    themeVariables: {
+      primaryColor: "#dce4f0",
+      primaryTextColor: "#2c2c2c",
+      primaryBorderColor: "#4a7ab5",
+      lineColor: "#8a8578",
+      secondaryColor: "#eee8e0",
+      tertiaryColor: "#f5f1eb",
+      background: "#faf7f2",
+      mainBkg: "#dce4f0",
+      nodeBorder: "#4a7ab5",
+      clusterBkg: "#f5f1eb",
+      titleColor: "#2c2c2c",
+      edgeLabelBackground: "#faf7f2",
+    },
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  });
+  mermaidModule = mermaid;
+  return mermaid;
+}
+
+// --- KaTeX math extension for marked ---
+
+const mathExtension = {
+  extensions: [
+    {
+      name: "mathBlock",
+      level: "block" as const,
+      start(src: string) {
+        return src.indexOf("$$");
+      },
+      tokenizer(src: string) {
+        const match = src.match(/^\$\$([\s\S]+?)\$\$/);
+        if (match) {
+          return { type: "mathBlock", raw: match[0], text: match[1].trim() };
+        }
+      },
+      renderer(token: { text: string }) {
+        return `<div class="math-block" data-math-source="${encodeURIComponent(token.text)}" data-math-display="true"></div>`;
+      },
+    },
+    {
+      name: "mathInline",
+      level: "inline" as const,
+      start(src: string) {
+        return src.indexOf("$");
+      },
+      tokenizer(src: string) {
+        const match = src.match(/^\$([^\s$](?:[^$]*[^\s$])?)\$/);
+        if (match) {
+          return { type: "mathInline", raw: match[0], text: match[1] };
+        }
+      },
+      renderer(token: { text: string }) {
+        return `<span data-math-source="${encodeURIComponent(token.text)}" data-math-display="false"></span>`;
+      },
+    },
+  ],
+};
+
+marked.use(mathExtension);
+
+// --- Source line annotation helpers ---
+
+function countNewlines(str: string, from: number, to: number) {
+  let n = 0;
+  for (let i = from; i < to; i++) {
+    if (str.charCodeAt(i) === 10) n++;
+  }
+  return n;
+}
+
+function annotateTokensWithSourceLines(tokens: any[]) {
+  let lineNum = 1;
+  for (const token of tokens) {
+    if (!token.raw) continue;
+    if (token.type === "space") {
+      lineNum += countNewlines(token.raw, 0, token.raw.length);
+      continue;
+    }
+    token._sourceLine = lineNum;
+    lineNum += countNewlines(token.raw, 0, token.raw.length);
+  }
+}
+
+function slAttr(sourceLine: number | undefined) {
+  return sourceLine ? ` data-source-line="${sourceLine}"` : "";
+}
+
+// --- Shared renderer ---
+
+const previewRenderer = new marked.Renderer() as any;
+previewRenderer.code = function ({ text, lang, _sourceLine }: any) {
+  const sl = slAttr(_sourceLine);
+  if (lang === "mermaid") {
+    return `<div${sl} class="mermaid-container" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
+  }
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const langAttr = lang ? ` data-hljs-lang="${lang}"` : "";
+  return `<pre${sl}><code class="hljs"${langAttr}>${escaped}</code></pre>`;
+};
+previewRenderer.heading = function (this: any, { tokens, depth, _sourceLine }: any) {
+  return `<h${depth}${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</h${depth}>\n`;
+};
+previewRenderer.paragraph = function (this: any, { tokens, _sourceLine }: any) {
+  return `<p${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</p>\n`;
+};
+previewRenderer.blockquote = function (this: any, { tokens, _sourceLine }: any) {
+  return `<blockquote${slAttr(_sourceLine)}>\n${this.parser.parse(tokens)}</blockquote>\n`;
+};
+previewRenderer.list = function (this: any, { items, ordered, start, _sourceLine }: any) {
+  const tag = ordered ? "ol" : "ul";
+  const startAttr = ordered && start !== 1 ? ` start="${start}"` : "";
+  const body = items.map((item: any) => this.listitem(item)).join("");
+  return `<${tag}${startAttr}${slAttr(_sourceLine)}>\n${body}</${tag}>\n`;
+};
+previewRenderer.table = function (this: any, { header, rows, _sourceLine }: any) {
+  const headerRow = `<tr>${header.map((h: any) => `<th${h.align ? ` align="${h.align}"` : ""}>${this.parser.parseInline(h.tokens)}</th>`).join("")}</tr>`;
+  const bodyRows = rows
+    .map(
+      (row: any) =>
+        `<tr>${row.map((c: any) => `<td${c.align ? ` align="${c.align}"` : ""}>${this.parser.parseInline(c.tokens)}</td>`).join("")}</tr>`,
+    )
+    .join("\n");
+  const tbody = bodyRows ? `<tbody>${bodyRows}</tbody>` : "";
+  return `<table${slAttr(_sourceLine)}><thead>${headerRow}</thead>${tbody}</table>\n`;
+};
+previewRenderer.hr = function ({ _sourceLine }: any) {
+  return `<hr${slAttr(_sourceLine)}>\n`;
+};
+previewRenderer.html = function ({ text, _sourceLine }: any) {
+  return _sourceLine ? text.replace(/^<(\w+)/, `<$1${slAttr(_sourceLine)}`) : text;
+};
+
+// --- SVG inlining ---
+
+const svgCache = new Map<string, string>();
+
+export function clearSvgCache() {
+  svgCache.clear();
+}
+
+async function inlineSvgImages(container: HTMLElement) {
+  const imgs = container.querySelectorAll('img[src$=".svg"]');
+  if (imgs.length === 0) return false;
+  let changed = false;
+  const tasks = Array.from(imgs).map(async (img) => {
+    const url = (img as HTMLImageElement).src;
+    if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return;
+
+    try {
+      let svgText: string | undefined;
+      if (svgCache.has(url)) {
+        svgText = svgCache.get(url);
+      } else {
+        svgText = await invoke<string>("fetch_svg", { url });
+        svgCache.set(url, svgText);
+      }
+
+      const wrapper = document.createElement("span");
+      wrapper.className = "inline-svg";
+      wrapper.innerHTML = svgText!;
+
+      const alt = (img as HTMLImageElement).alt;
+      const svgEl = wrapper.querySelector("svg");
+      if (svgEl && alt) {
+        svgEl.setAttribute("aria-label", alt);
+        svgEl.setAttribute("role", "img");
+      }
+
+      img.replaceWith(wrapper);
+      changed = true;
+    } catch {
+      // Leave as <img> on failure
+    }
+  });
+  await Promise.all(tasks);
+  return changed;
+}
+
+// --- Preview rendering ---
+
+let previewPane: HTMLElement;
+
+export function initPreview(pp: HTMLElement) {
+  previewPane = pp;
+}
+
+export async function renderPreview(source: string) {
+  const hasMermaid = /```mermaid\b/.test(source);
+
+  scrollState.renderingPreview = true;
+  cancelAnimationFrame(scrollState.syncRAF);
+
+  const savedScrollTop = previewPane.scrollTop;
+
+  let mermaidRenderCount = 0;
+
+  const tokens = marked.lexer(source);
+  annotateTokensWithSourceLines(tokens);
+
+  const html = marked.parser(tokens, { renderer: previewRenderer });
+
+  previewPane.innerHTML = DOMPurify.sanitize(
+    `<article class="preview-page" lang="en">${html}</article>`,
+    {
+      ADD_TAGS: ["foreignObject"],
+      ADD_ATTR: [
+        "data-mermaid-source",
+        "data-source-line",
+        "data-math-source",
+        "data-math-display",
+        "data-hljs-lang",
+      ],
+    },
+  );
+
+  for (const img of previewPane.querySelectorAll(
+    ".preview-page img",
+  ) as NodeListOf<HTMLImageElement>) {
+    img.loading = "lazy";
+    img.decoding = "async";
+  }
+
+  for (const table of previewPane.querySelectorAll(
+    ".preview-page > table",
+  ) as NodeListOf<HTMLTableElement>) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "table-wrapper";
+    if (table.dataset.sourceLine) {
+      wrapper.dataset.sourceLine = table.dataset.sourceLine;
+      table.removeAttribute("data-source-line");
+    }
+    table.parentNode!.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  }
+
+  const codeEls = previewPane.querySelectorAll("code[data-hljs-lang]");
+  if (codeEls.length > 0) {
+    try {
+      const hljs = await getHljs();
+      for (const el of codeEls) {
+        const lang = (el as HTMLElement).dataset.hljsLang!;
+        if (hljs.getLanguage(lang)) {
+          el.innerHTML = hljs.highlight(el.textContent!, { language: lang }).value;
+          el.classList.add(`language-${lang}`);
+        }
+      }
+    } catch (err) {
+      console.error("highlight.js failed to load:", err);
+    }
+  }
+
+  if (hasMermaid) {
+    try {
+      const mermaid = await getMermaid();
+      const containers = previewPane.querySelectorAll(".mermaid-container");
+      await Promise.all(
+        Array.from(containers).map(async (el) => {
+          const src = decodeURIComponent((el as HTMLElement).dataset.mermaidSource!);
+          const id = `mmd-${mermaidRenderCount++}`;
+          try {
+            const { svg } = await mermaid.render(id, src);
+            el.innerHTML = svg;
+            el.classList.add("mermaid-rendered");
+          } catch (err) {
+            const pre = document.createElement("pre");
+            pre.className = "mermaid-error";
+            pre.textContent = (err as Error).message || String(err);
+            el.replaceChildren(pre);
+            document.getElementById(id)?.remove();
+          }
+        }),
+      );
+    } catch (err) {
+      console.error("Mermaid failed to load:", err);
+    }
+  }
+
+  const mathEls = previewPane.querySelectorAll("[data-math-source]");
+  if (mathEls.length > 0) {
+    try {
+      const katex = await getKaTeX();
+      for (const el of mathEls) {
+        const src = decodeURIComponent((el as HTMLElement).dataset.mathSource!);
+        const display = (el as HTMLElement).dataset.mathDisplay === "true";
+        try {
+          el.innerHTML = katex.renderToString(src, { displayMode: display, throwOnError: false });
+        } catch {
+          el.innerHTML = `<code class="math-error">${src}</code>`;
+        }
+      }
+    } catch (err) {
+      console.error("KaTeX failed to load:", err);
+    }
+  }
+
+  previewPane.scrollTop = savedScrollTop;
+  buildScrollAnchors();
+  scrollState.cachedSourceLineEls = Array.from(
+    previewPane.querySelectorAll("[data-source-line]"),
+  ) as HTMLElement[];
+  scrollState.pendingRender = false;
+  scrollState.renderingPreview = false;
+
+  if (scrollState.activeSide === "editor") {
+    markProgrammaticScroll();
+    syncPreviewToCursor();
+  }
+
+  inlineSvgImages(previewPane)
+    .then((changed) => {
+      if (changed) buildScrollAnchors();
+    })
+    .catch(() => {});
+}
