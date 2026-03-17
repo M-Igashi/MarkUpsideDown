@@ -116,6 +116,7 @@ interface ConvertResult {
   markdown: string;
   is_image: boolean;
   original_size: number;
+  warning?: string;
 }
 
 // KaTeX math extension for marked — renders placeholders, resolved async in renderPreview
@@ -918,11 +919,12 @@ async function convertFile(filePath: string) {
     const tag = result.is_image ? " (image OCR)" : "";
     const fileName = filePath.split("/").pop()!;
     const mdSize = new Blob([result.markdown]).size;
+    const warn = result.warning ? ` ⚠ ${result.warning}` : "";
     if (result.original_size && result.original_size > 0 && mdSize < result.original_size) {
       const reduction = Math.round((1 - mdSize / result.original_size) * 100);
-      statusEl.textContent = `Converted${tag}: ${fileName} | ${formatBytes(result.original_size)} → ${formatBytes(mdSize)} (${reduction}% reduction)`;
+      statusEl.textContent = `Converted${tag}: ${fileName} | ${formatBytes(result.original_size)} → ${formatBytes(mdSize)} (${reduction}% reduction)${warn}`;
     } else {
-      statusEl.textContent = `Converted${tag}: ${fileName}`;
+      statusEl.textContent = `Converted${tag}: ${fileName}${warn}`;
     }
   } catch (e) {
     statusEl.textContent = `Convert error: ${e}`;

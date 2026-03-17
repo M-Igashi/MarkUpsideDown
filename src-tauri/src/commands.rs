@@ -196,6 +196,7 @@ struct ConvertWorkerResponse {
     markdown: Option<String>,
     is_image: Option<bool>,
     error: Option<String>,
+    warning: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -203,6 +204,7 @@ pub struct ConvertResponse {
     pub markdown: String,
     pub is_image: bool,
     pub original_size: usize,
+    pub warning: Option<String>,
 }
 
 #[tauri::command]
@@ -245,6 +247,7 @@ pub async fn convert_file_to_markdown(
         markdown: body.markdown.unwrap_or_default(),
         is_image: body.is_image.unwrap_or(false),
         original_size,
+        warning: body.warning,
     })
 }
 

@@ -253,12 +253,17 @@ impl McpTools {
             struct Resp {
                 markdown: Option<String>,
                 error: Option<String>,
+                warning: Option<String>,
             }
             let data: Resp = response.json().await.map_err(|e| e.to_string())?;
             if let Some(err) = data.error {
                 return Err(err);
             }
-            Ok(data.markdown.unwrap_or_default())
+            let md = data.markdown.unwrap_or_default();
+            match data.warning {
+                Some(w) => Ok(format!("⚠ {w}\n\n{md}")),
+                None => Ok(md),
+            }
         }
         .await;
 

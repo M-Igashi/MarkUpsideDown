@@ -76,7 +76,8 @@ async function handleConvert(request: Request, env: Env): Promise<Response> {
     const blob = new Blob([body], { type: mimeType });
     const result = await env.AI.toMarkdown([blob]);
     const markdown = result.map((r: { data: string }) => r.data).join("\n\n");
-    return jsonResponse({ markdown, is_image: isImage, original_size: originalSize });
+    const warning = isUnconvertedHtml(markdown) ? "Conversion result may contain unconverted HTML" : undefined;
+    return jsonResponse({ markdown, is_image: isImage, original_size: originalSize, warning });
   } catch (e) {
     return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
   }
@@ -272,6 +273,22 @@ async function validateUrlForSsrf(input: string): Promise<string | null> {
   }
 
   return null;
+}
+
+// --- Unconverted HTML Detection ---
+
+const HTML_BLOCK_TAGS = /<(?:div|span|section|article|main|table|thead|tbody|tr|td|th|form|input|button|select|textarea|iframe|script|style|link|meta)\b[^>]*>/gi;
+
+function isUnconvertedHtml(text: string): boolean {
+  // Short text is unlikely to be unconverted HTML
+  if (text.length < 100) return false;
+
+  const tagMatches = text.match(HTML_BLOCK_TAGS);
+  if (!tagMatches) return false;
+
+  // Density: HTML tags per 1000 chars
+  const density = (tagMatches.length / text.length) * 1000;
+  return density > 5;
 }
 
 async function stripBoilerplate(html: string): Promise<string> {
