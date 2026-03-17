@@ -250,8 +250,10 @@ export function getDirtyFileTabs(): Tab[] {
 let dragTabId: string | null = null;
 let dragOverTabId: string | null = null;
 let dropIndicatorSide: "left" | "right" | null = null;
+let didDrag = false;
 
 function handleTabDragStart(e: DragEvent, tabId: string) {
+  didDrag = true;
   dragTabId = tabId;
   e.dataTransfer!.effectAllowed = "move";
   e.dataTransfer!.setData("text/plain", tabId);
@@ -356,7 +358,13 @@ function renderTabs(): void {
     });
     el.appendChild(closeBtn);
 
-    el.addEventListener("click", () => switchTab(tab.id));
+    el.addEventListener("click", () => {
+      if (didDrag) {
+        didDrag = false;
+        return;
+      }
+      switchTab(tab.id);
+    });
 
     tabBarEl.appendChild(el);
   }
