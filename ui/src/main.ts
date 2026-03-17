@@ -620,14 +620,14 @@ previewRenderer.code = function ({ text, lang, _sourceLine }: any) {
   const langClass = language ? ` class="hljs language-${lang}"` : ' class="hljs"';
   return `<pre${sl}><code${langClass}>${highlighted}</code></pre>`;
 };
-previewRenderer.heading = function ({ text, depth, _sourceLine }: any) {
-  return `<h${depth}${slAttr(_sourceLine)}>${text}</h${depth}>\n`;
+previewRenderer.heading = function (this: any, { tokens, depth, _sourceLine }: any) {
+  return `<h${depth}${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</h${depth}>\n`;
 };
-previewRenderer.paragraph = function ({ text, _sourceLine }: any) {
-  return `<p${slAttr(_sourceLine)}>${text}</p>\n`;
+previewRenderer.paragraph = function (this: any, { tokens, _sourceLine }: any) {
+  return `<p${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</p>\n`;
 };
-previewRenderer.blockquote = function ({ body, _sourceLine }: any) {
-  return `<blockquote${slAttr(_sourceLine)}>\n${body}</blockquote>\n`;
+previewRenderer.blockquote = function (this: any, { tokens, _sourceLine }: any) {
+  return `<blockquote${slAttr(_sourceLine)}>\n${this.parser.parse(tokens)}</blockquote>\n`;
 };
 previewRenderer.list = function (this: any, { items, ordered, start, _sourceLine }: any) {
   const tag = ordered ? "ol" : "ul";
@@ -635,12 +635,12 @@ previewRenderer.list = function (this: any, { items, ordered, start, _sourceLine
   const body = items.map((item: any) => this.listitem(item)).join("");
   return `<${tag}${startAttr}${slAttr(_sourceLine)}>\n${body}</${tag}>\n`;
 };
-previewRenderer.table = function ({ header, rows, _sourceLine }: any) {
-  const headerRow = `<tr>${header.map((h: any) => `<th${h.align ? ` align="${h.align}"` : ""}>${h.text}</th>`).join("")}</tr>`;
+previewRenderer.table = function (this: any, { header, rows, _sourceLine }: any) {
+  const headerRow = `<tr>${header.map((h: any) => `<th${h.align ? ` align="${h.align}"` : ""}>${this.parser.parseInline(h.tokens)}</th>`).join("")}</tr>`;
   const bodyRows = rows
     .map(
       (row: any) =>
-        `<tr>${row.map((c: any) => `<td${c.align ? ` align="${c.align}"` : ""}>${c.text}</td>`).join("")}</tr>`,
+        `<tr>${row.map((c: any) => `<td${c.align ? ` align="${c.align}"` : ""}>${this.parser.parseInline(c.tokens)}</td>`).join("")}</tr>`,
     )
     .join("\n");
   const tbody = bodyRows ? `<tbody>${bodyRows}</tbody>` : "";
