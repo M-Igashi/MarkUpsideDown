@@ -1,5 +1,6 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { Idiomorph } from "idiomorph";
 import {
   scrollState,
   buildScrollAnchors,
@@ -191,7 +192,7 @@ previewRenderer.table = function (this: any, { header, rows, _sourceLine }: any)
     )
     .join("\n");
   const tbody = bodyRows ? `<tbody>${bodyRows}</tbody>` : "";
-  return `<table${slAttr(_sourceLine)}><thead>${headerRow}</thead>${tbody}</table>\n`;
+  return `<div class="table-wrapper"${slAttr(_sourceLine)}><table><thead>${headerRow}</thead>${tbody}</table></div>\n`;
 };
 previewRenderer.hr = function ({ _sourceLine }: any) {
   return `<hr${slAttr(_sourceLine)}>\n`;
@@ -269,7 +270,7 @@ export async function renderPreview(source: string) {
 
   const html = marked.parser(tokens, { renderer: previewRenderer });
 
-  previewPane.innerHTML = DOMPurify.sanitize(
+  const sanitizedHtml = DOMPurify.sanitize(
     `<article class="preview-page" lang="en">${html}</article>`,
     {
       ADD_TAGS: ["foreignObject"],
@@ -278,29 +279,45 @@ export async function renderPreview(source: string) {
         "data-source-line",
         "data-math-source",
         "data-math-display",
+        "data-math-rendered",
         "data-hljs-lang",
       ],
     },
   );
+
+  Idiomorph.morph(previewPane, sanitizedHtml, {
+    morphStyle: "innerHTML",
+    callbacks: {
+      beforeNodeMorphed(oldNode: Node, newNode: Node) {
+        if (!(oldNode instanceof HTMLElement) || !(newNode instanceof HTMLElement)) return true;
+        // Preserve already-rendered Mermaid containers if source unchanged
+        if (
+          oldNode.classList.contains("mermaid-rendered") &&
+          oldNode.dataset.mermaidSource === newNode.dataset.mermaidSource
+        ) {
+          return false;
+        }
+        // Preserve already-rendered KaTeX if source unchanged
+        if (
+          oldNode.dataset.mathRendered &&
+          oldNode.dataset.mathSource === newNode.dataset.mathSource
+        ) {
+          return false;
+        }
+        // Preserve inlined SVGs
+        if (oldNode.classList.contains("inline-svg")) {
+          return false;
+        }
+        return true;
+      },
+    },
+  });
 
   for (const img of previewPane.querySelectorAll(
     ".preview-page img",
   ) as NodeListOf<HTMLImageElement>) {
     img.loading = "lazy";
     img.decoding = "async";
-  }
-
-  for (const table of previewPane.querySelectorAll(
-    ".preview-page > table",
-  ) as NodeListOf<HTMLTableElement>) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "table-wrapper";
-    if (table.dataset.sourceLine) {
-      wrapper.dataset.sourceLine = table.dataset.sourceLine;
-      table.removeAttribute("data-source-line");
-    }
-    table.parentNode!.insertBefore(wrapper, table);
-    wrapper.appendChild(table);
   }
 
   const codeEls = previewPane.querySelectorAll("code[data-hljs-lang]");
@@ -322,7 +339,8 @@ export async function renderPreview(source: string) {
   if (hasMermaid) {
     try {
       const mermaid = await getMermaid();
-      const containers = previewPane.querySelectorAll(".mermaid-container");
+      // Only render containers that haven't been rendered yet
+      const containers = previewPane.querySelectorAll(".mermaid-container:not(.mermaid-rendered)");
       await Promise.all(
         Array.from(containers).map(async (el) => {
           const src = decodeURIComponent((el as HTMLElement).dataset.mermaidSource!);
@@ -345,7 +363,8 @@ export async function renderPreview(source: string) {
     }
   }
 
-  const mathEls = previewPane.querySelectorAll("[data-math-source]");
+  // Only render math elements that haven't been rendered yet
+  const mathEls = previewPane.querySelectorAll("[data-math-source]:not([data-math-rendered])");
   if (mathEls.length > 0) {
     try {
       const katex = await getKaTeX();
@@ -354,8 +373,10 @@ export async function renderPreview(source: string) {
         const display = (el as HTMLElement).dataset.mathDisplay === "true";
         try {
           el.innerHTML = katex.renderToString(src, { displayMode: display, throwOnError: false });
+          (el as HTMLElement).dataset.mathRendered = "true";
         } catch {
           el.innerHTML = `<code class="math-error">${src}</code>`;
+          (el as HTMLElement).dataset.mathRendered = "true";
         }
       }
     } catch (err) {
