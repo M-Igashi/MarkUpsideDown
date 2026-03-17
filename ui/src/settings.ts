@@ -421,7 +421,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
         <div class="settings-section-title">Import Options</div>
         <label class="settings-toggle-row">
           <input type="checkbox" id="settings-allow-image" />
-          <span class="settings-toggle-label">Allow image conversion (uses AI Neurons — costs apply)</span>
+          <span class="settings-toggle-label">Allow image conversion (~720 AI Neurons per image)</span>
         </label>
       </div>
 

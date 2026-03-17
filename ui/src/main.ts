@@ -46,57 +46,6 @@ import {
   updateActiveTab,
 } from "./tabs.ts";
 import { marked } from "marked";
-import hljs from "highlight.js/lib/core";
-// Register language subset (dropping rarely-used: apache, less, lua, makefile,
-// objectivec, php, php-template, python-repl, r, scss, vbnet, wasm)
-import hljsBash from "highlight.js/lib/languages/bash";
-import hljsC from "highlight.js/lib/languages/c";
-import hljsCpp from "highlight.js/lib/languages/cpp";
-import hljsCsharp from "highlight.js/lib/languages/csharp";
-import hljsCss from "highlight.js/lib/languages/css";
-import hljsDiff from "highlight.js/lib/languages/diff";
-import hljsGo from "highlight.js/lib/languages/go";
-import hljsGraphql from "highlight.js/lib/languages/graphql";
-import hljsIni from "highlight.js/lib/languages/ini";
-import hljsJava from "highlight.js/lib/languages/java";
-import hljsJavascript from "highlight.js/lib/languages/javascript";
-import hljsJson from "highlight.js/lib/languages/json";
-import hljsKotlin from "highlight.js/lib/languages/kotlin";
-import hljsMarkdown from "highlight.js/lib/languages/markdown";
-import hljsPerl from "highlight.js/lib/languages/perl";
-import hljsPython from "highlight.js/lib/languages/python";
-import hljsRuby from "highlight.js/lib/languages/ruby";
-import hljsRust from "highlight.js/lib/languages/rust";
-import hljsShell from "highlight.js/lib/languages/shell";
-import hljsSql from "highlight.js/lib/languages/sql";
-import hljsSwift from "highlight.js/lib/languages/swift";
-import hljsTypescript from "highlight.js/lib/languages/typescript";
-import hljsXml from "highlight.js/lib/languages/xml";
-import hljsYaml from "highlight.js/lib/languages/yaml";
-hljs.registerLanguage("bash", hljsBash);
-hljs.registerLanguage("c", hljsC);
-hljs.registerLanguage("cpp", hljsCpp);
-hljs.registerLanguage("csharp", hljsCsharp);
-hljs.registerLanguage("css", hljsCss);
-hljs.registerLanguage("diff", hljsDiff);
-hljs.registerLanguage("go", hljsGo);
-hljs.registerLanguage("graphql", hljsGraphql);
-hljs.registerLanguage("ini", hljsIni);
-hljs.registerLanguage("java", hljsJava);
-hljs.registerLanguage("javascript", hljsJavascript);
-hljs.registerLanguage("json", hljsJson);
-hljs.registerLanguage("kotlin", hljsKotlin);
-hljs.registerLanguage("markdown", hljsMarkdown);
-hljs.registerLanguage("perl", hljsPerl);
-hljs.registerLanguage("python", hljsPython);
-hljs.registerLanguage("ruby", hljsRuby);
-hljs.registerLanguage("rust", hljsRust);
-hljs.registerLanguage("shell", hljsShell);
-hljs.registerLanguage("sql", hljsSql);
-hljs.registerLanguage("swift", hljsSwift);
-hljs.registerLanguage("typescript", hljsTypescript);
-hljs.registerLanguage("xml", hljsXml);
-hljs.registerLanguage("yaml", hljsYaml);
 import "katex/dist/katex.min.css";
 import DOMPurify from "dompurify";
 
@@ -158,6 +107,44 @@ const mathExtension = {
 };
 
 marked.use(mathExtension);
+
+let hljsModule: any = null;
+
+const HLJS_LANGUAGES: [string, () => Promise<any>][] = [
+  ["bash", () => import("highlight.js/lib/languages/bash")],
+  ["c", () => import("highlight.js/lib/languages/c")],
+  ["cpp", () => import("highlight.js/lib/languages/cpp")],
+  ["csharp", () => import("highlight.js/lib/languages/csharp")],
+  ["css", () => import("highlight.js/lib/languages/css")],
+  ["diff", () => import("highlight.js/lib/languages/diff")],
+  ["go", () => import("highlight.js/lib/languages/go")],
+  ["graphql", () => import("highlight.js/lib/languages/graphql")],
+  ["ini", () => import("highlight.js/lib/languages/ini")],
+  ["java", () => import("highlight.js/lib/languages/java")],
+  ["javascript", () => import("highlight.js/lib/languages/javascript")],
+  ["json", () => import("highlight.js/lib/languages/json")],
+  ["kotlin", () => import("highlight.js/lib/languages/kotlin")],
+  ["markdown", () => import("highlight.js/lib/languages/markdown")],
+  ["perl", () => import("highlight.js/lib/languages/perl")],
+  ["python", () => import("highlight.js/lib/languages/python")],
+  ["ruby", () => import("highlight.js/lib/languages/ruby")],
+  ["rust", () => import("highlight.js/lib/languages/rust")],
+  ["shell", () => import("highlight.js/lib/languages/shell")],
+  ["sql", () => import("highlight.js/lib/languages/sql")],
+  ["swift", () => import("highlight.js/lib/languages/swift")],
+  ["typescript", () => import("highlight.js/lib/languages/typescript")],
+  ["xml", () => import("highlight.js/lib/languages/xml")],
+  ["yaml", () => import("highlight.js/lib/languages/yaml")],
+];
+
+async function getHljs() {
+  if (hljsModule) return hljsModule;
+  const { default: hljs } = await import("highlight.js/lib/core");
+  const loaded = await Promise.all(HLJS_LANGUAGES.map(([, fn]) => fn()));
+  HLJS_LANGUAGES.forEach(([name], i) => hljs.registerLanguage(name, loaded[i].default));
+  hljsModule = hljs;
+  return hljs;
+}
 
 let katexModule: any = null;
 
@@ -613,12 +600,9 @@ previewRenderer.code = function ({ text, lang, _sourceLine }: any) {
   if (lang === "mermaid") {
     return `<div${sl} class="mermaid-container" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
   }
-  const language = lang && hljs.getLanguage(lang) ? lang : null;
-  const highlighted = language
-    ? hljs.highlight(text, { language }).value
-    : text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const langClass = language ? ` class="hljs language-${lang}"` : ' class="hljs"';
-  return `<pre${sl}><code${langClass}>${highlighted}</code></pre>`;
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const langAttr = lang ? ` data-hljs-lang="${lang}"` : "";
+  return `<pre${sl}><code class="hljs"${langAttr}>${escaped}</code></pre>`;
 };
 previewRenderer.heading = function (this: any, { tokens, depth, _sourceLine }: any) {
   return `<h${depth}${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</h${depth}>\n`;
@@ -679,6 +663,7 @@ async function renderPreview(source: string) {
         "data-source-line",
         "data-math-source",
         "data-math-display",
+        "data-hljs-lang",
       ],
     },
   );
@@ -704,6 +689,23 @@ async function renderPreview(source: string) {
     }
     table.parentNode!.insertBefore(wrapper, table);
     wrapper.appendChild(table);
+  }
+
+  // Highlight code blocks (lazy-load highlight.js on first use)
+  const codeEls = previewPane.querySelectorAll("code[data-hljs-lang]");
+  if (codeEls.length > 0) {
+    try {
+      const hljs = await getHljs();
+      for (const el of codeEls) {
+        const lang = (el as HTMLElement).dataset.hljsLang!;
+        if (hljs.getLanguage(lang)) {
+          el.innerHTML = hljs.highlight(el.textContent!, { language: lang }).value;
+          el.classList.add(`language-${lang}`);
+        }
+      }
+    } catch (err) {
+      console.error("highlight.js failed to load:", err);
+    }
   }
 
   if (hasMermaid) {
@@ -893,10 +895,11 @@ async function convertFile(filePath: string) {
       statusEl.textContent = "Image conversion is disabled in Settings";
       return;
     }
-    const ok = await confirm("Image conversion uses AI Neurons (costs apply). Continue?", {
-      title: "Image Conversion Cost",
-      kind: "warning",
-    });
+    const imageFileName = filePath.split("/").pop()!;
+    const ok = await confirm(
+      `"${imageFileName}" will be sent to Workers AI for OCR.\n\nThis uses AI Neurons (billed per request). Typical cost: ~720 neurons per image.\n\nContinue?`,
+      { title: "Image Conversion Cost", kind: "warning" },
+    );
     if (!ok) return;
   }
 
@@ -911,12 +914,13 @@ async function convertFile(filePath: string) {
     const tag = result.is_image ? " (image OCR)" : "";
     const fileName = filePath.split("/").pop()!;
     const mdSize = new Blob([result.markdown]).size;
+    const words = result.markdown.split(/\s+/).filter(Boolean).length;
     const warn = result.warning ? ` ⚠ ${result.warning}` : "";
     if (result.original_size && result.original_size > 0 && mdSize < result.original_size) {
       const reduction = Math.round((1 - mdSize / result.original_size) * 100);
-      statusEl.textContent = `Converted${tag}: ${fileName} | ${formatBytes(result.original_size)} → ${formatBytes(mdSize)} (${reduction}% reduction)${warn}`;
+      statusEl.textContent = `Converted${tag}: ${fileName} | ${formatBytes(result.original_size)} → ${formatBytes(mdSize)} (${reduction}% reduction) | ~${words.toLocaleString()} words${warn}`;
     } else {
-      statusEl.textContent = `Converted${tag}: ${fileName}${warn}`;
+      statusEl.textContent = `Converted${tag}: ${fileName} | ~${words.toLocaleString()} words${warn}`;
     }
   } catch (e) {
     statusEl.textContent = `Convert error: ${e}`;
