@@ -72,6 +72,13 @@ import {
 import { initClipboard, copyRichText, copyMarkdown } from "./clipboard.ts";
 import { initMcpSync, syncEditorState, initBridgeListeners } from "./mcp-sync.ts";
 import { initCrawl, crawlUrl } from "./crawl.ts";
+import {
+  toggleBold,
+  toggleItalic,
+  toggleStrikethrough,
+  toggleInlineCode,
+  insertLink,
+} from "./markdown-commands.ts";
 
 // --- Tauri APIs ---
 
@@ -124,7 +131,17 @@ const editor = new EditorView({
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       editorTheme,
       search(),
-      keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+      keymap.of([
+        { key: "Mod-b", run: toggleBold },
+        { key: "Mod-i", run: toggleItalic },
+        { key: "Mod-Shift-x", run: toggleStrikethrough },
+        { key: "Mod-`", run: toggleInlineCode },
+        { key: "Mod-k", run: insertLink },
+        ...searchKeymap,
+        ...defaultKeymap,
+        ...historyKeymap,
+        indentWithTab,
+      ]),
       updatePreviewListener,
       EditorView.lineWrapping,
     ],
@@ -482,7 +499,7 @@ const appEl = document.getElementById("app")!;
 
 const sidebarUnfoldBtn = document.createElement("button");
 sidebarUnfoldBtn.className = "panel-unfold-btn";
-sidebarUnfoldBtn.title = "Expand Sidebar (⌘B)";
+sidebarUnfoldBtn.title = "Expand Sidebar (⌘⇧B)";
 sidebarUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 appEl.insertBefore(sidebarUnfoldBtn, sidebarDivider);
 
@@ -614,6 +631,9 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "]") {
       e.preventDefault();
       switchToNextTab();
+    } else if (e.key === "B") {
+      e.preventDefault();
+      toggleSidebar();
     }
   } else if (e.key === "c") {
     // Cmd+C with no selection: copy entire content from focused pane
@@ -641,9 +661,6 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "w") {
       e.preventDefault();
       closeActiveTab();
-    } else if (e.key === "b") {
-      e.preventDefault();
-      toggleSidebar();
     } else if (e.key === "e") {
       e.preventDefault();
       toggleEditor();

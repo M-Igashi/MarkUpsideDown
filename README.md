@@ -24,6 +24,7 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 - **Live preview** — Split-pane with real-time rendering and bidirectional scroll sync
 - **Multi-tab editing** — Open multiple files in tabs, switch with <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> / <kbd>]</kbd>
 - **CodeMirror 6** — Syntax highlighting, line numbers, bracket matching, search & replace
+- **Formatting shortcuts** — Bold, italic, strikethrough, inline code, link insertion
 - **Code highlighting** — 23 languages via highlight.js (lazy-loaded)
 - **KaTeX math** — Inline `$...$` and display `$$...$$` rendering
 - **Mermaid diagrams** — Flowcharts, sequence diagrams, etc.
@@ -40,7 +41,8 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 ### Export
 
 - **Export PDF** — Print/save the preview pane as PDF
-- **Copy Rich Text** — Copy rendered HTML to clipboard (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>)
+- **Copy Rich Text** — Copy rendered HTML to clipboard (preview pane)
+- **Copy Markdown** — Copy raw Markdown to clipboard (editor pane)
 
 ### Integration
 
@@ -48,14 +50,41 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 
 ### Keyboard Shortcuts
 
+#### Formatting (editor)
+
+| Shortcut | Action |
+|----------|--------|
+| <kbd>Cmd</kbd>+<kbd>B</kbd> | Bold (`**text**`) |
+| <kbd>Cmd</kbd>+<kbd>I</kbd> | Italic (`*text*`) |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> | Strikethrough (`~~text~~`) |
+| <kbd>Cmd</kbd>+<kbd>`</kbd> | Inline code (`` `text` ``) |
+| <kbd>Cmd</kbd>+<kbd>K</kbd> | Insert link (`[text](url)`) |
+
+#### File & Tabs
+
 | Shortcut | Action |
 |----------|--------|
 | <kbd>Cmd</kbd>+<kbd>S</kbd> | Save file |
 | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close tab |
-| <kbd>Cmd</kbd>+<kbd>B</kbd> | Toggle sidebar |
-| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | Copy rich text |
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> | Previous tab |
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> | Next tab |
+
+#### Panels
+
+| Shortcut | Action |
+|----------|--------|
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Toggle sidebar |
+| <kbd>Cmd</kbd>+<kbd>E</kbd> | Toggle editor pane |
+| <kbd>Cmd</kbd>+<kbd>\\</kbd> | Toggle preview pane |
+
+#### Copy (<kbd>Cmd</kbd>+<kbd>C</kbd>)
+
+| Focus | Selection | Behavior |
+|-------|-----------|----------|
+| Editor pane | Text selected | Copy selected text as plain Markdown (default) |
+| Editor pane | No selection | Copy entire document as plain Markdown |
+| Preview pane | Text selected | Copy selected text as rich text (HTML + plain) (default) |
+| Preview pane | No selection | Copy entire preview as rich text (HTML + plain) |
 
 ## Requirements
 
