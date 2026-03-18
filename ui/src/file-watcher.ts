@@ -34,9 +34,12 @@ function isRecentlySuppressed(filePath: string): boolean {
 }
 
 async function onFileChanged(event: WatchEvent) {
-  // Only react to modify events
+  // React to modify and create events
+  // Create events cover atomic writes (write temp file → rename over original)
+  // used by most editors (Vim, Zed, sed -i) and tools (Claude Code Edit)
   const kind = event.type;
-  if (typeof kind !== "object" || !("modify" in kind)) return;
+  if (typeof kind !== "object") return;
+  if (!("modify" in kind) && !("create" in kind)) return;
 
   for (const path of event.paths) {
     if (!path || isRecentlySuppressed(path)) continue;
