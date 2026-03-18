@@ -232,6 +232,9 @@ async function inlineSvgImages(container: HTMLElement) {
       let svgText: string | undefined;
       if (svgCache.has(url)) {
         svgText = svgCache.get(url);
+        // Move to end for LRU eviction
+        svgCache.delete(url);
+        svgCache.set(url, svgText!);
       } else {
         svgText = await invoke<string>("fetch_svg", { url });
         if (svgCache.size >= SVG_CACHE_MAX) {

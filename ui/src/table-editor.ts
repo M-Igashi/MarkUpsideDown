@@ -1,5 +1,6 @@
 import type { Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import { escapeHtml } from "./settings.ts";
 
 // --- Markdown Table Parser ---
 
@@ -122,10 +123,6 @@ function findTableAtCursor(doc: Text, pos: number): TableRange | null {
 
 // --- Spreadsheet UI ---
 
-function escapeAttr(str: string): string {
-  return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-}
-
 export function showTableEditor(editor: EditorView, existingTable: TableRange | null): void {
   document.getElementById("table-editor-dialog")?.remove();
 
@@ -213,13 +210,13 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
     const colCount = table.headers.length;
     let html = "<thead><tr>";
     for (let c = 0; c < colCount; c++) {
-      html += `<th><input type="text" data-row="-1" data-col="${c}" value="${escapeAttr(table.headers[c])}" /></th>`;
+      html += `<th><input type="text" data-row="-1" data-col="${c}" value="${escapeHtml(table.headers[c])}" /></th>`;
     }
     html += "</tr></thead><tbody>";
     for (let r = 0; r < table.rows.length; r++) {
       html += "<tr>";
       for (let c = 0; c < colCount; c++) {
-        html += `<td><input type="text" data-row="${r}" data-col="${c}" value="${escapeAttr(table.rows[r][c] || "")}" /></td>`;
+        html += `<td><input type="text" data-row="${r}" data-col="${c}" value="${escapeHtml(table.rows[r][c] || "")}" /></td>`;
       }
       html += "</tr>";
     }
