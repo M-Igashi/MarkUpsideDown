@@ -60,6 +60,8 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
       depth: options.depth,
       limit: options.limit,
       render: options.render,
+      includePatterns: options.includePatterns.length ? options.includePatterns : null,
+      excludePatterns: options.excludePatterns.length ? options.excludePatterns : null,
     });
 
     statusEl.textContent = `Crawl started (job: ${job_id.slice(0, 8)}...)`;
@@ -136,6 +138,8 @@ interface CrawlOptions {
   limit: number;
   render: boolean;
   saveDir: string;
+  includePatterns: string[];
+  excludePatterns: string[];
 }
 
 async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
@@ -172,6 +176,14 @@ async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
       <div class="crawl-field">
         <label>Render JavaScript</label>
         <input type="checkbox" id="crawl-render" checked />
+      </div>
+      <div class="crawl-field">
+        <label>Include patterns</label>
+        <input type="text" id="crawl-include" placeholder="e.g. /articles/**, /blog/**" />
+      </div>
+      <div class="crawl-field">
+        <label>Exclude patterns</label>
+        <input type="text" id="crawl-exclude" placeholder="e.g. /tag/**, /author/**" />
       </div>
       <div class="crawl-field">
         <label>Save to</label>
@@ -216,13 +228,28 @@ async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
       const render = (dialog.querySelector("#crawl-render") as HTMLInputElement).checked;
       const saveDir = dirInput.value.trim();
 
+      const includeRaw = (dialog.querySelector("#crawl-include") as HTMLInputElement).value.trim();
+      const excludeRaw = (dialog.querySelector("#crawl-exclude") as HTMLInputElement).value.trim();
+      const includePatterns = includeRaw
+        ? includeRaw
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      const excludePatterns = excludeRaw
+        ? excludeRaw
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+
       if (!saveDir) {
         dirInput.style.borderColor = "#c44";
         return;
       }
 
       overlay.remove();
-      resolve({ depth, limit, render, saveDir });
+      resolve({ depth, limit, render, saveDir, includePatterns, excludePatterns });
     });
 
     // Focus start button

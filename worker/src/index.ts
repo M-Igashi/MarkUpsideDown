@@ -39,6 +39,10 @@ export default {
       return handleHealth(env);
     }
 
+    if (request.method === "POST" && url.pathname === "/fetch") {
+      return handleFetch(request, env);
+    }
+
     if (request.method === "GET" && url.pathname === "/render") {
       return handleRender(url, env, ctx);
     }
@@ -56,7 +60,7 @@ export default {
       return handleCrawlStatus(crawlMatch[1], url, env);
     }
 
-    return jsonResponse({ error: "GET /health, POST /convert, GET /render?url=, POST /crawl, or GET /crawl/:job_id" }, 404);
+    return jsonResponse({ error: "GET /health, POST /fetch, POST /convert, GET /render?url=, POST /crawl, or GET /crawl/:job_id" }, 404);
   },
 } satisfies ExportedHandler<Env>;
 
@@ -64,12 +68,70 @@ function handleHealth(env: Env): Response {
   return jsonResponse({
     status: "ok",
     capabilities: {
+      fetch: true,
       convert: true,
       render: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
       crawl: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
     },
   });
 }
+
+// --- Fetch URL → AI.toMarkdown() ---
+
+async function handleFetch(request: Request, env: Env): Promise<Response> {
+  let body: { url: string };
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (!body.url) {
+    return jsonResponse({ error: "Missing 'url' field" }, 400);
+  }
+
+  const ssrfError = await validateUrlForSsrf(body.url);
+  if (ssrfError) {
+    return jsonResponse({ error: ssrfError }, 400);
+  }
+
+  try {
+    const response = await fetch(body.url, {
+      headers: { "Accept": "text/markdown, text/html;q=0.9, */*;q=0.8" },
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      return jsonResponse({ error: `Fetch failed (${response.status}): ${response.statusText}` }, response.status);
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+
+    // If the server returned Markdown directly (Markdown for Agents), pass through
+    if (contentType.includes("text/markdown")) {
+      const markdown = await response.text();
+      return jsonResponse({ markdown, source: "markdown-for-agents" });
+    }
+
+    // Otherwise, convert HTML via AI.toMarkdown()
+    const html = await response.text();
+    const markdown = await htmlToMarkdown(html, env);
+    return jsonResponse({ markdown, source: "ai-to-markdown" });
+  } catch (e) {
+    return jsonResponse({ error: `Fetch failed: ${e instanceof Error ? e.message : "Unknown error"}` }, 500);
+  }
+}
+
+async function htmlToMarkdown(html: string, env: Env): Promise<string> {
+  const blob = new Blob([html], { type: "text/html" });
+  const result = await env.AI.toMarkdown([{ name: "page.html", blob }]);
+  return result
+    .filter((r) => r.format === "markdown")
+    .map((r) => r.data)
+    .join("\n\n");
+}
+
+// --- Convert uploaded files → AI.toMarkdown() ---
 
 async function handleConvert(request: Request, env: Env): Promise<Response> {
   const contentType = request.headers.get("content-type") || "";
@@ -84,8 +146,12 @@ async function handleConvert(request: Request, env: Env): Promise<Response> {
     const body = await request.arrayBuffer();
     const originalSize = body.byteLength;
     const blob = new Blob([body], { type: mimeType });
-    const result = await env.AI.toMarkdown([blob]);
-    const markdown = result.map((r: { data: string }) => r.data).join("\n\n");
+    const fileName = `file.${mimeType.split("/").pop() || "bin"}`;
+    const result = await env.AI.toMarkdown([{ name: fileName, blob }]);
+    const markdown = result
+      .filter((r) => r.format === "markdown")
+      .map((r) => r.data)
+      .join("\n\n");
     const warning = isUnconvertedHtml(markdown) ? "Conversion result may contain unconverted HTML" : undefined;
     return jsonResponse({ markdown, is_image: isImage, original_size: originalSize, warning });
   } catch (e) {
@@ -122,23 +188,22 @@ async function handleRender(url: URL, env: Env, ctx: ExecutionContext): Promise<
   }
 
   try {
-    const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering`;
-    const authHeaders = {
-      "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
-      "Content-Type": "application/json",
-    };
-    const browserOptions = {
-      url: targetUrl,
-      rejectResourceTypes: ["image", "media", "font", "stylesheet"],
-      gotoOptions: { waitUntil: "networkidle0" },
-    };
-
-    // Step 1: Get rendered HTML via /content endpoint
-    const contentResponse = await fetch(`${baseUrl}/content`, {
-      method: "POST",
-      headers: authHeaders,
-      body: JSON.stringify(browserOptions),
-    });
+    // Step 1: Get JS-rendered HTML via Browser Rendering /content endpoint
+    const contentResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering/content`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url: targetUrl,
+          gotoOptions: { waitUntil: "networkidle0" },
+          rejectResourceTypes: ["image", "media", "font", "stylesheet"],
+        }),
+      },
+    );
 
     if (!contentResponse.ok) {
       const errorBody = await contentResponse.text();
@@ -150,32 +215,15 @@ async function handleRender(url: URL, env: Env, ctx: ExecutionContext): Promise<
       return jsonResponse({ error: "Browser Rendering content API returned failure", details: contentData.errors }, 500);
     }
 
-    // Step 2: Clean HTML — strip nav, header, footer, aside, etc.
-    const cleanedHtml = await stripBoilerplate(contentData.result);
+    // Step 2: Convert rendered HTML to Markdown via AI.toMarkdown()
+    const markdown = await htmlToMarkdown(contentData.result, env);
 
-    // Step 3: Convert cleaned HTML to markdown via /markdown endpoint
-    const apiResponse = await fetch(`${baseUrl}/markdown`, {
-      method: "POST",
-      headers: authHeaders,
-      body: JSON.stringify({ html: cleanedHtml }),
-    });
-
-    if (!apiResponse.ok) {
-      const errorBody = await apiResponse.text();
-      return jsonResponse({ error: `Browser Rendering API error (${apiResponse.status}): ${errorBody}` }, apiResponse.status);
-    }
-
-    const data = await apiResponse.json<{ success: boolean; result: string; errors?: unknown[] }>();
-    if (!data.success) {
-      return jsonResponse({ error: "Browser Rendering API returned failure", details: data.errors }, 500);
-    }
-
-    const response = jsonResponse({ markdown: data.result }, 200, { "x-cache": "MISS" });
+    const response = jsonResponse({ markdown }, 200, { "x-cache": "MISS" });
 
     ctx.waitUntil(
       cache.put(
         cacheKey,
-        new Response(JSON.stringify({ markdown: data.result }), {
+        new Response(JSON.stringify({ markdown }), {
           headers: { ...CORS_HEADERS, "content-type": "application/json", "cache-control": `public, max-age=${RENDER_CACHE_TTL}` },
         })
       )
@@ -194,7 +242,14 @@ async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required for crawling" }, 500);
   }
 
-  let body: { url: string; limit?: number; depth?: number; render?: boolean };
+  let body: {
+    url: string;
+    limit?: number;
+    depth?: number;
+    render?: boolean;
+    includePatterns?: string[];
+    excludePatterns?: string[];
+  };
   try {
     body = await request.json();
   } catch {
@@ -211,13 +266,19 @@ async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
   }
 
   const crawlUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering/crawl`;
-  const crawlBody = {
+  const crawlBody: Record<string, unknown> = {
     url: body.url,
-    limit: Math.min(body.limit ?? 50, 500),
+    limit: Math.min(body.limit ?? 50, 100000),
     depth: body.depth ?? 3,
     formats: ["markdown"],
     render: body.render ?? true,
+    rejectResourceTypes: ["image", "media", "font", "stylesheet"],
   };
+
+  const options: Record<string, unknown> = {};
+  if (body.includePatterns?.length) options.includePatterns = body.includePatterns;
+  if (body.excludePatterns?.length) options.excludePatterns = body.excludePatterns;
+  if (Object.keys(options).length > 0) crawlBody.options = options;
 
   try {
     const response = await fetch(crawlUrl, {
@@ -389,42 +450,6 @@ function isUnconvertedHtml(text: string): boolean {
   // Density: HTML tags per 1000 chars
   const density = (tagMatches.length / text.length) * 1000;
   return density > 5;
-}
-
-async function stripBoilerplate(html: string): Promise<string> {
-  const remove = { element(el: Element) { el.remove(); } };
-  const rewriter = new HTMLRewriter()
-    // Structural boilerplate
-    .on("nav", remove)
-    .on("header", remove)
-    .on("footer", remove)
-    .on("aside", remove)
-    .on("script", remove)
-    .on("style", remove)
-    .on("noscript", remove)
-    // ARIA roles
-    .on("[role='navigation']", remove)
-    .on("[role='banner']", remove)
-    .on("[role='contentinfo']", remove)
-    .on("[role='complementary']", remove)
-    .on("[aria-hidden='true']", remove)
-    // Cookie consent / privacy banners
-    .on("[class*='cookie']", remove)
-    .on("[class*='consent']", remove)
-    .on("[id*='cookie']", remove)
-    .on("[id*='consent']", remove)
-    .on("[class*='gdpr']", remove)
-    // Ad containers
-    .on("[class*='adsbygoogle']", remove)
-    .on("[class*='ad-container']", remove)
-    .on("[class*='ad-wrapper']", remove)
-    .on("[id*='google_ads']", remove)
-    .on("ins.adsbygoogle", remove)
-    // Social sharing widgets
-    .on("[class*='share-buttons']", remove)
-    .on("[class*='social-share']", remove)
-    .on("[class*='sharing-buttons']", remove);
-  return rewriter.transform(new Response(html)).text();
 }
 
 function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {

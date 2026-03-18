@@ -144,11 +144,32 @@ export async function fetchUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
   statusEl.textContent = "Fetching page…";
 
   try {
+    // First try Markdown for Agents (free, no Worker needed)
     const result = await invoke<FetchResult>("fetch_url_as_markdown", { url });
+
+    if (result.is_markdown) {
+      loadContentAsTab(result.body);
+      statusEl.textContent = `Fetched (Markdown for Agents): ${url}`;
+      return;
+    }
+
+    // HTML returned — use Worker /fetch for AI.toMarkdown() conversion
+    const workerUrl = await ensureWorkerUrl();
+    if (workerUrl) {
+      statusEl.textContent = "Converting via AI.toMarkdown()…";
+      try {
+        const markdown = await invoke<string>("fetch_url_via_worker", { url, workerUrl });
+        loadContentAsTab(markdown);
+        statusEl.textContent = `Fetched (AI.toMarkdown): ${url}`;
+        return;
+      } catch {
+        // Fall through to raw HTML
+      }
+    }
+
+    // Fallback: load raw HTML as-is
     loadContentAsTab(result.body);
-    statusEl.textContent = result.is_markdown
-      ? `Fetched (Markdown): ${url}`
-      : `Fetched (HTML→Markdown): ${url}`;
+    statusEl.textContent = `Fetched (raw HTML): ${url}`;
   } catch (e) {
     statusEl.textContent = `Fetch error: ${e}`;
   } finally {

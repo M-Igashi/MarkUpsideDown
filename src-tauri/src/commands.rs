@@ -189,6 +189,37 @@ pub async fn fetch_rendered_url_as_markdown(
     body.markdown.ok_or_else(|| "No markdown in response".to_string())
 }
 
+// --- Fetch URL via Worker (AI.toMarkdown() conversion) ---
+
+#[tauri::command]
+pub async fn fetch_url_via_worker(
+    url: String,
+    worker_url: String,
+    client: tauri::State<'_, reqwest::Client>,
+) -> Result<String, String> {
+    let fetch_url = format!("{}/fetch", worker_url.trim_end_matches('/'));
+
+    let response = client
+        .post(&fetch_url)
+        .timeout(Duration::from_secs(60))
+        .json(&serde_json::json!({ "url": url }))
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    let status = response.status();
+    let body: RenderWorkerResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    if !status.is_success() {
+        return Err(body.error.unwrap_or_else(|| format!("Worker returned {status}")));
+    }
+
+    body.markdown.ok_or_else(|| "No markdown in response".to_string())
+}
+
 // --- Website Crawl via Browser Rendering /crawl API ---
 
 #[derive(Deserialize)]
@@ -209,16 +240,29 @@ pub async fn crawl_website(
     depth: u32,
     limit: u32,
     render: bool,
+    include_patterns: Option<Vec<String>>,
+    exclude_patterns: Option<Vec<String>>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<CrawlStartResult, String> {
     let crawl_url = format!("{}/crawl", worker_url.trim_end_matches('/'));
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "url": url,
         "depth": depth,
         "limit": limit,
         "render": render,
     });
+
+    if let Some(ref patterns) = include_patterns {
+        if !patterns.is_empty() {
+            body["includePatterns"] = serde_json::json!(patterns);
+        }
+    }
+    if let Some(ref patterns) = exclude_patterns {
+        if !patterns.is_empty() {
+            body["excludePatterns"] = serde_json::json!(patterns);
+        }
+    }
 
     let response = client
         .post(&crawl_url)
