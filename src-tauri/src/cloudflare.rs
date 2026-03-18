@@ -292,12 +292,14 @@ pub async fn setup_worker_secrets_with_token(
 }
 
 async fn set_secrets_with_token(account_id: String, api_token: String) -> Result<(), String> {
+    let acct_for_r1 = account_id.clone();
+    let acct_for_r2 = account_id.clone();
     let (r1, r2) = tokio::join!(
         tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id)
+            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id, &acct_for_r1)
         }),
         tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token)
+            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, &acct_for_r2)
         }),
     );
     r1.map_err(|e| format!("Task error: {e}"))??;
@@ -331,9 +333,10 @@ fn get_env_token_from_shell() -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
-fn set_wrangler_secret(name: &str, value: &str) -> Result<(), String> {
+fn set_wrangler_secret(name: &str, value: &str, account_id: &str) -> Result<(), String> {
     let mut cmd = Command::new("wrangler");
     cmd.args(["secret", "put", name, "--name", "markupsidedown-converter"])
+        .env("CLOUDFLARE_ACCOUNT_ID", account_id)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
