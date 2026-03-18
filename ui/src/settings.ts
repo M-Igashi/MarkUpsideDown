@@ -1,3 +1,5 @@
+import { isLintEnabled, setLintEnabled } from "./markdown-lint.ts";
+
 const { invoke } = window.__TAURI__.core;
 
 interface WorkerStatus {
@@ -479,6 +481,10 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
           <input type="checkbox" id="settings-autosave" />
           <span class="settings-toggle-label">Auto-save files (2 seconds after last edit)</span>
         </label>
+        <label class="settings-toggle-row">
+          <input type="checkbox" id="settings-lint" />
+          <span class="settings-toggle-label">Markdown structure linting (heading hierarchy, links, tables)</span>
+        </label>
       </div>
 
       <div class="settings-section">
@@ -535,11 +541,12 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
           <button id="settings-mcp-copy" class="settings-mcp-copy-btn">Copy to clipboard</button>
         </div>
         <details class="settings-mcp-tools-details">
-          <summary>Available tools (9)</summary>
+          <summary>Available tools (10)</summary>
           <div class="settings-mcp-tools-list">
             <div class="settings-mcp-tool"><code>get_editor_content</code> &mdash; Get current Markdown from the editor</div>
             <div class="settings-mcp-tool"><code>set_editor_content</code> &mdash; Replace editor content</div>
             <div class="settings-mcp-tool"><code>insert_text</code> &mdash; Insert text at cursor, start, or end</div>
+            <div class="settings-mcp-tool"><code>get_document_structure</code> &mdash; Get document structure (headings, links, stats) as JSON</div>
             <div class="settings-mcp-tool"><code>open_file</code> &mdash; Open a Markdown file</div>
             <div class="settings-mcp-tool"><code>save_file</code> &mdash; Save content to a file</div>
             <div class="settings-mcp-tool"><code>export_pdf</code> &mdash; Export as PDF</div>
@@ -667,6 +674,9 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
   const autosaveCheckbox = document.getElementById("settings-autosave") as HTMLInputElement;
   autosaveCheckbox.checked = isAutoSaveEnabled();
 
+  const lintCheckbox = document.getElementById("settings-lint") as HTMLInputElement;
+  lintCheckbox.checked = isLintEnabled();
+
   // --- MCP Integration Section ---
   initMcpSection();
 
@@ -751,6 +761,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
     // Slack workspaces are saved immediately on add/remove
     setImageConversionAllowed(allowImageCheckbox.checked);
     setAutoSaveEnabled(autosaveCheckbox.checked);
+    setLintEnabled(lintCheckbox.checked);
     markSetupDone();
     close();
     if (onSave) onSave(url);

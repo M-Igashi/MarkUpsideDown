@@ -120,6 +120,15 @@ impl BridgeClient {
         self.request("POST", "/editor/export-pdf", None).await?;
         Ok(())
     }
+
+    pub async fn get_document_structure(&self) -> Result<serde_json::Value, String> {
+        let val = self.request("GET", "/editor/structure", None).await?;
+        let json = val.unwrap_or_default();
+        if json.get("error").is_some() {
+            return Err(json["error"].as_str().unwrap_or("Unknown error").to_string());
+        }
+        Ok(json)
+    }
 }
 
 #[derive(Deserialize)]

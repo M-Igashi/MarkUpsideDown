@@ -310,6 +310,17 @@ impl McpTools {
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }
+
+    #[tool(name = "get_document_structure", description = "Get the current document's structural information (heading tree, links, frontmatter, stats) as JSON. More efficient than parsing raw Markdown — reduces token usage for structure-aware operations.", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn get_document_structure(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.get_document_structure().await {
+            Ok(structure) => {
+                let json = serde_json::to_string_pretty(&structure).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
 }
 
 #[tool_handler]

@@ -11,6 +11,7 @@ pub struct EditorStateInner {
     pub file_path: Option<String>,
     pub cursor_pos: usize,
     pub worker_url: Option<String>,
+    pub document_structure: Option<String>, // JSON string from frontend
 }
 
 #[derive(Default)]
@@ -24,6 +25,7 @@ pub fn sync_editor_state(
     file_path: Option<String>,
     cursor_pos: Option<usize>,
     worker_url: Option<String>,
+    document_structure: Option<String>,
     state: tauri::State<'_, std::sync::Arc<EditorState>>,
 ) -> Result<(), String> {
     let mut s = state.inner.lock().unwrap();
@@ -33,6 +35,9 @@ pub fn sync_editor_state(
         s.cursor_pos = pos;
     }
     s.worker_url = worker_url;
+    if let Some(ds) = document_structure {
+        s.document_structure = Some(ds);
+    }
     Ok(())
 }
 

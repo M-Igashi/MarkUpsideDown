@@ -42,6 +42,7 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorState>) {
         .route("/editor/open-file", post(open_file))
         .route("/editor/save-file", post(save_file))
         .route("/editor/export-pdf", post(export_pdf))
+        .route("/editor/structure", get(get_structure))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
@@ -156,4 +157,18 @@ async fn save_file(
 async fn export_pdf(State(state): State<Arc<BridgeState>>) -> StatusCode {
     state.app.emit("bridge:export-pdf", ()).ok();
     StatusCode::OK
+}
+
+async fn get_structure(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
+    let s = state.editor.inner.lock().unwrap();
+    match &s.document_structure {
+        Some(json_str) => {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                Json(val)
+            } else {
+                Json(serde_json::json!({ "error": "Invalid structure data" }))
+            }
+        }
+        None => Json(serde_json::json!({ "error": "No structure data available" })),
+    }
 }

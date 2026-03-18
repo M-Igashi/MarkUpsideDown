@@ -3,6 +3,7 @@ import { getWorkerUrl } from "./settings.ts";
 import { getActiveTab, markTabSaved, updateActiveTab } from "./tabs.ts";
 import { getRootPath } from "./sidebar.ts";
 import { suppressNext } from "./file-watcher.ts";
+import { getDocumentStructure } from "./document-structure.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -48,11 +49,21 @@ export function syncEditorState(cachedContent?: string) {
     lastSyncedContent = content;
     lastSyncedFilePath = currentFilePath;
     const cursorPos = editor.state.selection.main.head;
+    const structure = getDocumentStructure(content);
+    // Serialize structure to JSON (convert Set to Array for JSON compat)
+    const structureJson = JSON.stringify({
+      headings: structure.headings,
+      links: structure.links,
+      tables: structure.tables,
+      frontmatter: structure.frontmatter,
+      stats: structure.stats,
+    });
     invoke("sync_editor_state", {
       content,
       filePath: currentFilePath,
       cursorPos: cursorPos,
       workerUrl: getWorkerUrl() || null,
+      documentStructure: structureJson,
     }).catch(() => {});
   }, 2000);
 }

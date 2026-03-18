@@ -77,6 +77,7 @@ import {
 import { initClipboard, copyRichText, copyMarkdown } from "./clipboard.ts";
 import { initMcpSync, syncEditorState, initBridgeListeners } from "./mcp-sync.ts";
 import { initCrawl, crawlUrl } from "./crawl.ts";
+import { normalizeMarkdown } from "./normalize.ts";
 import {
   toggleBold,
   toggleItalic,
@@ -270,6 +271,17 @@ document.getElementById("btn-table")!.addEventListener("click", () => {
   editTableAtCursor(editor);
 });
 
+document.getElementById("btn-cleanup")!.addEventListener("click", () => {
+  const content = editor.state.doc.toString();
+  const cleaned = normalizeMarkdown(content);
+  if (cleaned !== content) {
+    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: cleaned } });
+    renderPreview(cleaned);
+    statusEl.textContent = "Document cleaned up";
+  } else {
+    statusEl.textContent = "No changes needed";
+  }
+});
 document.getElementById("btn-export-pdf")!.addEventListener("click", () => {
   window.print();
 });
