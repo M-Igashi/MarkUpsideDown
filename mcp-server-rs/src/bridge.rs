@@ -136,11 +136,9 @@ impl BridgeClient {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 pub struct EditorState {
-    #[allow(dead_code)]
     pub file_path: Option<String>,
     pub worker_url: Option<String>,
-    #[allow(dead_code)]
     pub cursor_pos: usize,
 }

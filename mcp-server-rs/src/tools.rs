@@ -76,6 +76,30 @@ pub struct SaveFileParams {
     pub path: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CrawlWebsiteParams {
+    #[schemars(description = "URL to start crawling from")]
+    pub url: String,
+    #[schemars(description = "Maximum crawl depth (default: 1)")]
+    pub depth: Option<u32>,
+    #[schemars(description = "Maximum number of pages to crawl (default: 10)")]
+    pub limit: Option<u32>,
+    #[schemars(description = "Whether to use JavaScript rendering for crawled pages (default: false)")]
+    pub render: Option<bool>,
+    #[schemars(description = "URL patterns to include (glob syntax)")]
+    pub include_patterns: Option<Vec<String>>,
+    #[schemars(description = "URL patterns to exclude (glob syntax)")]
+    pub exclude_patterns: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CrawlStatusParams {
+    #[schemars(description = "Job ID returned by crawl_website")]
+    pub job_id: String,
+    #[schemars(description = "Pagination cursor from a previous crawl_status response")]
+    pub cursor: Option<String>,
+}
+
 // --- Server ---
 
 pub struct McpTools {
@@ -326,6 +350,224 @@ impl McpTools {
                 let json = serde_json::to_string_pretty(&structure).unwrap_or_default();
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "get_editor_state", description = "Get the current editor state: file path, cursor position, and Worker URL", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn get_editor_state(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.get_editor_state().await {
+            Ok(state) => {
+                let json = serde_json::to_string_pretty(&state).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Crawl Tools (use Worker, no app needed) ---
+
+    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Rendering. Returns a job_id to poll with crawl_status.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn crawl_website(
+        &self,
+        Parameters(params): Parameters<CrawlWebsiteParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let crawl_url = format!("{}/crawl", worker_url.trim_end_matches('/'));
+
+            let mut body = serde_json::json!({
+                "url": params.url,
+                "depth": params.depth.unwrap_or(1),
+                "limit": params.limit.unwrap_or(10),
+                "render": params.render.unwrap_or(false),
+            });
+
+            if let Some(ref patterns) = params.include_patterns {
+                if !patterns.is_empty() {
+                    body["includePatterns"] = serde_json::json!(patterns);
+                }
+            }
+            if let Some(ref patterns) = params.exclude_patterns {
+                if !patterns.is_empty() {
+                    body["excludePatterns"] = serde_json::json!(patterns);
+                }
+            }
+
+            let response = self
+                .http
+                .post(&crawl_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            #[derive(Deserialize)]
+            struct Resp {
+                job_id: Option<String>,
+                error: Option<String>,
+            }
+            let status = response.status();
+            let data: Resp = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
+            if !status.is_success() {
+                return Err(data.error.unwrap_or_else(|| format!("Worker returned {status}")));
+            }
+            let job_id = data.job_id.ok_or("No job_id in response")?;
+            Ok(format!("Crawl started. job_id: {job_id}\n\nUse crawl_status with this job_id to poll for results."))
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "crawl_status", description = "Poll a crawl job's status and retrieve completed pages as Markdown. Returns status, progress, pages, and a cursor for pagination.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn crawl_status(
+        &self,
+        Parameters(params): Parameters<CrawlStatusParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let mut status_url = format!(
+                "{}/crawl/{}?limit=100&status=completed",
+                worker_url.trim_end_matches('/'),
+                params.job_id,
+            );
+            if let Some(ref c) = params.cursor {
+                status_url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
+            }
+
+            let response = self
+                .http
+                .get(&status_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                return Err(format!("Worker returned {status}: {body}"));
+            }
+
+            #[derive(Deserialize)]
+            struct Record {
+                url: Option<String>,
+                markdown: Option<String>,
+            }
+            #[derive(Deserialize)]
+            struct ResultInner {
+                status: Option<String>,
+                total: Option<u32>,
+                finished: Option<u32>,
+                cursor: Option<String>,
+                records: Option<Vec<Record>>,
+            }
+            #[derive(Deserialize)]
+            struct Resp {
+                result: Option<ResultInner>,
+                error: Option<String>,
+            }
+            let data: Resp = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
+            if let Some(err) = data.error {
+                return Err(err);
+            }
+            let inner = data.result.ok_or("No result in response")?;
+
+            let crawl_status = inner.status.as_deref().unwrap_or("unknown");
+            let total = inner.total.unwrap_or(0);
+            let finished = inner.finished.unwrap_or(0);
+
+            let mut output = format!("Status: {crawl_status} | Progress: {finished}/{total}");
+            if let Some(ref cursor) = inner.cursor {
+                output.push_str(&format!("\nNext cursor: {cursor}"));
+            }
+
+            let records = inner.records.unwrap_or_default();
+            if !records.is_empty() {
+                output.push_str(&format!("\n\n--- {} pages ---", records.len()));
+                for r in &records {
+                    if let Some(ref url) = r.url {
+                        let md = r.markdown.as_deref().unwrap_or("");
+                        let preview_len = md.len().min(200);
+                        output.push_str(&format!("\n\n## {url}\n{}", &md[..preview_len]));
+                        if md.len() > 200 {
+                            output.push_str("...");
+                        }
+                    }
+                }
+            }
+
+            Ok(output)
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Diagnostics ---
+
+    #[tool(name = "check_worker", description = "Test the Worker URL connectivity and report available capabilities (convert, render, crawl)", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn check_worker(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let health_url = format!("{}/health", worker_url.trim_end_matches('/'));
+
+            let response = self
+                .http
+                .get(&health_url)
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await
+                .map_err(|e| format!("Worker unreachable: {e}"))?;
+
+            if !response.status().is_success() {
+                return Err(format!("Worker returned {}", response.status()));
+            }
+
+            #[derive(Deserialize)]
+            struct Caps {
+                fetch: Option<bool>,
+                convert: Option<bool>,
+                render: Option<bool>,
+                crawl: Option<bool>,
+            }
+            #[derive(Deserialize)]
+            struct Resp {
+                capabilities: Option<Caps>,
+            }
+            let data: Resp = response.json().await.map_err(|e| format!("Unexpected response: {e}"))?;
+            let caps = data.capabilities.unwrap_or(Caps {
+                fetch: None,
+                convert: None,
+                render: None,
+                crawl: None,
+            });
+
+            let fmt = |name: &str, v: Option<bool>| {
+                let icon = if v.unwrap_or(false) { "OK" } else { "N/A" };
+                format!("  {name}: {icon}")
+            };
+
+            Ok(format!(
+                "Worker: {worker_url}\nStatus: reachable\nCapabilities:\n{}\n{}\n{}\n{}",
+                fmt("fetch", caps.fetch),
+                fmt("convert", caps.convert),
+                fmt("render", caps.render),
+                fmt("crawl", caps.crawl),
+            ))
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }
