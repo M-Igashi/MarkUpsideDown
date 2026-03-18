@@ -45,19 +45,25 @@ MCP Server (mcp-server-rs/)
 |-------|------|----------|
 | Desktop shell | Tauri v2 (WebKit on macOS) | `src-tauri/` |
 | Editor | CodeMirror 6 (Markdown) | `ui/src/main.ts` |
-| Preview | marked.js + KaTeX + Mermaid + highlight.js + DOMPurify | `ui/src/main.ts` |
-| Scroll sync | Anchor-based bidirectional sync with cooldown | `ui/src/main.ts` |
+| Preview | marked.js + KaTeX + Mermaid + highlight.js + idiomorph DOM-diffing | `ui/src/preview-render.ts` |
+| Scroll sync | Viewport-based bidirectional sync with cooldown | `ui/src/scroll-sync.ts` |
 | Settings | Worker setup (auto + manual), feature status, MCP config | `ui/src/settings.ts` |
-| Sidebar | File tree browser with context menu, git status badges | `ui/src/sidebar.ts` |
-| Tabs | Multi-tab editing with state persistence | `ui/src/tabs.ts` |
-| Git panel | Status, stage/unstage, commit, push/pull/fetch | `ui/src/git-panel.ts` |
+| Sidebar | File tree browser with context menu, search, drag & drop | `ui/src/sidebar.ts` |
+| Tabs | Multi-tab editing with state persistence, drag reorder | `ui/src/tabs.ts` |
+| Git panel | Status, stage/unstage, commit, push/pull with ahead/behind, fetch | `ui/src/git-panel.ts` |
 | GitHub panel | Issue/PR body fetcher via `gh` CLI | `ui/src/github-panel.ts` |
+| Slack panel | Slack channel/thread import as Markdown | `ui/src/slack-panel.ts` |
 | Table editor | Spreadsheet grid with undo/redo, paste TSV/CSV | `ui/src/table-editor.ts` |
 | Formatting | Markdown shortcuts (bold, italic, link, strikethrough, code) | `ui/src/markdown-commands.ts` |
 | Crawl | Website crawl UI (options dialog, polling, file saving) | `ui/src/crawl.ts` |
+| File operations | Create, rename, delete, import, auto-save | `ui/src/file-ops.ts` |
+| File watcher | External file change detection and auto-reload | `ui/src/file-watcher.ts` |
+| Clipboard | Rich text / Markdown copy | `ui/src/clipboard.ts` |
+| MCP sync | Editor state sync for MCP bridge | `ui/src/mcp-sync.ts` |
 | Theme | CodeMirror editor theme (warm paper palette) | `ui/src/theme.ts` |
 | Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands.rs` |
 | Auto-setup | Wrangler CLI (login, deploy, secrets) | `src-tauri/src/cloudflare.rs` |
+| Slack backend | Slack API (channels, threads → Markdown) | `src-tauri/src/slack.rs` |
 | MCP bridge | Rust (axum HTTP server) | `src-tauri/src/bridge.rs` |
 
 ### Cloudflare Worker (`worker/`)
@@ -148,6 +154,15 @@ See [mcp-server.md](mcp-server.md) for the full tool list.
 | `github_fetch_pr` | Fetch GitHub PR body via `gh` CLI | `commands.rs` |
 | `github_list_repos` | List GitHub repos via `gh` CLI | `commands.rs` |
 
+### Slack
+
+| Command | Description | Module |
+|---------|-------------|--------|
+| `test_slack_token` | Test Slack API token validity | `commands.rs` |
+| `fetch_slack_channel` | Fetch Slack channel messages as Markdown | `slack.rs` |
+| `fetch_slack_thread` | Fetch Slack thread messages as Markdown | `slack.rs` |
+| `parse_slack_input` | Parse Slack URL or channel ID | `slack.rs` |
+
 ### Cloudflare / Wrangler
 
 | Command | Description | Module |
@@ -175,14 +190,22 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 
 ## Scroll Sync
 
-The editor and preview panes are bidirectionally scroll-synced using an anchor-based approach:
+The editor and preview panes are bidirectionally scroll-synced using viewport-based live measurement:
 
 1. **Source line annotation** — `marked.lexer()` tokens are mapped to source line numbers with an O(n) incremental counter, then attached as `data-source-line` attributes on preview elements
-2. **Anchor building** — After each render, editor Y positions (via `lineBlockAt`) and preview Y positions (via `getBoundingClientRect`) are paired into anchor points. Code blocks get sub-line anchors for precise per-line sync.
-3. **Interpolation** — Binary search finds the surrounding anchors, then linear interpolation maps scroll positions between panes
-4. **Cooldown** — An 80ms timestamp-based cooldown prevents scroll event feedback loops
-5. **Cursor sync** — Cursor movement scrolls the preview to the corresponding element, with a 150ms cooldown after preview clicks to prevent conflicts
-6. **Click-to-jump** — Clicking a preview element jumps the editor cursor to the corresponding source line (with sub-line precision in code blocks)
+2. **Viewport-based mapping** — Instead of pre-computing all anchors, positions are computed on-the-fly using only viewport-local data:
+   - `syncToPreview()` — `posAtCoords()` finds top visible line → live `getBoundingClientRect()` on nearest `data-source-line` elements
+   - `syncToEditor()` — Finds preview element at viewport top → determines source line → `lineBlockAt()` (accurate near viewport)
+3. **Cooldown** — Timestamp-based cooldown prevents scroll event feedback loops
+4. **Cursor sync** — Cursor movement scrolls the preview to the corresponding element
+5. **Click-to-jump** — Clicking a preview element jumps the editor cursor to the corresponding source line
+
+### Preview Rendering
+
+Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-free updates. Key considerations:
+- `overflow-anchor: none` on `#preview-pane` to prevent browser scroll anchoring conflicts
+- Programmatic scroll markers before/after morph to suppress unwanted scroll events
+- Preserved elements (mermaid/katex) retain `data-source-line` attributes across morphs
 
 ## Data Flow Summary
 
@@ -198,7 +221,9 @@ The editor and preview panes are bidirectionally scroll-synced using an anchor-b
 | Git operations | `git` CLI subprocess (via `spawn_blocking`) |
 | GitHub | `gh` CLI subprocess |
 | MCP agent access | MCP Server → HTTP → axum bridge → Tauri events → Frontend |
+| Slack import | reqwest → Slack API → parse/format → Markdown |
 | Auto-setup | Rust → wrangler CLI → Cloudflare API |
+| File watcher | Tauri FS plugin → watch events → prompt reload |
 | Settings (Worker URL) | Browser localStorage |
 | Tab state | Browser localStorage (debounced writes) |
 | Bridge port discovery | `~/.markupsidedown-bridge-port` file |
