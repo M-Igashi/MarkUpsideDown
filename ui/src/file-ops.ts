@@ -20,6 +20,8 @@ export interface ConvertResult {
   warning?: string;
 }
 
+const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"];
+
 export const IMPORT_EXTENSIONS = [
   "pdf",
   "docx",
@@ -29,14 +31,7 @@ export const IMPORT_EXTENSIONS = [
   "htm",
   "csv",
   "xml",
-  "jpg",
-  "jpeg",
-  "png",
-  "gif",
-  "webp",
-  "bmp",
-  "tiff",
-  "tif",
+  ...IMAGE_EXTENSIONS,
 ];
 
 function formatBytes(bytes: number) {
@@ -192,7 +187,7 @@ export async function convertFile(filePath: string) {
   if (!workerUrl) return;
 
   const ext = filePath.split(".").pop()?.toLowerCase() || "";
-  const isImage = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"].includes(ext);
+  const isImage = IMAGE_EXTENSIONS.includes(ext);
 
   if (isImage) {
     if (!isImageConversionAllowed()) {

@@ -1,7 +1,30 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
+
+// --- Pre-compiled regexes (avoid recompiling on every call) ---
+
+static RE_USER_MENTION: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"<@([A-Z0-9]+)>").unwrap());
+static RE_CHANNEL_MENTION: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"<#[A-Z0-9]+\|([^>]+)>").unwrap());
+static RE_LINK_LABEL: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"<(https?://[^|>]+)\|([^>]+)>").unwrap());
+static RE_LINK_PLAIN: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"<(https?://[^>]+)>").unwrap());
+static RE_BOLD: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"(?<!\*)\*([^\*\n]+)\*(?!\*)").unwrap());
+static RE_ITALIC: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"(?<![_\w])_([^_\n]+)_(?![_\w])").unwrap());
+static RE_STRIKE: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"(?<!~)~([^~\n]+)~(?!~)").unwrap());
+static RE_ARCHIVE_URL: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"slack\.com/archives/([A-Z0-9]+)(?:/p(\d+))?").unwrap());
+static RE_APP_URL: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"slack\.com/client/[A-Z0-9]+/([A-Z0-9]+)(?:/thread/[A-Z0-9]+-(\d+\.\d+))?").unwrap());
+static RE_CHANNEL_ID: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"^[CGD][A-Z0-9]{8,}$").unwrap());
 
 // --- User cache (session-scoped) ---
 
@@ -126,12 +149,7 @@ fn parse_slack_url(input: &str) -> Option<SlackRef> {
     let input = input.trim();
 
     // Full archive URL: https://WORKSPACE.slack.com/archives/C12345/p1234567890123456
-    if let Some(caps) = regex_lite::Regex::new(
-        r"slack\.com/archives/([A-Z0-9]+)(?:/p(\d+))?",
-    )
-    .ok()
-    .and_then(|re| re.captures(input))
-    {
+    if let Some(caps) = RE_ARCHIVE_URL.captures(input) {
         let channel_id = caps.get(1)?.as_str().to_string();
         let thread_ts = caps.get(2).map(|m| {
             let digits = m.as_str();
@@ -149,12 +167,7 @@ fn parse_slack_url(input: &str) -> Option<SlackRef> {
     }
 
     // app.slack.com URL with thread: .../thread/C12345-1234567890.123456
-    if let Some(caps) = regex_lite::Regex::new(
-        r"slack\.com/client/[A-Z0-9]+/([A-Z0-9]+)(?:/thread/[A-Z0-9]+-(\d+\.\d+))?",
-    )
-    .ok()
-    .and_then(|re| re.captures(input))
-    {
+    if let Some(caps) = RE_APP_URL.captures(input) {
         let channel_id = caps.get(1)?.as_str().to_string();
         let thread_ts = caps.get(2).map(|m| m.as_str().to_string());
         return Some(SlackRef {
@@ -164,10 +177,7 @@ fn parse_slack_url(input: &str) -> Option<SlackRef> {
     }
 
     // Raw channel ID (C/G/D followed by alphanumeric)
-    if regex_lite::Regex::new(r"^[CGD][A-Z0-9]{8,}$")
-        .ok()?
-        .is_match(input)
-    {
+    if RE_CHANNEL_ID.is_match(input) {
         return Some(SlackRef {
             channel_id: input.to_string(),
             thread_ts: None,
@@ -183,8 +193,7 @@ fn slack_mrkdwn_to_markdown(text: &str, user_names: &HashMap<String, String>) ->
     let mut result = text.to_string();
 
     // User mentions: <@U12345> → @display_name
-    let user_re = regex_lite::Regex::new(r"<@([A-Z0-9]+)>").unwrap();
-    result = user_re
+    result = RE_USER_MENTION
         .replace_all(&result, |caps: &regex_lite::Captures| {
             let uid = &caps[1];
             match user_names.get(uid) {
@@ -195,16 +204,13 @@ fn slack_mrkdwn_to_markdown(text: &str, user_names: &HashMap<String, String>) ->
         .to_string();
 
     // Channel mentions: <#C12345|general> → #general
-    let chan_re = regex_lite::Regex::new(r"<#[A-Z0-9]+\|([^>]+)>").unwrap();
-    result = chan_re.replace_all(&result, "#$1").to_string();
+    result = RE_CHANNEL_MENTION.replace_all(&result, "#$1").to_string();
 
     // Links with label: <URL|label> → [label](URL)
-    let link_label_re = regex_lite::Regex::new(r"<(https?://[^|>]+)\|([^>]+)>").unwrap();
-    result = link_label_re.replace_all(&result, "[$2]($1)").to_string();
+    result = RE_LINK_LABEL.replace_all(&result, "[$2]($1)").to_string();
 
     // Plain links: <URL> → URL
-    let link_re = regex_lite::Regex::new(r"<(https?://[^>]+)>").unwrap();
-    result = link_re.replace_all(&result, "$1").to_string();
+    result = RE_LINK_PLAIN.replace_all(&result, "$1").to_string();
 
     // Special mentions
     result = result.replace("<!here>", "@here");
@@ -215,17 +221,13 @@ fn slack_mrkdwn_to_markdown(text: &str, user_names: &HashMap<String, String>) ->
     result = result.replace("<!everyone|everyone>", "@everyone");
 
     // Bold: *text* → **text** (but not inside code spans/blocks)
-    // Simple approach: replace *word(s)* patterns
-    let bold_re = regex_lite::Regex::new(r"(?<!\*)\*([^\*\n]+)\*(?!\*)").unwrap();
-    result = bold_re.replace_all(&result, "**$1**").to_string();
+    result = RE_BOLD.replace_all(&result, "**$1**").to_string();
 
     // Italic: _text_ → *text*
-    let italic_re = regex_lite::Regex::new(r"(?<![_\w])_([^_\n]+)_(?![_\w])").unwrap();
-    result = italic_re.replace_all(&result, "*$1*").to_string();
+    result = RE_ITALIC.replace_all(&result, "*$1*").to_string();
 
     // Strikethrough: ~text~ → ~~text~~
-    let strike_re = regex_lite::Regex::new(r"(?<!~)~([^~\n]+)~(?!~)").unwrap();
-    result = strike_re.replace_all(&result, "~~$1~~").to_string();
+    result = RE_STRIKE.replace_all(&result, "~~$1~~").to_string();
 
     result
 }
@@ -287,12 +289,11 @@ async fn resolve_users_in_messages(
     client: &reqwest::Client,
     cache: &SlackUserCache,
 ) -> HashMap<String, String> {
-    let user_re = regex_lite::Regex::new(r"<@([A-Z0-9]+)>").unwrap();
     let mut user_ids = std::collections::HashSet::new();
 
     for msg in messages {
         if let Some(text) = &msg.text {
-            for caps in user_re.captures_iter(text) {
+            for caps in RE_USER_MENTION.captures_iter(text) {
                 user_ids.insert(caps[1].to_string());
             }
         }
@@ -301,12 +302,16 @@ async fn resolve_users_in_messages(
         }
     }
 
-    let mut names = HashMap::new();
-    for uid in user_ids {
-        let name = resolve_user(&uid, token, client, cache).await;
-        names.insert(uid, name);
-    }
-    names
+    // Resolve all users concurrently instead of sequentially
+    let futures: Vec<_> = user_ids
+        .into_iter()
+        .map(|uid| async move {
+            let name = resolve_user(&uid, token, client, cache).await;
+            (uid, name)
+        })
+        .collect();
+    let results = futures::future::join_all(futures).await;
+    results.into_iter().collect()
 }
 
 // --- Format timestamp ---
