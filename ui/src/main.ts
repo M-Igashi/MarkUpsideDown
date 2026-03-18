@@ -16,6 +16,7 @@ import { showSettings, checkFirstRun } from "./settings.ts";
 import {
   initSidebar,
   setSelectedPath,
+  revealPath,
   getRootPath,
   setGitStatus,
   getGitPanelEl,
@@ -171,7 +172,11 @@ function loadContent(content: string, filePath?: string | null) {
   });
   if (filePath !== undefined) {
     currentFilePath = filePath ?? null;
-    setSelectedPath(filePath ?? null);
+    if (filePath) {
+      revealPath(filePath);
+    } else {
+      setSelectedPath(null);
+    }
   }
   renderPreview(content);
   if (previewTimeout) {

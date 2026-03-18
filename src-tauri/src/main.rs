@@ -51,6 +51,7 @@ fn main() {
             commands::copy_entry,
             commands::duplicate_entry,
             commands::reveal_in_finder,
+            commands::open_in_terminal,
             commands::git_status,
             commands::git_stage_all,
             commands::git_stage,

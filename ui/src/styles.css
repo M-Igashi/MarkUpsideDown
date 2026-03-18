@@ -499,6 +499,17 @@ body {
   color: var(--text);
   white-space: nowrap;
   user-select: none;
+  position: relative;
+}
+
+.sidebar-indent-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .sidebar-tree-item:hover {

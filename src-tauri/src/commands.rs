@@ -987,6 +987,53 @@ pub async fn reveal_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn open_in_terminal(path: String) -> Result<(), String> {
+    let dir = if std::path::Path::new(&path).is_dir() {
+        path
+    } else {
+        std::path::Path::new(&path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or(path)
+    };
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-a")
+            .arg("Terminal")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open Terminal: {e}"))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "cmd", "/k", &format!("cd /d {dir}")])
+            .spawn()
+            .map_err(|e| format!("Failed to open terminal: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let terminals = ["x-terminal-emulator", "gnome-terminal", "xterm"];
+        let mut opened = false;
+        for term in &terminals {
+            if std::process::Command::new(term)
+                .current_dir(&dir)
+                .spawn()
+                .is_ok()
+            {
+                opened = true;
+                break;
+            }
+        }
+        if !opened {
+            return Err("No terminal emulator found".to_string());
+        }
+    }
+    Ok(())
+}
+
 // --- MCP Sidecar ---
 
 #[tauri::command]

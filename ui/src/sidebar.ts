@@ -223,6 +223,14 @@ function render() {
   treeEl = document.createElement("div");
   treeEl.className = "sidebar-tree";
   treeEl.addEventListener("keydown", handleTreeKeydown);
+  treeEl.addEventListener("contextmenu", (e) => {
+    // Only handle clicks on the tree background, not on items
+    const target = e.target as HTMLElement;
+    if (target.closest(".sidebar-tree-item")) return;
+    if (!rootPath) return;
+    e.preventDefault();
+    showEmptyAreaContextMenu(e);
+  });
 
   if (!rootPath) {
     const empty = document.createElement("div");
@@ -476,6 +484,14 @@ function createTreeItem(entry: DirEntry, depth: number) {
   }
   item.style.paddingLeft = `${8 + depth * 16}px`;
 
+  // Indent guides
+  for (let i = 1; i <= depth; i++) {
+    const guide = document.createElement("span");
+    guide.className = "sidebar-indent-guide";
+    guide.style.left = `${8 + (i - 1) * 16 + 4}px`;
+    item.appendChild(guide);
+  }
+
   // Expand/collapse indicator for directories
   const indicator = document.createElement("span");
   indicator.className = "sidebar-tree-indicator";
@@ -673,6 +689,66 @@ function removeContextMenu() {
   }
 }
 
+function showEmptyAreaContextMenu(event: MouseEvent) {
+  if (!rootPath) return;
+  removeContextMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "sidebar-context-menu";
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
+
+  const items: ({ label: string; action: () => void } | null)[] = [
+    { label: "New File…", action: () => promptNewFile(rootPath!) },
+    { label: "New Folder…", action: () => promptNewFolder(rootPath!) },
+  ];
+
+  if (clipboardPath && clipboardMode) {
+    items.push(null); // separator
+    items.push({ label: "Paste", action: () => pasteEntry() });
+  }
+
+  for (const item of items) {
+    if (!item) {
+      const sep = document.createElement("div");
+      sep.className = "sidebar-context-separator";
+      menu.appendChild(sep);
+      continue;
+    }
+    const btn = document.createElement("button");
+    btn.className = "sidebar-context-item";
+    btn.textContent = item.label;
+    btn.addEventListener("click", () => {
+      removeContextMenu();
+      item.action();
+    });
+    menu.appendChild(btn);
+  }
+
+  document.body.appendChild(menu);
+  activeContextMenu = menu;
+
+  // Adjust position if overflowing
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    menu.style.left = `${window.innerWidth - rect.width - 4}px`;
+  }
+  if (rect.bottom > window.innerHeight) {
+    menu.style.top = `${window.innerHeight - rect.height - 4}px`;
+  }
+
+  contextMenuCloseHandler = (e: Event) => {
+    if (!menu.contains(e.target as Node)) {
+      removeContextMenu();
+    }
+  };
+  setTimeout(() => {
+    if (contextMenuCloseHandler) {
+      document.addEventListener("click", contextMenuCloseHandler, true);
+    }
+  }, 0);
+}
+
 function showContextMenu(event: MouseEvent, entry: DirEntry) {
   removeContextMenu();
 
@@ -695,6 +771,7 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
   items.push(null);
 
   items.push({ label: "Reveal in Finder", action: () => revealInFinder(entry.path) });
+  items.push({ label: "Open in Terminal", action: () => openInTerminal(entry.path) });
   items.push(null);
 
   items.push({ label: "Copy Path", action: () => copyToClipboard(entry.path) });
@@ -798,6 +875,14 @@ async function revealInFinder(path: string) {
     await invoke("reveal_in_finder", { path });
   } catch (e) {
     message(`Failed to reveal in Finder: ${e}`, { kind: "error" });
+  }
+}
+
+async function openInTerminal(path: string) {
+  try {
+    await invoke("open_in_terminal", { path });
+  } catch (e) {
+    message(`Failed to open terminal: ${e}`, { kind: "error" });
   }
 }
 
@@ -1144,6 +1229,36 @@ export function setSelectedPath(path: string | null) {
     const target = treeEl.querySelector(`.sidebar-tree-item[data-path="${CSS.escape(path)}"]`);
     if (target) {
       target.classList.add("selected");
+    }
+  }
+}
+
+export async function revealPath(filePath: string) {
+  if (!rootPath || !filePath.startsWith(rootPath)) return;
+  if (activePanel !== "files") return;
+
+  // Expand all parent directories
+  let dir = filePath.substring(0, filePath.lastIndexOf("/"));
+  let changed = false;
+  while (dir.length >= rootPath.length) {
+    if (!expandedDirs.has(dir)) {
+      expandedDirs.add(dir);
+      changed = true;
+    }
+    if (dir === rootPath) break;
+    dir = dir.substring(0, dir.lastIndexOf("/"));
+  }
+
+  if (changed) {
+    saveState();
+    await refreshTree();
+  }
+
+  setSelectedPath(filePath);
+  if (treeEl) {
+    const target = treeEl.querySelector(`.sidebar-tree-item[data-path="${CSS.escape(filePath)}"]`);
+    if (target) {
+      target.scrollIntoView({ block: "nearest" });
     }
   }
 }
