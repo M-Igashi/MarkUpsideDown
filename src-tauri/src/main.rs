@@ -47,6 +47,7 @@ fn main() {
             commands::create_file,
             commands::create_directory,
             commands::rename_entry,
+            commands::write_file_bytes,
             commands::delete_entry,
             commands::copy_entry,
             commands::duplicate_entry,

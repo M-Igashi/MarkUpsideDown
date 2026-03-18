@@ -636,6 +636,12 @@ body {
   outline-offset: -1px;
 }
 
+.sidebar-tree.drop-target-root {
+  background: rgba(74, 122, 181, 0.08);
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
+}
+
 /* Context Menu */
 .sidebar-context-menu {
   position: fixed;

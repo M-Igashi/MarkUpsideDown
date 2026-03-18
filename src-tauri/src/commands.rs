@@ -863,6 +863,22 @@ pub async fn rename_entry(from: String, to: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn write_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
+    let dest = std::path::Path::new(&path);
+    if dest.exists() {
+        return Err(format!(
+            "'{}' already exists",
+            dest.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default()
+        ));
+    }
+    tokio::fs::write(&path, &data)
+        .await
+        .map_err(|e| format!("Failed to write file: {e}"))
+}
+
+#[tauri::command]
 pub async fn delete_entry(path: String, is_dir: bool) -> Result<(), String> {
     let _ = is_dir; // trash::delete handles both files and directories
     let path_clone = path.clone();

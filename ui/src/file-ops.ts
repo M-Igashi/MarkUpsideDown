@@ -242,6 +242,8 @@ export async function importFile() {
 
 export function initDragDrop(appEl: HTMLElement) {
   appEl.addEventListener("dragover", (e) => {
+    // Only show drop overlay for external file drops, not internal drags
+    if (!e.dataTransfer?.types.includes("Files")) return;
     e.preventDefault();
     appEl.classList.add("drop-active");
   });
@@ -256,11 +258,50 @@ export function initDragDrop(appEl: HTMLElement) {
     e.preventDefault();
     appEl.classList.remove("drop-active");
 
-    const paths = e.dataTransfer?.files;
-    if (!paths || paths.length === 0) return;
+    // Ignore internal drags (sidebar/tab reorder)
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
 
-    statusEl.textContent =
-      "Drop detected — use the Import button to select files (Tauri security restriction)";
+    // If dropped on sidebar, let sidebar handle it
+    const sidebar = (e.target as HTMLElement).closest(".sidebar");
+    if (sidebar) return;
+
+    // Handle external file drop on editor area
+    const file = files[0];
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const MD_EXTENSIONS = ["md", "markdown", "mdx"];
+
+    const root = getRootPath();
+    if (root) {
+      // Save to project root, then open/convert
+      const targetPath = `${root}/${file.name}`;
+      try {
+        const buffer = await file.arrayBuffer();
+        const data = Array.from(new Uint8Array(buffer));
+        await invoke("write_file_bytes", { path: targetPath, data });
+        if (MD_EXTENSIONS.includes(ext)) {
+          const content = await invoke<string>("read_text_file", { path: targetPath });
+          loadContentAsTab(content, targetPath);
+        } else if (IMPORT_EXTENSIONS.includes(ext)) {
+          await convertFile(targetPath);
+        } else {
+          statusEl.textContent = `Copied: ${file.name}`;
+        }
+      } catch (e) {
+        statusEl.textContent = `Drop failed: ${e}`;
+      }
+    } else {
+      // No project open — read content directly for markdown, or convert via temp approach
+      if (MD_EXTENSIONS.includes(ext)) {
+        const text = await file.text();
+        loadContentAsTab(text);
+      } else if (IMPORT_EXTENSIONS.includes(ext)) {
+        statusEl.textContent = "Open a folder first to import files via drag & drop";
+      } else {
+        statusEl.textContent = `Unsupported file type: .${ext}`;
+      }
+    }
   });
 
   if (window.__TAURI__?.event) {

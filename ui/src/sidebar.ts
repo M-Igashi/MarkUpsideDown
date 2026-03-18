@@ -1,4 +1,5 @@
 import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
+import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog, confirm, message } = window.__TAURI__.dialog;
@@ -305,6 +306,31 @@ function render() {
     if (!rootPath) return;
     e.preventDefault();
     showEmptyAreaContextMenu(e);
+  });
+
+  // External file drop on tree background (drops into root)
+  treeEl.addEventListener("dragover", (e) => {
+    if (!rootPath || !e.dataTransfer?.types.includes("Files")) return;
+    // Don't highlight tree root when hovering over a folder item
+    if ((e.target as HTMLElement).closest(".sidebar-tree-item")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    treeEl!.classList.add("drop-target-root");
+  });
+  treeEl.addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget || !treeEl!.contains(e.relatedTarget as Node)) {
+      treeEl!.classList.remove("drop-target-root");
+    }
+  });
+  treeEl.addEventListener("drop", (e) => {
+    treeEl!.classList.remove("drop-target-root");
+    if (!rootPath || !e.dataTransfer?.types.includes("Files")) return;
+    // Don't handle here if a folder item already handled it
+    if ((e.target as HTMLElement).closest(".sidebar-tree-item[data-is-dir='true']")) return;
+    e.preventDefault();
+    if (e.dataTransfer.files.length > 0) {
+      handleExternalFileDrop(e.dataTransfer.files, rootPath);
+    }
   });
 
   if (!rootPath) {
@@ -632,20 +658,26 @@ function createTreeItem(entry: DirEntry, depth: number) {
   if (entry.is_dir) {
     // WebKit requires preventDefault() on both dragenter and dragover for drop to work
     item.addEventListener("dragenter", (e) => {
-      if (!dragSourcePath || dragSourcePath === entry.path) return;
-      if (dragSourcePath && entry.path.startsWith(dragSourcePath + "/")) return;
+      const isExternal = e.dataTransfer?.types.includes("Files");
+      if (!isExternal) {
+        if (!dragSourcePath || dragSourcePath === entry.path) return;
+        if (dragSourcePath && entry.path.startsWith(dragSourcePath + "/")) return;
+      }
       e.preventDefault();
       e.stopPropagation();
-      e.dataTransfer!.dropEffect = "move";
+      e.dataTransfer!.dropEffect = isExternal ? "copy" : "move";
       clearTreeDropTarget();
       item.classList.add("drop-target");
     });
     item.addEventListener("dragover", (e) => {
-      if (!dragSourcePath || dragSourcePath === entry.path) return;
-      if (dragSourcePath && entry.path.startsWith(dragSourcePath + "/")) return;
+      const isExternal = e.dataTransfer?.types.includes("Files");
+      if (!isExternal) {
+        if (!dragSourcePath || dragSourcePath === entry.path) return;
+        if (dragSourcePath && entry.path.startsWith(dragSourcePath + "/")) return;
+      }
       e.preventDefault();
       e.stopPropagation();
-      e.dataTransfer!.dropEffect = "move";
+      e.dataTransfer!.dropEffect = isExternal ? "copy" : "move";
     });
     item.addEventListener("dragleave", (e) => {
       // Only remove highlight when leaving the item itself, not its children
@@ -656,6 +688,10 @@ function createTreeItem(entry: DirEntry, depth: number) {
       e.preventDefault();
       e.stopPropagation();
       item.classList.remove("drop-target");
+      if (e.dataTransfer?.types.includes("Files") && e.dataTransfer.files.length > 0) {
+        handleExternalFileDrop(e.dataTransfer.files, entry.path);
+        return;
+      }
       if (!dragSourcePath || dragSourcePath === entry.path) return;
       moveEntry(dragSourcePath, entry.path);
       dragSourcePath = null;
@@ -765,6 +801,41 @@ async function moveEntry(sourcePath: string, targetDirPath: string) {
   } catch (e) {
     const { message: showMessage } = window.__TAURI__.dialog;
     showMessage(`Failed to move: ${e}`, { kind: "error" });
+  }
+}
+
+async function handleExternalFileDrop(files: FileList, targetDir: string) {
+  const MD_EXTENSIONS = ["md", "markdown", "mdx"];
+  let copiedCount = 0;
+
+  for (const file of files) {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const targetPath = `${targetDir}/${file.name}`;
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const data = Array.from(new Uint8Array(buffer));
+      await invoke("write_file_bytes", { path: targetPath, data });
+      copiedCount++;
+
+      // Open markdown files in editor after copy
+      if (MD_EXTENSIONS.includes(ext)) {
+        const content = await invoke<string>("read_text_file", { path: targetPath });
+        onFileOpen?.(content, targetPath);
+      } else if (IMPORT_EXTENSIONS.includes(ext)) {
+        await convertFile(targetPath);
+      }
+    } catch (e) {
+      await message(`Failed to copy "${file.name}": ${e}`, { kind: "error" });
+    }
+  }
+
+  if (copiedCount > 0) {
+    if (!expandedDirs.has(targetDir)) {
+      expandedDirs.add(targetDir);
+    }
+    saveState();
+    await refreshTree();
   }
 }
 
