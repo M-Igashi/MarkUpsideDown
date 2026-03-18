@@ -58,7 +58,8 @@ interface GitStatus {
 
 let rootPath: string | null = null;
 let expandedDirs = new Set<string>();
-let selectedPath: string | null = null;
+let selectedPaths = new Set<string>();
+let anchorPath: string | null = null;
 let onFileOpen: ((content: string, filePath: string) => void) | null = null;
 let onFolderChange: ((rootPath: string) => void) | null = null;
 let onSidebarFold: (() => void) | null = null;
@@ -66,11 +67,62 @@ let gitStatusMap: Map<string, GitStatus> = new Map();
 let refreshGeneration = 0; // guards against concurrent refreshTree() races
 let filterQuery = "";
 let filterScope: string | null = null; // null = global, path = scoped to folder
-let dragSourcePath: string | null = null;
-let clipboardPath: string | null = null;
+let dragSourcePaths = new Set<string>();
+let clipboardPaths = new Set<string>();
 let clipboardMode: "cut" | "copy" | null = null;
 let dirWatcherUnwatch: UnwatchFn | null = null;
 let dirWatchDebounce: ReturnType<typeof setTimeout> | null = null;
+
+// --- Selection helpers ---
+
+function primarySelectedPath(): string | null {
+  if (selectedPaths.size === 0) return null;
+  if (anchorPath && selectedPaths.has(anchorPath)) return anchorPath;
+  return [...selectedPaths][selectedPaths.size - 1];
+}
+
+function selectSingle(path: string) {
+  selectedPaths.clear();
+  selectedPaths.add(path);
+  anchorPath = path;
+  updateSelectionDOM();
+}
+
+function toggleSelect(path: string) {
+  if (selectedPaths.has(path)) {
+    selectedPaths.delete(path);
+  } else {
+    selectedPaths.add(path);
+  }
+  anchorPath = path;
+  updateSelectionDOM();
+}
+
+function selectRange(toPath: string) {
+  const items = getVisibleItems();
+  const anchorIdx = items.findIndex((el) => el.dataset.path === anchorPath);
+  const toIdx = items.findIndex((el) => el.dataset.path === toPath);
+  if (anchorIdx < 0 || toIdx < 0) {
+    selectSingle(toPath);
+    return;
+  }
+  const start = Math.min(anchorIdx, toIdx);
+  const end = Math.max(anchorIdx, toIdx);
+  selectedPaths.clear();
+  for (let i = start; i <= end; i++) {
+    const p = items[i].dataset.path;
+    if (p) selectedPaths.add(p);
+  }
+  // anchorPath stays unchanged for range extension
+  updateSelectionDOM();
+}
+
+function updateSelectionDOM() {
+  if (!treeEl) return;
+  for (const el of treeEl.querySelectorAll(".sidebar-tree-item") as NodeListOf<HTMLElement>) {
+    el.classList.toggle("selected", selectedPaths.has(el.dataset.path ?? ""));
+  }
+}
 
 type SortBy = "name" | "date" | "type";
 const SORT_STORAGE_KEY = "markupsidedown:sidebar-sort";
@@ -317,7 +369,7 @@ function render() {
   treeEl.addEventListener("dragover", (e) => {
     if (!rootPath) return;
     const isExternal = e.dataTransfer?.types.includes("Files");
-    const isInternal = !!dragSourcePath;
+    const isInternal = dragSourcePaths.size > 0;
     if (!isExternal && !isInternal) return;
     // Don't highlight tree root when hovering over a folder/file item
     if ((e.target as HTMLElement).closest(".sidebar-tree-item")) return;
@@ -342,9 +394,9 @@ function render() {
       return;
     }
     // Internal file/folder move to root
-    if (dragSourcePath) {
-      moveEntry(dragSourcePath, rootPath);
-      dragSourcePath = null;
+    if (dragSourcePaths.size > 0) {
+      moveEntries(dragSourcePaths, rootPath);
+      dragSourcePaths.clear();
     }
   });
 
@@ -593,10 +645,38 @@ async function renderDirectory(
     seen.add(entry.path);
 
     if (entry.is_dir) {
-      const item = createTreeItem(entry, depth);
+      // Auto-fold: detect chain of single-child directories
+      let foldedEntry = entry;
+      let displayName = entry.name;
+
+      if (!isFiltering) {
+        let folding = true;
+        while (folding) {
+          const subEntries = await invoke<DirEntry[]>("list_directory", {
+            path: foldedEntry.path,
+            repoRoot: rootPath,
+          });
+          if (gen !== refreshGeneration) return false;
+          const subDirs = subEntries.filter((e) => e.is_dir);
+          const subFiles = subEntries.filter((e) => !e.is_dir);
+          if (subDirs.length === 1 && subFiles.length === 0) {
+            // Migrate expanded state from intermediate path to final path
+            if (expandedDirs.has(foldedEntry.path) && !expandedDirs.has(subDirs[0].path)) {
+              expandedDirs.add(subDirs[0].path);
+              expandedDirs.delete(foldedEntry.path);
+            }
+            displayName += "/" + subDirs[0].name;
+            foldedEntry = subDirs[0];
+          } else {
+            folding = false;
+          }
+        }
+      }
+
+      const item = createTreeItem(foldedEntry, depth, displayName);
       const childContainer = document.createElement("div");
       childContainer.className = "sidebar-tree-children";
-      pendingItems.push({ entry, item, childContainer });
+      pendingItems.push({ entry: foldedEntry, item, childContainer });
     } else {
       if (isFiltering && !entry.name.toLowerCase().includes(filterQuery)) continue;
       const item = createTreeItem(entry, depth);
@@ -639,13 +719,13 @@ async function renderDirectory(
   return hasAnyMatch;
 }
 
-function createTreeItem(entry: DirEntry, depth: number) {
+function createTreeItem(entry: DirEntry, depth: number, displayName?: string) {
   const item = document.createElement("div");
   item.className = "sidebar-tree-item";
   item.dataset.path = entry.path;
   if (entry.is_dir) item.dataset.isDir = "true";
   item.tabIndex = -1;
-  if (entry.path === selectedPath) {
+  if (selectedPaths.has(entry.path)) {
     item.classList.add("selected");
   }
   item.style.paddingLeft = `${8 + depth * 16}px`;
@@ -676,7 +756,7 @@ function createTreeItem(entry: DirEntry, depth: number) {
   const name = document.createElement("span");
   name.className = "sidebar-tree-name";
   if (entry.is_dir) name.classList.add("is-dir");
-  name.textContent = entry.name;
+  name.textContent = displayName ?? entry.name;
   item.appendChild(name);
 
   // Git status indicator
@@ -691,24 +771,33 @@ function createTreeItem(entry: DirEntry, depth: number) {
   item.draggable = true;
   item.addEventListener("dragstart", (e) => {
     e.stopPropagation();
-    dragSourcePath = entry.path;
+    if (selectedPaths.has(entry.path) && selectedPaths.size > 1) {
+      dragSourcePaths = new Set(selectedPaths);
+    } else {
+      dragSourcePaths = new Set([entry.path]);
+    }
     e.dataTransfer!.effectAllowed = "move";
-    e.dataTransfer!.setData("text/plain", entry.path);
+    e.dataTransfer!.setData("text/plain", [...dragSourcePaths].join("\n"));
     item.classList.add("dragging");
   });
   item.addEventListener("dragend", () => {
     item.classList.remove("dragging");
-    dragSourcePath = null;
+    dragSourcePaths.clear();
     clearTreeDropTarget();
   });
   if (entry.is_dir) {
+    const isDragBlocked = () => {
+      if (dragSourcePaths.size === 0) return true;
+      if (dragSourcePaths.has(entry.path)) return true;
+      for (const src of dragSourcePaths) {
+        if (entry.path.startsWith(src + "/")) return true;
+      }
+      return false;
+    };
     // WebKit requires preventDefault() on both dragenter and dragover for drop to work
     item.addEventListener("dragenter", (e) => {
       const isExternal = e.dataTransfer?.types.includes("Files");
-      if (!isExternal) {
-        if (!dragSourcePath || dragSourcePath === entry.path) return;
-        if (dragSourcePath && entry.path.startsWith(dragSourcePath + "/")) return;
-      }
+      if (!isExternal && isDragBlocked()) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer!.dropEffect = isExternal ? "copy" : "move";
@@ -717,10 +806,7 @@ function createTreeItem(entry: DirEntry, depth: number) {
     });
     item.addEventListener("dragover", (e) => {
       const isExternal = e.dataTransfer?.types.includes("Files");
-      if (!isExternal) {
-        if (!dragSourcePath || dragSourcePath === entry.path) return;
-        if (dragSourcePath && entry.path.startsWith(dragSourcePath + "/")) return;
-      }
+      if (!isExternal && isDragBlocked()) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer!.dropEffect = isExternal ? "copy" : "move";
@@ -738,21 +824,29 @@ function createTreeItem(entry: DirEntry, depth: number) {
         handleExternalFileDrop(e.dataTransfer.files, entry.path);
         return;
       }
-      if (!dragSourcePath || dragSourcePath === entry.path) return;
-      moveEntry(dragSourcePath, entry.path);
-      dragSourcePath = null;
+      if (dragSourcePaths.size === 0) return;
+      moveEntries(dragSourcePaths, entry.path);
+      dragSourcePaths.clear();
     });
   }
 
   // Click handler
   item.addEventListener("click", (e) => {
     e.stopPropagation();
-    selectedPath = entry.path;
-    item.focus();
-    if (entry.is_dir) {
-      toggleDirectory(entry.path);
+    if (e.metaKey) {
+      toggleSelect(entry.path);
+      item.focus();
+    } else if (e.shiftKey) {
+      selectRange(entry.path);
+      item.focus();
     } else {
-      selectAndOpenFile(entry);
+      selectSingle(entry.path);
+      item.focus();
+      if (entry.is_dir) {
+        toggleDirectory(entry.path);
+      } else {
+        selectAndOpenFile(entry);
+      }
     }
   });
 
@@ -760,7 +854,14 @@ function createTreeItem(entry: DirEntry, depth: number) {
   item.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    showContextMenu(e, entry);
+    if (!selectedPaths.has(entry.path)) {
+      selectSingle(entry.path);
+    }
+    if (selectedPaths.size > 1) {
+      showMultiContextMenu(e);
+    } else {
+      showContextMenu(e, entry);
+    }
   });
 
   return item;
@@ -807,7 +908,7 @@ async function toggleDirectory(dirPath: string) {
 }
 
 async function selectAndOpenFile(entry: DirEntry) {
-  setSelectedPath(entry.path);
+  selectSingle(entry.path);
   if (onFileOpen) {
     try {
       const content = await invoke<string>("read_text_file", { path: entry.path });
@@ -827,26 +928,30 @@ function clearTreeDropTarget() {
   }
 }
 
-async function moveEntry(sourcePath: string, targetDirPath: string) {
-  const fileName = sourcePath.split("/").pop();
-  if (!fileName) return;
-  const newPath = `${targetDirPath}/${fileName}`;
-  if (sourcePath === newPath) return;
-  try {
-    await invoke("rename_entry", { from: sourcePath, to: newPath });
-    // Update selected path if the moved item was selected
-    if (sourcePath === selectedPath) {
-      selectedPath = newPath;
+async function moveEntries(sourcePaths: Set<string>, targetDirPath: string) {
+  let anyMoved = false;
+  for (const sourcePath of sourcePaths) {
+    const fileName = sourcePath.split("/").pop();
+    if (!fileName) continue;
+    const newPath = `${targetDirPath}/${fileName}`;
+    if (sourcePath === newPath) continue;
+    try {
+      await invoke("rename_entry", { from: sourcePath, to: newPath });
+      if (selectedPaths.has(sourcePath)) {
+        selectedPaths.delete(sourcePath);
+        selectedPaths.add(newPath);
+      }
+      anyMoved = true;
+    } catch (e) {
+      message(`Failed to move "${fileName}": ${e}`, { kind: "error" });
     }
-    // Expand the target directory
+  }
+  if (anyMoved) {
     if (!expandedDirs.has(targetDirPath)) {
       expandedDirs.add(targetDirPath);
     }
     saveState();
     await refreshTree();
-  } catch (e) {
-    const { message: showMessage } = window.__TAURI__.dialog;
-    showMessage(`Failed to move: ${e}`, { kind: "error" });
   }
 }
 
@@ -915,11 +1020,18 @@ function showEmptyAreaContextMenu(event: MouseEvent) {
     { label: "New Folder…", action: () => promptNewFolder(rootPath!) },
   ];
 
-  if (clipboardPath && clipboardMode) {
+  if (clipboardPaths.size > 0 && clipboardMode) {
     items.push(null); // separator
     items.push({ label: "Paste", action: () => pasteEntry() });
   }
 
+  buildContextMenuDOM(menu, items);
+}
+
+function buildContextMenuDOM(
+  menu: HTMLElement,
+  items: ({ label: string; action: () => void; danger?: boolean } | null)[],
+) {
   for (const item of items) {
     if (!item) {
       const sep = document.createElement("div");
@@ -929,6 +1041,7 @@ function showEmptyAreaContextMenu(event: MouseEvent) {
     }
     const btn = document.createElement("button");
     btn.className = "sidebar-context-item";
+    if (item.danger) btn.classList.add("danger");
     btn.textContent = item.label;
     btn.addEventListener("click", () => {
       removeContextMenu();
@@ -1001,7 +1114,7 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
   items.push({
     label: "Cut",
     action: () => {
-      clipboardPath = entry.path;
+      clipboardPaths = new Set([entry.path]);
       clipboardMode = "cut";
       updateClipboardStyle();
     },
@@ -1009,12 +1122,12 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
   items.push({
     label: "Copy",
     action: () => {
-      clipboardPath = entry.path;
+      clipboardPaths = new Set([entry.path]);
       clipboardMode = "copy";
       updateClipboardStyle();
     },
   });
-  if (clipboardPath && clipboardMode) {
+  if (clipboardPaths.size > 0 && clipboardMode) {
     items.push({ label: "Paste", action: () => pasteEntry() });
   }
   items.push(null);
@@ -1026,47 +1139,48 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
     danger: true,
   });
 
-  for (const item of items) {
-    if (!item) {
-      const sep = document.createElement("div");
-      sep.className = "sidebar-context-separator";
-      menu.appendChild(sep);
-      continue;
-    }
-    const btn = document.createElement("button");
-    btn.className = "sidebar-context-item";
-    if (item.danger) btn.classList.add("danger");
-    btn.textContent = item.label;
-    btn.addEventListener("click", () => {
-      removeContextMenu();
-      item.action();
-    });
-    menu.appendChild(btn);
-  }
+  buildContextMenuDOM(menu, items);
+}
 
-  document.body.appendChild(menu);
-  activeContextMenu = menu;
+function showMultiContextMenu(event: MouseEvent) {
+  removeContextMenu();
 
-  // Adjust position if overflowing
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = `${window.innerWidth - rect.width - 4}px`;
-  }
-  if (rect.bottom > window.innerHeight) {
-    menu.style.top = `${window.innerHeight - rect.height - 4}px`;
-  }
+  const menu = document.createElement("div");
+  menu.className = "sidebar-context-menu";
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
 
-  // Close on click outside
-  contextMenuCloseHandler = (e: Event) => {
-    if (!menu.contains(e.target as Node)) {
-      removeContextMenu();
-    }
-  };
-  setTimeout(() => {
-    if (contextMenuCloseHandler) {
-      document.addEventListener("click", contextMenuCloseHandler, true);
-    }
-  }, 0);
+  const count = selectedPaths.size;
+  const items: ({ label: string; action: () => void; danger?: boolean } | null)[] = [
+    {
+      label: `Cut ${count} Items`,
+      action: () => {
+        clipboardPaths = new Set(selectedPaths);
+        clipboardMode = "cut";
+        updateClipboardStyle();
+      },
+    },
+    {
+      label: `Copy ${count} Items`,
+      action: () => {
+        clipboardPaths = new Set(selectedPaths);
+        clipboardMode = "copy";
+        updateClipboardStyle();
+      },
+    },
+  ];
+
+  if (clipboardPaths.size > 0 && clipboardMode) {
+    items.push({ label: "Paste", action: () => pasteEntry() });
+  }
+  items.push(null);
+  items.push({
+    label: `Move ${count} Items to Trash`,
+    action: () => promptDeleteSelected(),
+    danger: true,
+  });
+
+  buildContextMenuDOM(menu, items);
 }
 
 async function copyToClipboard(text: string) {
@@ -1176,8 +1290,9 @@ function promptRename(entry: DirEntry) {
       const parentDir = entry.path.substring(0, entry.path.lastIndexOf("/"));
       const newPath = `${parentDir}/${newName}`;
       await invoke("rename_entry", { from: entry.path, to: newPath });
-      if (entry.path === selectedPath) {
-        selectedPath = newPath;
+      if (selectedPaths.has(entry.path)) {
+        selectedPaths.delete(entry.path);
+        selectedPaths.add(newPath);
       }
       if (entry.is_dir) {
         const updated = new Set<string>();
@@ -1230,15 +1345,41 @@ async function promptDelete(entry: DirEntry) {
   if (!ok) return;
   try {
     await invoke("delete_entry", { path: entry.path, isDir: entry.is_dir });
-    if (entry.path === selectedPath) {
-      selectedPath = null;
-    }
+    selectedPaths.delete(entry.path);
     expandedDirs.delete(entry.path);
     saveState();
     await refreshTree();
   } catch (e) {
     message(`Failed to delete: ${e}`, { kind: "error" });
   }
+}
+
+async function promptDeleteSelected() {
+  if (selectedPaths.size === 0) return;
+  const paths = [...selectedPaths];
+  const count = paths.length;
+  const label = count === 1 ? `"${paths[0].split("/").pop()}"` : `${count} items`;
+  const ok = await confirm(`Move ${label} to Trash?`, {
+    title: "Move to Trash",
+    kind: "warning",
+  });
+  if (!ok) return;
+  for (const path of paths) {
+    try {
+      const el = treeEl?.querySelector(
+        `.sidebar-tree-item[data-path="${CSS.escape(path)}"]`,
+      ) as HTMLElement | null;
+      const isDir = el?.dataset.isDir === "true";
+      await invoke("delete_entry", { path, isDir });
+      expandedDirs.delete(path);
+    } catch (e) {
+      message(`Failed to delete: ${e}`, { kind: "error" });
+    }
+  }
+  selectedPaths.clear();
+  anchorPath = null;
+  saveState();
+  await refreshTree();
 }
 
 // --- Keyboard Navigation ---
@@ -1254,7 +1395,7 @@ function focusItemByPath(path: string) {
     `.sidebar-tree-item[data-path="${CSS.escape(path)}"]`,
   ) as HTMLElement | null;
   if (el) {
-    setSelectedPath(path);
+    selectSingle(path);
     el.focus();
     el.scrollIntoView({ block: "nearest" });
   }
@@ -1282,14 +1423,28 @@ function handleTreeKeydown(e: KeyboardEvent) {
       e.preventDefault();
       const next = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
       const nextPath = items[next].dataset.path;
-      if (nextPath) focusItemByPath(nextPath);
+      if (!nextPath) break;
+      if (e.shiftKey) {
+        selectRange(nextPath);
+        items[next].focus();
+        items[next].scrollIntoView({ block: "nearest" });
+      } else {
+        focusItemByPath(nextPath);
+      }
       break;
     }
     case "ArrowUp": {
       e.preventDefault();
       const prev = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
       const prevPath = items[prev].dataset.path;
-      if (prevPath) focusItemByPath(prevPath);
+      if (!prevPath) break;
+      if (e.shiftKey) {
+        selectRange(prevPath);
+        items[prev].focus();
+        items[prev].scrollIntoView({ block: "nearest" });
+      } else {
+        focusItemByPath(prevPath);
+      }
       break;
     }
     case "ArrowRight": {
@@ -1338,18 +1493,19 @@ function handleTreeKeydown(e: KeyboardEvent) {
     case "Backspace":
     case "Delete": {
       e.preventDefault();
-      if (!currentItem) break;
-      const entry = entryFromItem(currentItem);
-      if (entry) promptDelete(entry);
+      if (selectedPaths.size > 1) {
+        promptDeleteSelected();
+      } else if (currentItem) {
+        const entry = entryFromItem(currentItem);
+        if (entry) promptDelete(entry);
+      }
       break;
     }
     case "x": {
       if (!e.metaKey) break;
       e.preventDefault();
-      if (!currentItem) break;
-      const path = currentItem.dataset.path;
-      if (path) {
-        clipboardPath = path;
+      if (selectedPaths.size > 0) {
+        clipboardPaths = new Set(selectedPaths);
         clipboardMode = "cut";
         updateClipboardStyle();
       }
@@ -1358,10 +1514,8 @@ function handleTreeKeydown(e: KeyboardEvent) {
     case "c": {
       if (!e.metaKey) break;
       e.preventDefault();
-      if (!currentItem) break;
-      const path = currentItem.dataset.path;
-      if (path) {
-        clipboardPath = path;
+      if (selectedPaths.size > 0) {
+        clipboardPaths = new Set(selectedPaths);
         clipboardMode = "copy";
         updateClipboardStyle();
       }
@@ -1371,6 +1525,17 @@ function handleTreeKeydown(e: KeyboardEvent) {
       if (!e.metaKey) break;
       e.preventDefault();
       pasteEntry();
+      break;
+    }
+    case "a": {
+      if (!e.metaKey) break;
+      e.preventDefault();
+      selectedPaths.clear();
+      for (const el of items) {
+        const p = el.dataset.path;
+        if (p) selectedPaths.add(p);
+      }
+      updateSelectionDOM();
       break;
     }
   }
@@ -1383,43 +1548,49 @@ function updateClipboardStyle() {
   for (const el of treeEl.querySelectorAll(".sidebar-tree-item.cut")) {
     el.classList.remove("cut");
   }
-  if (clipboardPath && clipboardMode === "cut") {
-    const el = treeEl.querySelector(`.sidebar-tree-item[data-path="${CSS.escape(clipboardPath)}"]`);
-    if (el) el.classList.add("cut");
+  if (clipboardMode === "cut") {
+    for (const path of clipboardPaths) {
+      const el = treeEl.querySelector(`.sidebar-tree-item[data-path="${CSS.escape(path)}"]`);
+      if (el) el.classList.add("cut");
+    }
   }
 }
 
 async function pasteEntry() {
-  if (!clipboardPath || !clipboardMode) return;
+  if (clipboardPaths.size === 0 || !clipboardMode) return;
 
   // Determine target directory: selected directory, or parent of selected file
+  const primary = primarySelectedPath();
   let targetDir: string | null = null;
-  if (selectedPath) {
+  if (primary) {
     const items = getVisibleItems();
-    const item = items.find((el) => el.dataset.path === selectedPath);
+    const item = items.find((el) => el.dataset.path === primary);
     if (item?.dataset.isDir === "true") {
-      targetDir = selectedPath;
-    } else if (selectedPath) {
-      targetDir = selectedPath.substring(0, selectedPath.lastIndexOf("/"));
+      targetDir = primary;
+    } else {
+      targetDir = primary.substring(0, primary.lastIndexOf("/"));
     }
   }
   if (!targetDir) targetDir = rootPath;
   if (!targetDir) return;
 
   try {
-    if (clipboardMode === "cut") {
-      const fileName = clipboardPath.split("/").pop();
-      if (!fileName) return;
-      const newPath = `${targetDir}/${fileName}`;
-      if (clipboardPath === newPath) return;
-      await invoke("rename_entry", { from: clipboardPath, to: newPath });
-      if (clipboardPath === selectedPath) {
-        selectedPath = newPath;
+    for (const sourcePath of clipboardPaths) {
+      if (clipboardMode === "cut") {
+        const fileName = sourcePath.split("/").pop();
+        if (!fileName) continue;
+        const newPath = `${targetDir}/${fileName}`;
+        if (sourcePath === newPath) continue;
+        await invoke("rename_entry", { from: sourcePath, to: newPath });
+        if (selectedPaths.has(sourcePath)) {
+          selectedPaths.delete(sourcePath);
+          selectedPaths.add(newPath);
+        }
+      } else {
+        await invoke("copy_entry", { from: sourcePath, toDir: targetDir });
       }
-    } else {
-      await invoke("copy_entry", { from: clipboardPath, toDir: targetDir });
     }
-    clipboardPath = null;
+    clipboardPaths.clear();
     clipboardMode = null;
     if (!expandedDirs.has(targetDir)) {
       expandedDirs.add(targetDir);
@@ -1434,18 +1605,10 @@ async function pasteEntry() {
 // --- Public API ---
 
 export function setSelectedPath(path: string | null) {
-  selectedPath = path;
-  if (!treeEl) return;
-  // Targeted DOM update: swap .selected class without full tree re-render
-  for (const el of treeEl.querySelectorAll(".sidebar-tree-item.selected")) {
-    el.classList.remove("selected");
-  }
-  if (path) {
-    const target = treeEl.querySelector(`.sidebar-tree-item[data-path="${CSS.escape(path)}"]`);
-    if (target) {
-      target.classList.add("selected");
-    }
-  }
+  selectedPaths.clear();
+  if (path) selectedPaths.add(path);
+  anchorPath = path;
+  updateSelectionDOM();
 }
 
 export async function revealPath(filePath: string) {
