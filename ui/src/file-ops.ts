@@ -1,5 +1,6 @@
 import type { EditorView } from "@codemirror/view";
 import { ensureWorkerUrl, isImageConversionAllowed, isAutoSaveEnabled } from "./settings.ts";
+import { normalizeMarkdown } from "./normalize.ts";
 import { getRootPath } from "./sidebar.ts";
 import { getActiveTab, isTabDirty, markTabSaved, updateActiveTab } from "./tabs.ts";
 import { suppressNext } from "./file-watcher.ts";
@@ -148,7 +149,7 @@ export async function fetchUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
     const result = await invoke<FetchResult>("fetch_url_as_markdown", { url });
 
     if (result.is_markdown) {
-      loadContentAsTab(result.body);
+      loadContentAsTab(normalizeMarkdown(result.body));
       statusEl.textContent = `Fetched (Markdown for Agents): ${url}`;
       return;
     }
@@ -159,7 +160,7 @@ export async function fetchUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
       statusEl.textContent = "Converting via AI.toMarkdown()…";
       try {
         const markdown = await invoke<string>("fetch_url_via_worker", { url, workerUrl });
-        loadContentAsTab(markdown);
+        loadContentAsTab(normalizeMarkdown(markdown));
         statusEl.textContent = `Fetched (AI.toMarkdown): ${url}`;
         return;
       } catch {
@@ -167,7 +168,7 @@ export async function fetchUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
       }
     }
 
-    // Fallback: load raw HTML as-is
+    // Fallback: load raw HTML as-is (no normalization for raw HTML)
     loadContentAsTab(result.body);
     statusEl.textContent = `Fetched (raw HTML): ${url}`;
   } catch (e) {
@@ -191,7 +192,7 @@ export async function renderUrl(urlInput: HTMLInputElement, urlBar: HTMLElement)
 
   try {
     const markdown = await invoke<string>("fetch_rendered_url_as_markdown", { url, workerUrl });
-    loadContentAsTab(markdown);
+    loadContentAsTab(normalizeMarkdown(markdown));
     statusEl.textContent = "Rendered: " + url;
   } catch (e) {
     statusEl.textContent = `Render error: ${e}`;
@@ -230,7 +231,7 @@ export async function convertFile(filePath: string) {
       filePath,
       workerUrl,
     });
-    loadContentAsTab(result.markdown, filePath);
+    loadContentAsTab(normalizeMarkdown(result.markdown), filePath);
     const tag = result.is_image ? " (image OCR)" : "";
     const fileName = filePath.split("/").pop()!;
     const mdSize = new Blob([result.markdown]).size;

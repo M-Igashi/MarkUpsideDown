@@ -1,3 +1,4 @@
+import { normalizeMarkdown } from "./normalize.ts";
 import { ensureWorkerUrl, escapeHtml } from "./settings.ts";
 import { getRootPath } from "./sidebar.ts";
 
@@ -108,7 +109,7 @@ async function pollCrawl(jobId: string, workerUrl: string): Promise<CrawlPage[]>
 
       for (const page of result.pages) {
         if (page.markdown) {
-          allPages.push(page);
+          allPages.push({ url: page.url, markdown: normalizeMarkdown(page.markdown) });
         }
       }
 
