@@ -44,6 +44,7 @@ interface DirEntry {
   path: string;
   is_dir: boolean;
   extension: string | null;
+  modified_at: number | null;
 }
 
 interface GitStatus {
@@ -62,9 +63,14 @@ let onSidebarFold: (() => void) | null = null;
 let gitStatusMap: Map<string, GitStatus> = new Map();
 let refreshGeneration = 0; // guards against concurrent refreshTree() races
 let filterQuery = "";
+let filterScope: string | null = null; // null = global, path = scoped to folder
 let dragSourcePath: string | null = null;
 let clipboardPath: string | null = null;
 let clipboardMode: "cut" | "copy" | null = null;
+
+type SortBy = "name" | "date" | "type";
+const SORT_STORAGE_KEY = "markupsidedown:sidebar-sort";
+let sortBy: SortBy = (localStorage.getItem(SORT_STORAGE_KEY) as SortBy) || "name";
 
 export type SidebarPanel = "files" | "git" | "github" | "slack";
 let activePanel: SidebarPanel = "files";
@@ -162,6 +168,44 @@ function populateHeaderActions(container: Element) {
   }
 }
 
+function updateFilterScopeBadge() {
+  const badge = document.getElementById("sidebar-filter-scope");
+  if (!badge) return;
+  if (!filterScope) {
+    badge.style.display = "none";
+    badge.innerHTML = "";
+    return;
+  }
+  const folderName = filterScope.split("/").pop() ?? filterScope;
+  badge.style.display = "flex";
+  badge.innerHTML = "";
+  const label = document.createElement("span");
+  label.textContent = `in: ${folderName}`;
+  badge.appendChild(label);
+  const clearBtn = document.createElement("button");
+  clearBtn.className = "sidebar-filter-scope-clear";
+  clearBtn.textContent = "✕";
+  clearBtn.title = "Clear scope";
+  clearBtn.addEventListener("click", () => {
+    filterScope = null;
+    updateFilterScopeBadge();
+    refreshTree();
+  });
+  badge.appendChild(clearBtn);
+}
+
+function findInFolder(dirPath: string) {
+  filterScope = dirPath;
+  updateFilterScopeBadge();
+  // Focus the search input
+  const input = filesContainer?.querySelector(".sidebar-search-input") as HTMLInputElement | null;
+  if (input) {
+    input.focus();
+    input.select();
+  }
+  if (filterQuery) refreshTree();
+}
+
 function render() {
   if (!sidebarEl) return;
   sidebarEl.innerHTML = "";
@@ -214,11 +258,42 @@ function render() {
     if (e.key === "Escape") {
       searchInput.value = "";
       filterQuery = "";
+      filterScope = null;
+      updateFilterScopeBadge();
       refreshTree();
     }
   });
   searchWrap.appendChild(searchInput);
+
+  const sortSelect = document.createElement("select");
+  sortSelect.className = "sidebar-sort-select";
+  sortSelect.title = "Sort files by…";
+  for (const [value, label] of [
+    ["name", "Name"],
+    ["date", "Date"],
+    ["type", "Type"],
+  ] as const) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    if (value === sortBy) opt.selected = true;
+    sortSelect.appendChild(opt);
+  }
+  sortSelect.addEventListener("change", () => {
+    sortBy = sortSelect.value as SortBy;
+    localStorage.setItem(SORT_STORAGE_KEY, sortBy);
+    refreshTree();
+  });
+  searchWrap.appendChild(sortSelect);
+
   filesContainer.appendChild(searchWrap);
+
+  // Filter scope badge (shown when scoped to a folder)
+  const scopeBadge = document.createElement("div");
+  scopeBadge.className = "sidebar-filter-scope";
+  scopeBadge.id = "sidebar-filter-scope";
+  filesContainer.appendChild(scopeBadge);
+  updateFilterScopeBadge();
 
   treeEl = document.createElement("div");
   treeEl.className = "sidebar-tree";
@@ -414,9 +489,28 @@ async function renderDirectory(
   });
   if (gen !== refreshGeneration) return false;
 
+  // Sort entries by user preference (directories always first)
+  if (sortBy === "date") {
+    entries.sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      return (b.modified_at ?? 0) - (a.modified_at ?? 0);
+    });
+  } else if (sortBy === "type") {
+    entries.sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      const extA = a.extension ?? "";
+      const extB = b.extension ?? "";
+      if (extA !== extB) return extA.localeCompare(extB);
+      return a.name.localeCompare(b.name);
+    });
+  }
+  // "name" sort is already done by the Rust backend
+
   // Deduplicate by path (safety net)
   const seen = new Set<string>();
-  const isFiltering = filterQuery.length > 0;
+  // When scoped, only filter within the target directory (and its children)
+  const inScope = !filterScope || dirPath === filterScope || dirPath.startsWith(filterScope + "/");
+  const isFiltering = filterQuery.length > 0 && (!filterScope || inScope);
 
   // When filtering, we need to recurse into all directories to find matches
   // Collect items and expanded children
@@ -509,6 +603,7 @@ function createTreeItem(entry: DirEntry, depth: number) {
   // Name
   const name = document.createElement("span");
   name.className = "sidebar-tree-name";
+  if (entry.is_dir) name.classList.add("is-dir");
   name.textContent = entry.name;
   item.appendChild(name);
 
@@ -770,6 +865,9 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
   }
   items.push(null);
 
+  if (entry.is_dir) {
+    items.push({ label: "Find in Folder…", action: () => findInFolder(entry.path) });
+  }
   items.push({ label: "Reveal in Finder", action: () => revealInFinder(entry.path) });
   items.push({ label: "Open in Terminal", action: () => openInTerminal(entry.path) });
   items.push(null);
@@ -1051,7 +1149,7 @@ function entryFromItem(item: HTMLElement): DirEntry | null {
   const name = path.split("/").pop() ?? "";
   const isDir = item.dataset.isDir === "true";
   const ext = isDir ? null : name.includes(".") ? name.split(".").pop()! : null;
-  return { path, name, is_dir: isDir, extension: ext };
+  return { path, name, is_dir: isDir, extension: ext, modified_at: null };
 }
 
 function handleTreeKeydown(e: KeyboardEvent) {

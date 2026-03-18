@@ -445,10 +445,14 @@ body {
 .sidebar-search {
   padding: 4px 6px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 4px;
+  align-items: center;
 }
 
 .sidebar-search-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 4px 8px;
   font-size: 11px;
   font-family: var(--font-sans);
@@ -465,6 +469,55 @@ body {
 
 .sidebar-search-input::placeholder {
   color: var(--text-muted);
+}
+
+.sidebar-sort-select {
+  padding: 3px 4px;
+  font-size: 10px;
+  font-family: var(--font-sans);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar-sort-select:focus {
+  border-color: var(--accent);
+}
+
+.sidebar-filter-scope {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-filter-scope span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-filter-scope-clear {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.sidebar-filter-scope-clear:hover {
+  color: var(--text);
 }
 
 .sidebar-tree {
@@ -544,6 +597,10 @@ body {
 .sidebar-tree-name {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sidebar-tree-name.is-dir {
+  font-weight: 600;
 }
 
 .sidebar-rename-input {

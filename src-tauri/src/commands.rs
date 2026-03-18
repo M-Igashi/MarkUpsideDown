@@ -735,6 +735,7 @@ pub struct FileEntry {
     pub path: String,
     pub is_dir: bool,
     pub extension: Option<String>,
+    pub modified_at: Option<u64>,
 }
 
 #[tauri::command]
@@ -768,11 +769,20 @@ pub async fn list_directory(
             .and_then(|e| e.to_str())
             .map(|s| s.to_lowercase());
 
+        let modified_at = entry
+            .metadata()
+            .await
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+
         entries.push(FileEntry {
             name,
             path: entry_path.to_string_lossy().to_string(),
             is_dir: file_type.is_dir(),
             extension,
+            modified_at,
         });
     }
 
