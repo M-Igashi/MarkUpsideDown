@@ -86,6 +86,7 @@ import {
   toggleInlineCode,
   insertLink,
 } from "./markdown-commands.ts";
+import { registerCommands, toggle as toggleCommandPalette } from "./command-palette.ts";
 
 // --- Tauri APIs ---
 
@@ -145,7 +146,6 @@ const editor = new EditorView({
         { key: "Mod-i", run: toggleItalic },
         { key: "Mod-Shift-x", run: toggleStrikethrough },
         { key: "Mod-`", run: toggleInlineCode },
-        { key: "Mod-k", run: insertLink },
         ...searchKeymap,
         ...defaultKeymap,
         ...historyKeymap,
@@ -712,9 +712,140 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "\\") {
       e.preventDefault();
       togglePreview();
+    } else if (e.key === "k") {
+      e.preventDefault();
+      toggleCommandPalette();
     }
   }
 });
+
+// --- Command Palette Registry ---
+
+registerCommands([
+  { id: "file.open", label: "Open File", shortcut: "⌘O", category: "File", run: openFile },
+  { id: "file.save", label: "Save File", shortcut: "⌘S", category: "File", run: saveFile },
+  { id: "file.import", label: "Import Document", category: "File", run: importFile },
+  {
+    id: "file.exportPdf",
+    label: "Export PDF",
+    category: "Export",
+    run: () => window.print(),
+  },
+  {
+    id: "edit.bold",
+    label: "Bold",
+    shortcut: "⌘B",
+    category: "Edit",
+    run: () => toggleBold(editor),
+  },
+  {
+    id: "edit.italic",
+    label: "Italic",
+    shortcut: "⌘I",
+    category: "Edit",
+    run: () => toggleItalic(editor),
+  },
+  {
+    id: "edit.strikethrough",
+    label: "Strikethrough",
+    shortcut: "⌘⇧X",
+    category: "Edit",
+    run: () => toggleStrikethrough(editor),
+  },
+  {
+    id: "edit.inlineCode",
+    label: "Inline Code",
+    shortcut: "⌘`",
+    category: "Edit",
+    run: () => toggleInlineCode(editor),
+  },
+  {
+    id: "edit.insertLink",
+    label: "Insert Link",
+    category: "Edit",
+    run: () => insertLink(editor),
+  },
+  {
+    id: "edit.table",
+    label: "Insert Table",
+    category: "Edit",
+    run: () => editTableAtCursor(editor),
+  },
+  {
+    id: "edit.cleanup",
+    label: "Clean Up Document",
+    category: "Edit",
+    run: () => {
+      const content = editor.state.doc.toString();
+      const cleaned = normalizeMarkdown(content);
+      if (cleaned !== content) {
+        editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: cleaned } });
+        renderPreview(cleaned);
+        statusEl.textContent = "Document cleaned up";
+      } else {
+        statusEl.textContent = "No changes needed";
+      }
+    },
+  },
+  {
+    id: "export.richText",
+    label: "Copy as Rich Text",
+    shortcut: "⌘⇧C",
+    category: "Export",
+    run: copyRichText,
+  },
+  { id: "export.markdown", label: "Copy as Markdown", category: "Export", run: copyMarkdown },
+  {
+    id: "convert.fetch",
+    label: "Fetch URL",
+    category: "Convert",
+    run: () => fetchUrl(urlInput, urlBar),
+  },
+  {
+    id: "convert.render",
+    label: "Fetch URL (JS Render)",
+    category: "Convert",
+    run: () => renderUrl(urlInput, urlBar),
+  },
+  {
+    id: "convert.crawl",
+    label: "Crawl Website",
+    category: "Convert",
+    run: () => crawlUrl(urlInput, urlBar),
+  },
+  {
+    id: "view.sidebar",
+    label: "Toggle Sidebar",
+    shortcut: "⌘⇧B",
+    category: "View",
+    run: toggleSidebar,
+  },
+  {
+    id: "view.editor",
+    label: "Toggle Editor",
+    shortcut: "⌘E",
+    category: "View",
+    run: toggleEditor,
+  },
+  {
+    id: "view.preview",
+    label: "Toggle Preview",
+    shortcut: "⌘\\",
+    category: "View",
+    run: togglePreview,
+  },
+  {
+    id: "app.settings",
+    label: "Open Settings",
+    category: "App",
+    run: () =>
+      showSettings({
+        onSave: (url: string) => {
+          statusEl.textContent = url ? `Worker URL: ${url}` : "Worker URL cleared";
+        },
+      }),
+  },
+]);
 
 // --- First-run ---
 
