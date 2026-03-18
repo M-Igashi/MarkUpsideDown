@@ -43,6 +43,7 @@ fn main() {
             commands::sync_editor_state,
             commands::fetch_svg,
             commands::get_mcp_binary_path,
+            commands::create_cowork_workspace,
             commands::read_text_file,
             commands::list_directory,
             commands::create_file,

@@ -1470,3 +1470,86 @@ pub async fn github_list_repos() -> Result<Vec<String>, String> {
     .await
     .map_err(|e| format!("Task error: {e}"))?
 }
+
+// --- Cowork Workspace ---
+
+#[tauri::command]
+pub fn create_cowork_workspace(
+    folder_path: String,
+    mcp_binary_path: String,
+    worker_url: String,
+) -> Result<String, String> {
+    use std::fs;
+    use std::path::PathBuf;
+
+    // Expand ~ to home directory
+    let expanded = if folder_path.starts_with("~/") {
+        crate::util::home_dir()
+            .ok_or("Cannot resolve home directory")?
+            .join(&folder_path[2..])
+    } else {
+        PathBuf::from(&folder_path)
+    };
+
+    fs::create_dir_all(&expanded)
+        .map_err(|e| format!("Failed to create directory: {e}"))?;
+
+    // Generate .mcp.json
+    let mcp_server = serde_json::json!({
+        "command": mcp_binary_path,
+    });
+    let mcp_server_with_env = if worker_url.is_empty() {
+        mcp_server
+    } else {
+        serde_json::json!({
+            "command": mcp_binary_path,
+            "env": { "MARKUPSIDEDOWN_WORKER_URL": worker_url }
+        })
+    };
+    let mcp_config = serde_json::json!({
+        "mcpServers": {
+            "markupsidedown": mcp_server_with_env
+        }
+    });
+    let mcp_json_path = expanded.join(".mcp.json");
+    fs::write(
+        &mcp_json_path,
+        serde_json::to_string_pretty(&mcp_config).unwrap(),
+    )
+    .map_err(|e| format!("Failed to write .mcp.json: {e}"))?;
+
+    // Generate CLAUDE.md
+    let claude_md = r#"# MarkUpsideDown Workspace
+
+This workspace is configured for use with MarkUpsideDown's MCP server.
+
+## Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_editor_content` | Get current Markdown from the editor |
+| `set_editor_content` | Replace editor content |
+| `insert_text` | Insert text at cursor, start, or end |
+| `get_document_structure` | Get document structure (headings, links, stats) as JSON |
+| `open_file` | Open a Markdown file |
+| `save_file` | Save content to a file |
+| `export_pdf` | Export as PDF |
+| `fetch_markdown` | Fetch URL as Markdown |
+| `render_markdown` | JS-render a page as Markdown |
+| `convert_to_markdown` | Convert local file to Markdown |
+
+## Tips
+
+- MarkUpsideDown must be running for editor tools to work
+- Place your Markdown files in this folder for easy access
+- Use `fetch_markdown` to import web pages directly into the editor
+- Use `convert_to_markdown` to import PDFs, DOCX, images, and more
+"#;
+    let claude_md_path = expanded.join("CLAUDE.md");
+    if !claude_md_path.exists() {
+        fs::write(&claude_md_path, claude_md)
+            .map_err(|e| format!("Failed to write CLAUDE.md: {e}"))?;
+    }
+
+    Ok(expanded.to_string_lossy().to_string())
+}

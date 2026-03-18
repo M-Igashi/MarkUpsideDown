@@ -519,7 +519,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
       <div class="settings-section">
         <div class="settings-section-title">AI Agent Integration</div>
         <div class="settings-description">
-          MCP allows AI agents (Claude Desktop, Claude Code) to read and write your editor,
+          MCP allows AI agents (Claude Desktop, Claude Code, Cowork) to read and write your editor,
           convert documents, and fetch web pages as Markdown.
         </div>
         <div class="settings-mcp-status">
@@ -536,9 +536,9 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
           <div class="settings-mcp-tabs">
             <button class="settings-mcp-tab active" data-mcp-target="claude-desktop">Claude Desktop</button>
             <button class="settings-mcp-tab" data-mcp-target="claude-code">Claude Code</button>
+            <button class="settings-mcp-tab" data-mcp-target="cowork">Cowork</button>
           </div>
-          <pre id="settings-mcp-config-json" class="settings-code settings-mcp-json"></pre>
-          <button id="settings-mcp-copy" class="settings-mcp-copy-btn">Copy to clipboard</button>
+          <div id="settings-mcp-tab-content" class="settings-mcp-tab-content"></div>
         </div>
         <details class="settings-mcp-tools-details">
           <summary>Available tools (10)</summary>
@@ -796,26 +796,134 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
 
 // --- MCP Config Generator ---
 
-function generateMcpConfig(binaryPath: string, workerUrl: string) {
-  const config: Record<string, unknown> = {
-    mcpServers: {
-      markupsidedown: {
-        command: binaryPath,
-        ...(workerUrl ? { env: { MARKUPSIDEDOWN_WORKER_URL: workerUrl } } : {}),
-      },
-    },
+function generateMcpServerEntry(binaryPath: string, workerUrl: string) {
+  return {
+    command: binaryPath,
+    ...(workerUrl ? { env: { MARKUPSIDEDOWN_WORKER_URL: workerUrl } } : {}),
   };
-  return JSON.stringify(config, null, 2);
+}
+
+function generateMcpConfigJson(binaryPath: string, workerUrl: string) {
+  return JSON.stringify(
+    { mcpServers: { markupsidedown: generateMcpServerEntry(binaryPath, workerUrl) } },
+    null,
+    2,
+  );
+}
+
+function renderClaudeDesktopTab(container: HTMLElement, binaryPath: string, workerUrl: string) {
+  const json = generateMcpConfigJson(binaryPath, workerUrl);
+  container.innerHTML = `
+    <div class="settings-mcp-instruction">
+      Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>
+    </div>
+    <pre class="settings-code settings-mcp-json">${escapeHtml(json)}</pre>
+    <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
+  `;
+  attachCopyHandler(container);
+}
+
+function renderClaudeCodeTab(container: HTMLElement, binaryPath: string, workerUrl: string) {
+  const json = generateMcpConfigJson(binaryPath, workerUrl);
+  container.innerHTML = `
+    <div class="settings-mcp-instruction">
+      Add to <code>.mcp.json</code> in your project root (per-project), or
+      <code>~/.claude/settings.json</code> (global).
+    </div>
+    <pre class="settings-code settings-mcp-json">${escapeHtml(json)}</pre>
+    <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
+  `;
+  attachCopyHandler(container);
+}
+
+function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: string) {
+  const mcpJson = generateMcpConfigJson(binaryPath, workerUrl);
+  container.innerHTML = `
+    <div class="settings-mcp-instruction">
+      Cowork is folder-based — create a dedicated workspace folder and open it each session.
+    </div>
+    <div class="settings-mcp-cowork-steps">
+      <div class="settings-mcp-cowork-step">
+        <strong>1.</strong> Click <em>Create workspace</em> below to generate a ready-to-use folder
+      </div>
+      <div class="settings-mcp-cowork-step">
+        <strong>2.</strong> In Cowork, open the created folder as your workspace
+      </div>
+      <div class="settings-mcp-cowork-step">
+        <strong>3.</strong> Cowork will auto-detect the MCP config and CLAUDE.md context file
+      </div>
+    </div>
+    <div class="settings-mcp-cowork-actions">
+      <div class="settings-mcp-cowork-path-row">
+        <input type="text" id="settings-cowork-path" class="settings-mcp-cowork-path" placeholder="~/Claude-Workspace" value="~/Claude-Workspace" />
+        <button id="settings-cowork-create" class="primary">Create workspace</button>
+      </div>
+      <div id="settings-cowork-result" class="settings-test-result"></div>
+    </div>
+    <details class="settings-mcp-cowork-details">
+      <summary>What gets created</summary>
+      <div class="settings-mcp-cowork-detail-text">
+        <code>.mcp.json</code> — MCP server config (auto-detected by Cowork)<br>
+        <code>CLAUDE.md</code> — Context file with available tools and usage tips
+      </div>
+    </details>
+  `;
+
+  const createBtn = container.querySelector("#settings-cowork-create") as HTMLButtonElement;
+  const pathInput = container.querySelector("#settings-cowork-path") as HTMLInputElement;
+  const resultEl = container.querySelector("#settings-cowork-result")!;
+
+  createBtn.addEventListener("click", async () => {
+    const folderPath = pathInput.value.trim();
+    if (!folderPath) {
+      resultEl.className = "settings-test-result test-error";
+      resultEl.textContent = "Enter a folder path";
+      return;
+    }
+    createBtn.disabled = true;
+    createBtn.textContent = "Creating\u2026";
+    resultEl.className = "settings-test-result test-pending";
+    resultEl.textContent = "Creating workspace\u2026";
+    try {
+      const created = await invoke<string>("create_cowork_workspace", {
+        folderPath,
+        mcpConfigJson: mcpJson,
+        mcpBinaryPath: binaryPath,
+        workerUrl,
+      });
+      resultEl.className = "settings-test-result test-ok";
+      resultEl.textContent = `Created at ${created}`;
+    } catch (e) {
+      resultEl.className = "settings-test-result test-error";
+      resultEl.textContent = `Error: ${e}`;
+    } finally {
+      createBtn.disabled = false;
+      createBtn.textContent = "Create workspace";
+    }
+  });
+}
+
+function attachCopyHandler(container: HTMLElement) {
+  const btn = container.querySelector<HTMLButtonElement>(".settings-mcp-copy-btn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const text = btn.dataset.copyText || "";
+    await navigator.clipboard.writeText(text);
+    const original = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(() => {
+      btn.textContent = original;
+    }, 1500);
+  });
 }
 
 async function initMcpSection() {
   const bridgeStatus = document.getElementById("settings-mcp-bridge-status");
   const binaryPathEl = document.getElementById("settings-mcp-binary-path");
-  const configJson = document.getElementById("settings-mcp-config-json");
-  const copyBtn = document.getElementById("settings-mcp-copy");
+  const tabContent = document.getElementById("settings-mcp-tab-content");
   const tabs = document.querySelectorAll<HTMLButtonElement>(".settings-mcp-tab");
 
-  if (!bridgeStatus || !binaryPathEl || !configJson || !copyBtn) return;
+  if (!bridgeStatus || !binaryPathEl || !tabContent) return;
 
   // Bridge status — always active when app is running
   bridgeStatus.textContent = "Active (app is running)";
@@ -832,32 +940,31 @@ async function initMcpSection() {
     binaryPathEl.classList.add("mcp-status-error");
   }
 
-  // Generate config JSON
   const workerUrl = getWorkerUrl();
 
-  function updateConfig() {
-    configJson.textContent = generateMcpConfig(mcpBinaryPath, workerUrl);
-  }
-  updateConfig();
+  const renderers: Record<string, (container: HTMLElement) => void> = {
+    "claude-desktop": (c) => renderClaudeDesktopTab(c, mcpBinaryPath, workerUrl),
+    "claude-code": (c) => renderClaudeCodeTab(c, mcpBinaryPath, workerUrl),
+    cowork: (c) => renderCoworkTab(c, mcpBinaryPath, workerUrl),
+  };
 
-  // Tab switching (config is the same for both targets; tabs are visual only)
+  function showTab(target: string) {
+    tabContent.innerHTML = "";
+    const renderer = renderers[target];
+    if (renderer) renderer(tabContent);
+  }
+
+  // Show default tab
+  showTab("claude-desktop");
+
+  // Tab switching
   for (const tab of tabs) {
     tab.addEventListener("click", () => {
       for (const t of tabs) t.classList.remove("active");
       tab.classList.add("active");
+      showTab(tab.dataset.mcpTarget || "claude-desktop");
     });
   }
-
-  // Copy to clipboard
-  copyBtn.addEventListener("click", async () => {
-    const text = configJson.textContent || "";
-    await navigator.clipboard.writeText(text);
-    const original = copyBtn.textContent;
-    copyBtn.textContent = "Copied!";
-    setTimeout(() => {
-      copyBtn.textContent = original;
-    }, 1500);
-  });
 }
 
 // Returns the worker URL, or shows settings panel if not configured.
