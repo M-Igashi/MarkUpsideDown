@@ -83,11 +83,6 @@ export function getSlackToken() {
   return ws.length > 0 ? ws[0].token : "";
 }
 
-/** @deprecated Use setSlackWorkspaces instead */
-export function setSlackToken(_token: string) {
-  // no-op — kept for save handler compatibility during migration
-}
-
 function setAutoSaveEnabled(enabled: boolean) {
   localStorage.setItem(STORAGE_KEY_AUTOSAVE, enabled ? "1" : "0");
 }
@@ -104,6 +99,7 @@ let currentTestStatus: WorkerStatus | null = null; // cached last test result
 let lastTestedUrl: string | null = null; // URL that produced currentTestStatus
 
 function featureRows(status: WorkerStatus | null) {
+  const slackWs = getSlackWorkspaces();
   const hasWorker = Boolean(status && status.reachable);
   const hasConvert = Boolean(status && status.convert_available);
   const hasRender = Boolean(status && status.render_available);
@@ -124,11 +120,8 @@ function featureRows(status: WorkerStatus | null) {
     },
     {
       name: "Import from Slack",
-      ok: getSlackWorkspaces().length > 0,
-      hint:
-        getSlackWorkspaces().length > 0
-          ? `${getSlackWorkspaces().length} workspace(s)`
-          : "Needs Slack Bot Token",
+      ok: slackWs.length > 0,
+      hint: slackWs.length > 0 ? `${slackWs.length} workspace(s)` : "Needs Slack Bot Token",
     },
   ];
 }
@@ -158,11 +151,7 @@ const SETUP_STEPS = [
   { id: "verify", label: "Verify" },
 ];
 
-function renderSetupProgress(
-  container: HTMLElement,
-  _currentStep: string,
-  stepStates: Record<string, string>,
-) {
+function renderSetupProgress(container: HTMLElement, stepStates: Record<string, string>) {
   container.innerHTML = SETUP_STEPS.map((step) => {
     const state = stepStates[step.id] || "pending";
     let icon, cls;
@@ -194,7 +183,7 @@ async function startAutoSetup(
   const states: Record<string, string> = {};
   const update = (id: string, state: string) => {
     states[id] = state;
-    renderSetupProgress(progressContainer, id, states);
+    renderSetupProgress(progressContainer, states);
   };
   const fail = (id: string, message: string) => {
     update(id, "error");
