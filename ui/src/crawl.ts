@@ -29,6 +29,14 @@ interface CrawlSaveResult {
 let statusEl: HTMLElement;
 let onCrawlComplete: (() => void) | null = null;
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export function initCrawl(deps: { statusEl: HTMLElement; onCrawlComplete: () => void }) {
   statusEl = deps.statusEl;
   onCrawlComplete = deps.onCrawlComplete;
@@ -160,7 +168,7 @@ async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
 
     dialog.innerHTML = `
       <h3>Crawl Website</h3>
-      <p class="crawl-url">${hostname}</p>
+      <p class="crawl-url">${escapeHtml(hostname)}</p>
       <div class="crawl-field">
         <label>Max depth</label>
         <input type="number" id="crawl-depth" value="3" min="1" max="100" />
@@ -176,7 +184,7 @@ async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
       <div class="crawl-field">
         <label>Save to</label>
         <div class="crawl-dir-row">
-          <input type="text" id="crawl-dir" value="${defaultDir}" readonly />
+          <input type="text" id="crawl-dir" value="${escapeHtml(defaultDir)}" readonly />
           <button id="crawl-browse">Browse</button>
         </div>
       </div>
