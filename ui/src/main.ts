@@ -384,12 +384,17 @@ divider.addEventListener("mousedown", () => {
   dragEditorLeft = editorContainer.getBoundingClientRect().left;
   dragAvailableWidth = previewWrapper.getBoundingClientRect().right - dragEditorLeft;
 });
+let dividerDragRAF = 0;
 document.addEventListener("mousemove", (e) => {
   if (!isDragging) return;
-  const ratio = (e.clientX - dragEditorLeft) / dragAvailableWidth;
-  const clamped = Math.max(0.2, Math.min(0.8, ratio));
-  editorContainer.style.flex = `${clamped}`;
-  previewWrapper.style.flex = `${1 - clamped}`;
+  cancelAnimationFrame(dividerDragRAF);
+  const clientX = e.clientX;
+  dividerDragRAF = requestAnimationFrame(() => {
+    const ratio = (clientX - dragEditorLeft) / dragAvailableWidth;
+    const clamped = Math.max(0.2, Math.min(0.8, ratio));
+    editorContainer.style.flex = `${clamped}`;
+    previewWrapper.style.flex = `${1 - clamped}`;
+  });
 });
 document.addEventListener("mouseup", () => {
   isDragging = false;
@@ -473,12 +478,17 @@ let isSidebarDragging = false;
 sidebarDivider.addEventListener("mousedown", () => {
   isSidebarDragging = true;
 });
+let sidebarDragRAF = 0;
 document.addEventListener("mousemove", (e) => {
   if (!isSidebarDragging) return;
-  const width = Math.max(120, Math.min(400, e.clientX));
-  sidebarEl.style.width = `${width}px`;
-  sidebarEl.classList.remove("collapsed");
-  sidebarUnfoldBtn.classList.remove("visible");
+  cancelAnimationFrame(sidebarDragRAF);
+  const clientX = e.clientX;
+  sidebarDragRAF = requestAnimationFrame(() => {
+    const width = Math.max(120, Math.min(400, clientX));
+    sidebarEl.style.width = `${width}px`;
+    sidebarEl.classList.remove("collapsed");
+    sidebarUnfoldBtn.classList.remove("visible");
+  });
 });
 document.addEventListener("mouseup", () => {
   if (isSidebarDragging) {

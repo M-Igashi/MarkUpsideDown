@@ -1,4 +1,4 @@
-import { ensureWorkerUrl } from "./settings.ts";
+import { ensureWorkerUrl, escapeHtml } from "./settings.ts";
 import { getRootPath } from "./sidebar.ts";
 
 const { invoke } = window.__TAURI__.core;
@@ -28,14 +28,6 @@ interface CrawlSaveResult {
 
 let statusEl: HTMLElement;
 let onCrawlComplete: (() => void) | null = null;
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 export function initCrawl(deps: { statusEl: HTMLElement; onCrawlComplete: () => void }) {
   statusEl = deps.statusEl;

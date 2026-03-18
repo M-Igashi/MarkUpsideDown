@@ -315,6 +315,7 @@ function clearDropIndicator() {
 
 function cleanupDrag() {
   dragTabId = null;
+  didDrag = false;
   clearDropIndicator();
 }
 
