@@ -379,7 +379,9 @@ export async function renderPreview(source: string) {
       const text = code ? code.textContent! : pre.textContent!;
       navigator.clipboard.writeText(text).then(() => {
         btn.textContent = "Copied!";
-        setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+        setTimeout(() => {
+          btn.textContent = "Copy";
+        }, 1500);
       });
     });
     pre.appendChild(btn);

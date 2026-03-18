@@ -1181,6 +1181,61 @@ body {
   color: var(--text-muted);
 }
 
+/* Slack panel */
+.slack-input-row {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 4px;
+}
+
+.slack-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--text);
+  outline: none;
+}
+
+.slack-input:focus {
+  border-color: var(--accent);
+}
+
+.slack-fetch-btn {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.slack-fetch-btn:hover {
+  background: var(--border);
+}
+
+.slack-status {
+  padding: 0 10px 6px;
+  font-size: 10px;
+  min-height: 16px;
+}
+
+.slack-status-ok {
+  color: var(--success);
+}
+
+.slack-status-error {
+  color: var(--error);
+}
+
+.slack-status-pending {
+  color: var(--text-muted);
+}
+
 /* CodeMirror overrides */
 .cm-editor {
   height: 100%;

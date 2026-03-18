@@ -64,7 +64,7 @@ let refreshGeneration = 0; // guards against concurrent refreshTree() races
 let filterQuery = "";
 let dragSourcePath: string | null = null;
 
-export type SidebarPanel = "files" | "git" | "github";
+export type SidebarPanel = "files" | "git" | "github" | "slack";
 let activePanel: SidebarPanel = "files";
 const PANEL_STORAGE_KEY = "markupsidedown:sidebarPanel";
 
@@ -74,6 +74,7 @@ let sidebarEl: HTMLElement | null = null;
 let treeEl: HTMLElement | null = null;
 let gitPanelSlot: HTMLElement | null = null;
 let ghPanelSlot: HTMLElement | null = null;
+let slackPanelSlot: HTMLElement | null = null;
 let filesContainer: HTMLElement | null = null;
 let navBar: HTMLElement | null = null;
 let gitChangeCount = 0;
@@ -109,7 +110,12 @@ export function initSidebar(
 
   // Restore active panel
   const savedPanel = localStorage.getItem(PANEL_STORAGE_KEY);
-  if (savedPanel === "files" || savedPanel === "git" || savedPanel === "github") {
+  if (
+    savedPanel === "files" ||
+    savedPanel === "git" ||
+    savedPanel === "github" ||
+    savedPanel === "slack"
+  ) {
     activePanel = savedPanel;
   }
 
@@ -241,12 +247,21 @@ function render() {
   }
   sidebarEl.appendChild(ghPanelSlot);
 
+  // Slack panel slot — reuse existing element
+  if (!slackPanelSlot) {
+    slackPanelSlot = document.createElement("div");
+    slackPanelSlot.id = "slack-panel";
+    slackPanelSlot.className = "sidebar-panel-content";
+  }
+  sidebarEl.appendChild(slackPanelSlot);
+
   // Bottom nav bar
   navBar = document.createElement("div");
   navBar.className = "sidebar-nav";
   navBar.appendChild(createNavButton("files", "Files", SVG_FILES));
   navBar.appendChild(createNavButton("git", "Git", SVG_GIT));
   navBar.appendChild(createNavButton("github", "GitHub", SVG_GITHUB));
+  navBar.appendChild(createNavButton("slack", "Slack", SVG_SLACK));
   sidebarEl.appendChild(navBar);
 
   updatePanelVisibility();
@@ -260,6 +275,8 @@ function panelTitle(): string {
       return "Source Control";
     case "github":
       return "GitHub";
+    case "slack":
+      return "Slack";
   }
 }
 
@@ -267,6 +284,7 @@ function panelTitle(): string {
 const SVG_FILES = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2h4l2 2h6v9H2V2z"/><path d="M2 5h12"/></svg>`;
 const SVG_GIT = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="3.5" r="1.5"/><circle cx="8" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M8 5v6"/><path d="M9.4 4.2 11 6.5"/></svg>`;
 const SVG_GITHUB = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="5" r="1"/><circle cx="10.5" cy="5" r="1"/><path d="M5.5 10c0 1.5 1.5 2.5 2.5 2.5s2.5-1 2.5-2.5"/><rect x="2" y="1.5" width="12" height="10" rx="2"/><path d="M5 11.5V14"/><path d="M11 11.5V14"/></svg>`;
+const SVG_SLACK = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5a1.5 1.5 0 1 1 0-3h3v1.5A1.5 1.5 0 0 1 5.5 9.5H4z"/><path d="M9.5 4a1.5 1.5 0 1 1 3 0v3h-1.5A1.5 1.5 0 0 1 9.5 5.5V4z"/><path d="M12 9.5a1.5 1.5 0 1 1 0 3h-3v-1.5A1.5 1.5 0 0 1 10.5 9.5H12z"/><path d="M6.5 12a1.5 1.5 0 1 1-3 0V9h1.5A1.5 1.5 0 0 1 6.5 10.5V12z"/></svg>`;
 
 function syncGitBadge(btn: Element, count: number) {
   const existing = btn.querySelector(".sidebar-nav-badge");
@@ -316,6 +334,7 @@ function updatePanelVisibility() {
   if (filesContainer) filesContainer.style.display = activePanel === "files" ? "" : "none";
   if (gitPanelSlot) gitPanelSlot.style.display = activePanel === "git" ? "" : "none";
   if (ghPanelSlot) ghPanelSlot.style.display = activePanel === "github" ? "" : "none";
+  if (slackPanelSlot) slackPanelSlot.style.display = activePanel === "slack" ? "" : "none";
 }
 
 function updateNavButtons() {
@@ -339,6 +358,10 @@ export function getGitPanelEl() {
 
 export function getGitHubPanelEl() {
   return ghPanelSlot;
+}
+
+export function getSlackPanelEl() {
+  return slackPanelSlot;
 }
 
 async function refreshTree() {

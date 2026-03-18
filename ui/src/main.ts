@@ -20,6 +20,7 @@ import {
   setGitStatus,
   getGitPanelEl,
   getGitHubPanelEl,
+  getSlackPanelEl,
   updateGitChangeCount,
 } from "./sidebar.ts";
 import {
@@ -31,6 +32,7 @@ import {
   getBranch,
 } from "./git-panel.ts";
 import { initGitHubPanel } from "./github-panel.ts";
+import { initSlackPanel } from "./slack-panel.ts";
 import {
   initTabs,
   openTab,
@@ -435,6 +437,16 @@ if (ghPanelEl) {
     onContent: (body: string, ref_: string) => {
       loadContentAsTab(body);
       statusEl.textContent = `Fetched: ${ref_}`;
+    },
+  });
+}
+
+const slackPanelEl = getSlackPanelEl();
+if (slackPanelEl) {
+  initSlackPanel(slackPanelEl, {
+    onContent: (body: string, ref_: string) => {
+      loadContentAsTab(body);
+      statusEl.textContent = `Imported: ${ref_}`;
     },
   });
 }

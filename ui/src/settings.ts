@@ -17,6 +17,7 @@ const STORAGE_KEY_WORKER_URL = "markupsidedown:workerUrl";
 const STORAGE_KEY_SETUP_DONE = "markupsidedown:setupDone";
 const STORAGE_KEY_ALLOW_IMAGE = "markupsidedown:allowImageConversion";
 const STORAGE_KEY_AUTOSAVE = "markupsidedown:autosave";
+const STORAGE_KEY_SLACK_TOKEN = "markupsidedown:slackToken";
 
 export function getWorkerUrl() {
   return localStorage.getItem(STORAGE_KEY_WORKER_URL) || "";
@@ -40,6 +41,18 @@ export function isImageConversionAllowed() {
 
 export function isAutoSaveEnabled() {
   return localStorage.getItem(STORAGE_KEY_AUTOSAVE) !== "0";
+}
+
+export function getSlackToken() {
+  return localStorage.getItem(STORAGE_KEY_SLACK_TOKEN) || "";
+}
+
+export function setSlackToken(token: string) {
+  if (token) {
+    localStorage.setItem(STORAGE_KEY_SLACK_TOKEN, token);
+  } else {
+    localStorage.removeItem(STORAGE_KEY_SLACK_TOKEN);
+  }
 }
 
 function setAutoSaveEnabled(enabled: boolean) {
@@ -75,6 +88,11 @@ function featureRows(status: WorkerStatus | null) {
       name: "Fetch URL (Render JS)",
       ok: hasRender,
       hint: hasRender ? "Ready" : hasWorker ? "Needs Worker secrets" : "Needs Worker URL + secrets",
+    },
+    {
+      name: "Import from Slack",
+      ok: Boolean(getSlackToken()),
+      hint: getSlackToken() ? "Ready" : "Needs Slack Bot Token",
     },
   ];
 }
@@ -437,6 +455,25 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
       </div>
 
       <div class="settings-section">
+        <div class="settings-section-title">Slack Integration</div>
+        <div class="settings-description">
+          Import Slack channels and threads as Markdown. Requires a Slack Bot Token
+          with scopes: <code>channels:history</code>, <code>channels:read</code>,
+          <code>groups:history</code>, <code>groups:read</code>, <code>users:read</code>.
+        </div>
+        <div class="settings-worker-input-row">
+          <input
+            type="password"
+            id="settings-slack-token"
+            placeholder="xoxb-..."
+            value=""
+          />
+          <button id="settings-slack-test-btn">Test</button>
+        </div>
+        <div id="settings-slack-test-result" class="settings-test-result"></div>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-section-title">AI Agent Integration</div>
         <div class="settings-description">
           MCP allows AI agents (Claude Desktop, Claude Code) to read and write your editor,
@@ -500,6 +537,44 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
   if (currentTestStatus?.reachable && !currentTestStatus?.render_available) {
     secretsHelp.style.display = "";
   }
+
+  // Slack token
+  const slackTokenInput = document.getElementById("settings-slack-token") as HTMLInputElement;
+  const slackTestBtn = document.getElementById("settings-slack-test-btn") as HTMLButtonElement;
+  const slackTestResult = document.getElementById("settings-slack-test-result")!;
+  slackTokenInput.value = getSlackToken();
+
+  slackTestBtn.addEventListener("click", async () => {
+    const token = slackTokenInput.value.trim();
+    if (!token) {
+      slackTestResult.className = "settings-test-result test-error";
+      slackTestResult.textContent = "Enter a Slack Bot Token first";
+      return;
+    }
+    slackTestBtn.disabled = true;
+    slackTestBtn.textContent = "Testing\u2026";
+    slackTestResult.className = "settings-test-result test-pending";
+    slackTestResult.textContent = "Connecting\u2026";
+    try {
+      const status = await invoke<{ valid: boolean; team?: string; user?: string; error?: string }>(
+        "test_slack_token",
+        { token },
+      );
+      if (status.valid) {
+        slackTestResult.className = "settings-test-result test-ok";
+        slackTestResult.textContent = `Connected \u2014 Team: ${status.team || "?"}, User: ${status.user || "?"}`;
+      } else {
+        slackTestResult.className = "settings-test-result test-error";
+        slackTestResult.textContent = `Invalid token: ${status.error || "unknown error"}`;
+      }
+    } catch (e) {
+      slackTestResult.className = "settings-test-result test-error";
+      slackTestResult.textContent = `Error: ${e}`;
+    } finally {
+      slackTestBtn.disabled = false;
+      slackTestBtn.textContent = "Test";
+    }
+  });
 
   const allowImageCheckbox = document.getElementById("settings-allow-image") as HTMLInputElement;
   allowImageCheckbox.checked = isImageConversionAllowed();
@@ -588,6 +663,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
   const saveAndClose = () => {
     const url = urlInput.value.trim();
     setWorkerUrl(url);
+    setSlackToken(slackTokenInput.value.trim());
     setImageConversionAllowed(allowImageCheckbox.checked);
     setAutoSaveEnabled(autosaveCheckbox.checked);
     markSetupDone();
