@@ -5,7 +5,7 @@ MarkUpsideDown exposes its editing and conversion capabilities as an [MCP (Model
 ## Architecture
 
 ```
-AI Agent (Claude Desktop, Claude Code, etc.)
+AI Agent (Claude Desktop, Claude Code, Cowork)
     ↕ stdio (JSON-RPC)
 MCP Server (Rust sidecar binary, bundled in .app)
     ↕ HTTP (localhost:31415)
@@ -27,6 +27,9 @@ Editor (CodeMirror)
 | `get_editor_content` | Get current Markdown from the editor | — |
 | `set_editor_content` | Replace editor content | `markdown: string` |
 | `insert_text` | Insert text at cursor, start, or end | `text: string`, `position?: "cursor" \| "start" \| "end"` |
+| `get_editor_state` | Get editor state (file path, cursor, Worker URL) | — |
+| `get_document_structure` | Get document structure (headings, links, stats) as JSON | — |
+| `normalize_document` | Normalize headings, tables, list markers, whitespace | — |
 | `open_file` | Open a Markdown file in the editor | `path: string` |
 | `save_file` | Save content to a file | `path?: string` (uses current file if omitted) |
 | `export_pdf` | Export as PDF (opens print dialog) | — |
@@ -40,6 +43,19 @@ Editor (CodeMirror)
 | `convert_to_markdown` | Convert a local file to Markdown via Workers AI | `file_path: string` |
 
 **Supported formats for `convert_to_markdown`:** PDF, DOCX, XLSX, PPTX, HTML, HTM, CSV, XML, JPG, JPEG, PNG, GIF, WebP, BMP, TIFF, TIF
+
+### Crawl Tools (require Worker URL)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `crawl_website` | Start a website crawl job (returns `job_id`) | `url: string`, `depth?: number`, `limit?: number`, `render?: boolean`, `include_patterns?: string[]`, `exclude_patterns?: string[]` |
+| `crawl_status` | Poll crawl job status and retrieve Markdown pages | `job_id: string`, `cursor?: string` |
+
+### Diagnostics
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `check_worker` | Test Worker URL connectivity and report capabilities | — |
 
 ## Setup
 
@@ -70,7 +86,11 @@ Example:
 
 #### Claude Code
 
-Paste the copied config into your project's `.mcp.json` or global MCP config.
+Paste the copied config into your project's `.mcp.json` or global `~/.claude/settings.json`.
+
+#### Cowork
+
+Use the **Create workspace** button in the Cowork tab of the Settings panel. This creates a folder with `.mcp.json` and `CLAUDE.md` — open it in Cowork as your workspace.
 
 ### 3. Start the App
 

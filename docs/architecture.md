@@ -3,7 +3,7 @@
 ## Overview
 
 ```
-AI Agent (Claude Desktop, Claude Code, etc.)
+AI Agent (Claude Desktop, Claude Code, Cowork)
     ↕ stdio (JSON-RPC)
 MCP Server (mcp-server-rs/)
     ↕ HTTP (localhost:31415)
@@ -60,6 +60,10 @@ MCP Server (mcp-server-rs/)
 | File watcher | External file change detection and auto-reload | `ui/src/file-watcher.ts` |
 | Clipboard | Rich text / Markdown copy | `ui/src/clipboard.ts` |
 | MCP sync | Editor state sync for MCP bridge | `ui/src/mcp-sync.ts` |
+| Normalize | Post-conversion Markdown normalization | `ui/src/normalize.ts` |
+| Document structure | Heading tree, links, tables, stats parser | `ui/src/document-structure.ts` |
+| Markdown lint | Structural linting (headings, links, tables) | `ui/src/markdown-lint.ts` |
+| Command palette | Fuzzy search over all commands (Cmd+K) | `ui/src/command-palette.ts` |
 | Theme | CodeMirror editor theme (warm paper palette) | `ui/src/theme.ts` |
 | Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands.rs` |
 | Auto-setup | Wrangler CLI (login, deploy, secrets) | `src-tauri/src/cloudflare.rs` |
@@ -90,7 +94,7 @@ Security: SSRF prevention validates URLs and blocks private/reserved IP ranges v
 | Component | Role |
 |-----------|------|
 | `main.rs` | Entry point, stdio transport |
-| `tools.rs` | 9 MCP tools (editor, conversion, file operations) |
+| `tools.rs` | 15 MCP tools (editor, conversion, crawl, diagnostics) |
 | `bridge.rs` | HTTP client to Tauri bridge (auto-discovers port) |
 
 Communication: MCP server (Rust sidecar binary) reads the bridge port from `~/.markupsidedown-bridge-port` and sends HTTP requests to the Tauri backend's axum server.
@@ -105,6 +109,7 @@ See [mcp-server.md](mcp-server.md) for the full tool list.
 |---------|-------------|--------|
 | `sync_editor_state` | Sync editor state to Rust (for MCP bridge) | `commands.rs` |
 | `get_mcp_binary_path` | Get path to bundled MCP sidecar binary | `commands.rs` |
+| `create_cowork_workspace` | Create a Cowork workspace folder with MCP config | `commands.rs` |
 
 ### Worker / Conversion
 

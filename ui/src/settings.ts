@@ -541,18 +541,23 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
           <div id="settings-mcp-tab-content" class="settings-mcp-tab-content"></div>
         </div>
         <details class="settings-mcp-tools-details">
-          <summary>Available tools (10)</summary>
+          <summary>Available tools (15)</summary>
           <div class="settings-mcp-tools-list">
             <div class="settings-mcp-tool"><code>get_editor_content</code> &mdash; Get current Markdown from the editor</div>
             <div class="settings-mcp-tool"><code>set_editor_content</code> &mdash; Replace editor content</div>
             <div class="settings-mcp-tool"><code>insert_text</code> &mdash; Insert text at cursor, start, or end</div>
+            <div class="settings-mcp-tool"><code>get_editor_state</code> &mdash; Get editor state (file path, cursor, Worker URL)</div>
             <div class="settings-mcp-tool"><code>get_document_structure</code> &mdash; Get document structure (headings, links, stats) as JSON</div>
+            <div class="settings-mcp-tool"><code>normalize_document</code> &mdash; Normalize headings, tables, list markers, whitespace</div>
             <div class="settings-mcp-tool"><code>open_file</code> &mdash; Open a Markdown file</div>
             <div class="settings-mcp-tool"><code>save_file</code> &mdash; Save content to a file</div>
             <div class="settings-mcp-tool"><code>export_pdf</code> &mdash; Export as PDF</div>
             <div class="settings-mcp-tool"><code>fetch_markdown</code> &mdash; Fetch URL as Markdown</div>
             <div class="settings-mcp-tool"><code>render_markdown</code> &mdash; JS-render a page as Markdown</div>
             <div class="settings-mcp-tool"><code>convert_to_markdown</code> &mdash; Convert local file to Markdown</div>
+            <div class="settings-mcp-tool"><code>crawl_website</code> &mdash; Start a website crawl job</div>
+            <div class="settings-mcp-tool"><code>crawl_status</code> &mdash; Poll crawl job status and retrieve pages</div>
+            <div class="settings-mcp-tool"><code>check_worker</code> &mdash; Test Worker connectivity and capabilities</div>
           </div>
         </details>
       </div>

@@ -26,7 +26,10 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 - **Live preview** — Split-pane with real-time rendering, DOM-diffing (idiomorph), and bidirectional scroll sync
 - **Multi-tab editing** — Open multiple files in tabs, drag to reorder, switch with <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> / <kbd>]</kbd>
 - **CodeMirror 6** — Syntax highlighting, line numbers, bracket matching, search & replace
+- **Command palette** — Fuzzy search over all commands with <kbd>Cmd</kbd>+<kbd>K</kbd>
 - **Formatting shortcuts** — Bold, italic, strikethrough, inline code, link insertion
+- **Document cleanup** — Normalize headings, tables, list markers, whitespace in one click
+- **Markdown linting** — Structural warnings for heading hierarchy, broken links, table formatting
 - **Code highlighting** — 30+ languages via highlight.js (lazy-loaded), copy button on hover
 - **KaTeX math** — Inline `$...$` and display `$$...$$` rendering
 - **Mermaid diagrams** — Flowcharts, sequence diagrams, etc.
@@ -50,7 +53,7 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 
 ### Integration
 
-- **MCP Server** — AI agents (Claude Desktop, Claude Code, etc.) can read/write editor content via [Model Context Protocol](https://modelcontextprotocol.io/)
+- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, crawl websites, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (15 tools)
 
 ### Keyboard Shortcuts
 
@@ -62,7 +65,7 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 | <kbd>Cmd</kbd>+<kbd>I</kbd> | Italic (`*text*`) |
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> | Strikethrough (`~~text~~`) |
 | <kbd>Cmd</kbd>+<kbd>`</kbd> | Inline code (`` `text` ``) |
-| <kbd>Cmd</kbd>+<kbd>K</kbd> | Insert link (`[text](url)`) |
+| <kbd>Cmd</kbd>+<kbd>K</kbd> | Command palette (fuzzy search) |
 
 #### File & Tabs
 
@@ -156,7 +159,7 @@ cd ui && vp check src/
 
 The MCP server lets AI agents interact with the editor — read/write content, open/save files, import documents, and more. It is a standalone Rust binary bundled as a Tauri sidecar (no Node.js required).
 
-**Setup:** Open **Settings > AI Agent Integration** in the app, then copy the config JSON for your AI client (Claude Desktop or Claude Code).
+**Setup:** Open **Settings > AI Agent Integration** in the app, then copy the config JSON for your AI client (Claude Desktop, Claude Code, or Cowork).
 
 See [docs/mcp-server.md](docs/mcp-server.md) for the full tool list and troubleshooting.
 
@@ -192,6 +195,10 @@ ui/                      # Frontend (Vite+ + TypeScript)
 │   ├── file-watcher.ts      # External file change detection and auto-reload
 │   ├── clipboard.ts         # Rich text / Markdown copy
 │   ├── mcp-sync.ts          # Editor state sync for MCP bridge
+│   ├── normalize.ts         # Post-conversion Markdown normalization
+│   ├── document-structure.ts # Document structure parser (headings, links, tables)
+│   ├── markdown-lint.ts     # Markdown structural linting
+│   ├── command-palette.ts   # Command palette with fuzzy search (Cmd+K)
 │   ├── theme.ts             # CodeMirror editor theme
 │   ├── global.d.ts          # Tauri type declarations
 │   └── styles.css           # All styling (editor, preview, sidebar, dialogs, print)
@@ -206,7 +213,7 @@ worker/                  # Cloudflare Worker
 mcp-server-rs/           # MCP Server (Rust sidecar binary)
 ├── src/
 │   ├── main.rs          # Entry point (stdio transport)
-│   ├── tools.rs         # 9 MCP tools (editor, conversion, file operations)
+│   ├── tools.rs         # 15 MCP tools (editor, conversion, crawl, diagnostics)
 │   └── bridge.rs        # HTTP client to Tauri bridge
 └── Cargo.toml
 
