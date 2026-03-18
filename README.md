@@ -162,7 +162,7 @@ See [docs/mcp-server.md](docs/mcp-server.md) for the full tool list and troubles
 src-tauri/               # Rust backend (Tauri v2)
 ├── src/
 │   ├── main.rs          # App entry, plugin setup
-│   ├── commands.rs      # IPC commands (fetch, convert, file ops, git, GitHub)
+│   ├── commands.rs      # IPC commands (fetch, convert, crawl, file ops, git, GitHub)
 │   ├── bridge.rs        # MCP HTTP bridge (axum, localhost:31415)
 │   ├── cloudflare.rs    # Wrangler CLI integration, auto-setup wizard
 │   └── util.rs          # Shared utilities
@@ -178,6 +178,8 @@ ui/                      # Frontend (Vite+ + TypeScript)
 │   ├── git-panel.ts     # Git status, stage/unstage, commit, push/pull
 │   ├── github-panel.ts  # GitHub issue/PR fetcher
 │   ├── table-editor.ts  # Spreadsheet-like table editor with undo/redo
+│   ├── markdown-commands.ts # Formatting shortcuts (bold, italic, link, etc.)
+│   ├── crawl.ts         # Website crawl UI (dialog, polling, file saving)
 │   ├── theme.ts         # CodeMirror editor theme
 │   ├── global.d.ts      # Tauri type declarations
 │   └── styles.css       # All styling (editor, preview, sidebar, dialogs, print)
@@ -185,7 +187,7 @@ ui/                      # Frontend (Vite+ + TypeScript)
 └── package.json
 
 worker/                  # Cloudflare Worker
-├── src/index.ts         # /health, /convert (AI.toMarkdown), /render (Browser Rendering)
+├── src/index.ts         # /health, /convert (AI.toMarkdown), /render, /crawl (Browser Rendering)
 ├── wrangler.jsonc
 └── package.json
 

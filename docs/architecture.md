@@ -32,6 +32,8 @@ MCP Server (mcp-server-rs/)
 │  GET  /render   → Browser Rendering   │
 │       (content → stripBoilerplate     │
 │        → /markdown)                   │
+│  POST /crawl    → start site crawl    │
+│  GET  /crawl/:id → poll crawl results │
 └──────────────────────────────────────┘
 ```
 
@@ -51,6 +53,8 @@ MCP Server (mcp-server-rs/)
 | Git panel | Status, stage/unstage, commit, push/pull/fetch | `ui/src/git-panel.ts` |
 | GitHub panel | Issue/PR body fetcher via `gh` CLI | `ui/src/github-panel.ts` |
 | Table editor | Spreadsheet grid with undo/redo, paste TSV/CSV | `ui/src/table-editor.ts` |
+| Formatting | Markdown shortcuts (bold, italic, link, strikethrough, code) | `ui/src/markdown-commands.ts` |
+| Crawl | Website crawl UI (options dialog, polling, file saving) | `ui/src/crawl.ts` |
 | Theme | CodeMirror editor theme (warm paper palette) | `ui/src/theme.ts` |
 | Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands.rs` |
 | Auto-setup | Wrangler CLI (login, deploy, secrets) | `src-tauri/src/cloudflare.rs` |
@@ -60,9 +64,11 @@ MCP Server (mcp-server-rs/)
 
 | Endpoint | Purpose | Cloudflare Service |
 |----------|---------|-------------------|
-| `GET /health` | Capability check (reports convert/render availability) | — |
+| `GET /health` | Capability check (reports convert/render/crawl availability) | — |
 | `POST /convert` | Document/image → Markdown | Workers AI `AI.toMarkdown()` |
 | `GET /render?url=` | JS-rendered page → Markdown | Browser Rendering REST API |
+| `POST /crawl` | Start website crawl (returns `job_id`) | Browser Rendering `/crawl` REST API |
+| `GET /crawl/:job_id` | Poll crawl status and retrieve results | Browser Rendering `/crawl` REST API |
 
 The `/render` endpoint uses a multi-step pipeline:
 
@@ -104,6 +110,9 @@ See [mcp-server.md](mcp-server.md) for the full tool list.
 | `convert_file_to_markdown` | Send file to Worker `/convert` | `commands.rs` |
 | `detect_file_is_image` | Check if file is image (derived from MIME map) | `commands.rs` |
 | `fetch_svg` | Fetch and sanitize remote SVG for inline rendering | `commands.rs` |
+| `crawl_website` | Start website crawl via Worker `/crawl` | `commands.rs` |
+| `crawl_status` | Poll crawl job status and retrieve completed pages | `commands.rs` |
+| `crawl_save` | Save crawled pages as Markdown files to local directory | `commands.rs` |
 
 ### File Operations
 
@@ -184,6 +193,7 @@ The editor and preview panes are bidirectionally scroll-synced using an anchor-b
 | URL fetch (standard) | reqwest → target URL (with `Accept: text/markdown`) |
 | URL fetch (rendered) | reqwest → Worker → Browser Rendering REST API |
 | Document import | reqwest → Worker → Workers AI `AI.toMarkdown()` |
+| Website crawl | reqwest → Worker → Browser Rendering `/crawl` REST API → poll → save .md files |
 | SVG inlining | reqwest → SVG URL → sanitize (string-based) → inline DOM |
 | Git operations | `git` CLI subprocess (via `spawn_blocking`) |
 | GitHub | `gh` CLI subprocess |

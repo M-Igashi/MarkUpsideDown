@@ -1,9 +1,10 @@
 # Worker Deployment Guide
 
-MarkUpsideDown uses a Cloudflare Worker for two features:
+MarkUpsideDown uses a Cloudflare Worker for three features:
 
 1. **Document Import** — Convert PDF, Office docs, images, etc. to Markdown via [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/)
 2. **Rendered Fetch** — Fetch JavaScript-rendered pages as Markdown via [Browser Rendering](https://developers.cloudflare.com/browser-rendering/rest-api/markdown-endpoint/)
+3. **Website Crawl** — Crawl an entire website and save all pages as Markdown files via [Browser Rendering `/crawl` API](https://developers.cloudflare.com/browser-rendering/rest-api/crawl-endpoint/)
 
 Each user deploys their own Worker instance.
 
@@ -46,7 +47,7 @@ Create a single API token that covers deployment, document import, and rendered 
 |-------|-----------|---------|
 | Account > Workers Scripts | Edit | `wrangler deploy` |
 | Account > Workers AI | Read | `AI.toMarkdown()` (document import) |
-| Account > Browser Rendering | Edit | `/render` endpoint |
+| Account > Browser Rendering | Edit | `/render` and `/crawl` endpoints |
 
 ### Deploy
 
@@ -57,7 +58,7 @@ cd worker && wrangler deploy
 
 ### Set Worker Secrets
 
-The secrets are required for the `/render` endpoint (Rendered Fetch). If you only need Document Import, you can skip this — `/convert` uses the AI binding directly.
+The secrets are required for the `/render` and `/crawl` endpoints (Rendered Fetch and Website Crawl). If you only need Document Import, you can skip this — `/convert` uses the AI binding directly.
 
 Get your **Account ID** from [Cloudflare Dashboard](https://dash.cloudflare.com/) → Workers & Pages → right sidebar.
 
@@ -77,16 +78,21 @@ wrangler secret put CLOUDFLARE_API_TOKEN    # paste the same API token
 
 The URL is saved in localStorage and persists across sessions.
 
-## When to Use Rendered Fetch
+## When to Use Each Feature
 
 | Scenario | Use |
 |----------|-----|
-| Static pages, blogs, docs | **Standard** fetch (fast, free) |
-| SPAs (React, Vue, Angular) | **Render JS** |
-| Pages behind JS-based loading | **Render JS** |
-| Dynamic dashboards | **Render JS** |
+| Static pages, blogs, docs | **Fetch** (fast, free) |
+| SPAs (React, Vue, Angular) | **Render** |
+| Pages behind JS-based loading | **Render** |
+| Dynamic dashboards | **Render** |
+| Entire documentation site | **Crawl** |
+| Blog or wiki archival | **Crawl** |
+| Building a local Markdown corpus for AI/RAG | **Crawl** |
 
-The Render JS pipeline strips boilerplate (nav, header, footer, cookie banners, ads) using HTMLRewriter before converting to Markdown, producing cleaner output than raw HTML conversion.
+The Render pipeline strips boilerplate (nav, header, footer, cookie banners, ads) using HTMLRewriter before converting to Markdown, producing cleaner output than raw HTML conversion.
+
+The Crawl feature uses the Browser Rendering `/crawl` REST API to discover and convert pages starting from a URL. Results are saved as organized `.md` files under a local directory (e.g. `domain/path.md`).
 
 ## Pricing
 
@@ -97,7 +103,7 @@ The Render JS pipeline strips boilerplate (nav, header, footer, cookie banners, 
 | **Free** | 10 min/day | 6 req/min | Free |
 | **Paid** | 10 hrs/month | 600 req/min | $5/month |
 
-The free tier is sufficient for occasional use. Responses are cached for 1 hour. See [Browser Rendering Pricing](https://developers.cloudflare.com/browser-rendering/pricing/).
+The free tier is sufficient for occasional use. Render responses are cached for 1 hour. Crawl with `render: true` (default) is billed as Browser Rendering hours; `render: false` runs on Workers and is free during beta. The app defaults to a 50-page limit to prevent accidental cost overrun. See [Browser Rendering Pricing](https://developers.cloudflare.com/browser-rendering/pricing/).
 
 ### Document Import
 
@@ -124,7 +130,7 @@ Ensure `CLOUDFLARE_API_TOKEN` is set and the token has `Workers Scripts: Edit` p
 
 ### "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required"
 
-Set the secrets as described in [Set Worker Secrets](#set-worker-secrets). This is only required for Render JS.
+Set the secrets as described in [Set Worker Secrets](#set-worker-secrets). This is required for Render and Crawl features.
 
 ### Browser Rendering API errors
 
@@ -136,7 +142,7 @@ Set the secrets as described in [Set Worker Secrets](#set-worker-secrets). This 
 
 If the app can't auto-detect your API token, it will prompt you to paste one manually. Create a token with the permissions listed in [API Token](#api-token).
 
-If you skip this step, the Worker is still deployed and Document Import works — only Render JS requires the secrets.
+If you skip this step, the Worker is still deployed and Document Import works — only Render and Crawl require the secrets.
 
 ### Updating the Worker
 
