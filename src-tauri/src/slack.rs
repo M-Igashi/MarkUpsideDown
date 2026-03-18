@@ -447,7 +447,8 @@ pub async fn fetch_slack_channel(
     // Fetch channel name
     let channel_name = fetch_channel_name(&token, &channel_id, &client).await;
 
-    // Paginate through conversations.history
+    // Paginate through conversations.history (with auto-join on not_in_channel)
+    let mut joined = false;
     loop {
         let mut url = format!(
             "https://slack.com/api/conversations.history?channel={channel_id}&limit=100"
@@ -468,7 +469,14 @@ pub async fn fetch_slack_channel(
             resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
 
         if !body.ok {
-            return Err(body.error.unwrap_or_else(|| "Unknown error".to_string()));
+            let err = body.error.as_deref().unwrap_or("Unknown error");
+            // Auto-join the channel on first not_in_channel error, then retry
+            if err == "not_in_channel" && !joined {
+                try_join_channel(&token, &channel_id, &client).await?;
+                joined = true;
+                continue;
+            }
+            return Err(err.to_string());
         }
 
         if let Some(messages) = body.messages {
@@ -521,22 +529,41 @@ pub async fn fetch_slack_thread(
         "https://slack.com/api/conversations.replies?channel={channel_id}&ts={thread_ts}&limit=200"
     );
 
-    let resp = client
-        .get(&url)
-        .bearer_auth(&token)
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {e}"))?;
+    let fetch_replies = |url: &str, token: &str, client: &reqwest::Client| {
+        let url = url.to_string();
+        let token = token.to_string();
+        let client = client.clone();
+        async move {
+            let resp = client
+                .get(&url)
+                .bearer_auth(&token)
+                .timeout(Duration::from_secs(15))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+            resp.json::<ConversationsRepliesResponse>()
+                .await
+                .map_err(|e| format!("Parse error: {e}"))
+        }
+    };
 
-    let body: ConversationsRepliesResponse =
-        resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+    let body = fetch_replies(&url, &token, &client).await?;
 
-    if !body.ok {
-        return Err(body.error.unwrap_or_else(|| "Unknown error".to_string()));
-    }
-
-    let messages = body.messages.unwrap_or_default();
+    let messages = if !body.ok {
+        let err = body.error.as_deref().unwrap_or("Unknown error");
+        if err == "not_in_channel" {
+            try_join_channel(&token, &channel_id, &client).await?;
+            let body2 = fetch_replies(&url, &token, &client).await?;
+            if !body2.ok {
+                return Err(body2.error.unwrap_or_else(|| "Unknown error".to_string()));
+            }
+            body2.messages.unwrap_or_default()
+        } else {
+            return Err(err.to_string());
+        }
+    } else {
+        body.messages.unwrap_or_default()
+    };
     let channel_name = fetch_channel_name(&token, &channel_id, &client).await;
 
     // Resolve user names
@@ -577,6 +604,51 @@ pub fn parse_slack_input(input: String) -> Result<(String, Option<String>), Stri
 }
 
 // --- Helpers ---
+
+/// Try to join a public channel. Returns Ok(true) if joined, Ok(false) if already in,
+/// or Err with a user-friendly message if the bot cannot join (e.g. private channel).
+async fn try_join_channel(
+    token: &str,
+    channel_id: &str,
+    client: &reqwest::Client,
+) -> Result<bool, String> {
+    let resp = client
+        .post("https://slack.com/api/conversations.join")
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "channel": channel_id }))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to join channel: {e}"))?;
+
+    #[derive(Deserialize)]
+    struct JoinResponse {
+        ok: bool,
+        error: Option<String>,
+    }
+
+    let body: JoinResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse join response: {e}"))?;
+
+    if body.ok {
+        return Ok(true);
+    }
+
+    match body.error.as_deref() {
+        Some("method_not_supported_for_channel_type") | Some("channel_not_found") => Err(
+            "Bot is not a member of this private channel. Invite the bot first with /invite @bot_name"
+                .to_string(),
+        ),
+        Some("missing_scope") => Err(
+            "Bot token needs the channels:join scope to auto-join public channels. Add the bot to the channel manually or add the scope."
+                .to_string(),
+        ),
+        Some(e) => Err(format!("Cannot join channel: {e}")),
+        None => Err("Cannot join channel: unknown error".to_string()),
+    }
+}
 
 async fn fetch_channel_name(
     token: &str,

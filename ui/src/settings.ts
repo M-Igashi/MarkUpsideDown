@@ -17,7 +17,8 @@ const STORAGE_KEY_WORKER_URL = "markupsidedown:workerUrl";
 const STORAGE_KEY_SETUP_DONE = "markupsidedown:setupDone";
 const STORAGE_KEY_ALLOW_IMAGE = "markupsidedown:allowImageConversion";
 const STORAGE_KEY_AUTOSAVE = "markupsidedown:autosave";
-const STORAGE_KEY_SLACK_TOKEN = "markupsidedown:slackToken";
+const STORAGE_KEY_SLACK_TOKEN = "markupsidedown:slackToken"; // legacy single token
+const STORAGE_KEY_SLACK_WORKSPACES = "markupsidedown:slackWorkspaces";
 
 export function getWorkerUrl() {
   return localStorage.getItem(STORAGE_KEY_WORKER_URL) || "";
@@ -43,16 +44,48 @@ export function isAutoSaveEnabled() {
   return localStorage.getItem(STORAGE_KEY_AUTOSAVE) !== "0";
 }
 
-export function getSlackToken() {
-  return localStorage.getItem(STORAGE_KEY_SLACK_TOKEN) || "";
+export interface SlackWorkspace {
+  token: string;
+  team: string;
+  user: string;
 }
 
-export function setSlackToken(token: string) {
-  if (token) {
-    localStorage.setItem(STORAGE_KEY_SLACK_TOKEN, token);
-  } else {
-    localStorage.removeItem(STORAGE_KEY_SLACK_TOKEN);
+export function getSlackWorkspaces(): SlackWorkspace[] {
+  const raw = localStorage.getItem(STORAGE_KEY_SLACK_WORKSPACES);
+  if (raw) {
+    try {
+      return JSON.parse(raw) as SlackWorkspace[];
+    } catch {
+      return [];
+    }
   }
+  // Migrate legacy single token
+  const legacy = localStorage.getItem(STORAGE_KEY_SLACK_TOKEN);
+  if (legacy) {
+    return [{ token: legacy, team: "Unknown", user: "Unknown" }];
+  }
+  return [];
+}
+
+export function setSlackWorkspaces(workspaces: SlackWorkspace[]) {
+  if (workspaces.length > 0) {
+    localStorage.setItem(STORAGE_KEY_SLACK_WORKSPACES, JSON.stringify(workspaces));
+  } else {
+    localStorage.removeItem(STORAGE_KEY_SLACK_WORKSPACES);
+  }
+  // Clean up legacy key
+  localStorage.removeItem(STORAGE_KEY_SLACK_TOKEN);
+}
+
+/** Get the first available token (used as default). */
+export function getSlackToken() {
+  const ws = getSlackWorkspaces();
+  return ws.length > 0 ? ws[0].token : "";
+}
+
+/** @deprecated Use setSlackWorkspaces instead */
+export function setSlackToken(_token: string) {
+  // no-op — kept for save handler compatibility during migration
 }
 
 function setAutoSaveEnabled(enabled: boolean) {
@@ -91,8 +124,11 @@ function featureRows(status: WorkerStatus | null) {
     },
     {
       name: "Import from Slack",
-      ok: Boolean(getSlackToken()),
-      hint: getSlackToken() ? "Ready" : "Needs Slack Bot Token",
+      ok: getSlackWorkspaces().length > 0,
+      hint:
+        getSlackWorkspaces().length > 0
+          ? `${getSlackWorkspaces().length} workspace(s)`
+          : "Needs Slack Bot Token",
     },
   ];
 }
@@ -459,16 +495,18 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
         <div class="settings-description">
           Import Slack channels and threads as Markdown. Requires a Slack Bot Token
           with scopes: <code>channels:history</code>, <code>channels:read</code>,
-          <code>groups:history</code>, <code>groups:read</code>, <code>users:read</code>.
+          <code>channels:join</code>, <code>groups:history</code>, <code>groups:read</code>,
+          <code>users:read</code>.
         </div>
-        <div class="settings-worker-input-row">
+        <div id="settings-slack-workspaces" class="settings-slack-workspaces"></div>
+        <div class="settings-slack-add-row">
           <input
             type="password"
             id="settings-slack-token"
             placeholder="xoxb-..."
             value=""
           />
-          <button id="settings-slack-test-btn">Test</button>
+          <button id="settings-slack-add-btn">Add</button>
         </div>
         <div id="settings-slack-test-result" class="settings-test-result"></div>
       </div>
@@ -538,21 +576,54 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
     secretsHelp.style.display = "";
   }
 
-  // Slack token
+  // Slack workspaces
+  const slackWorkspacesEl = document.getElementById("settings-slack-workspaces")!;
   const slackTokenInput = document.getElementById("settings-slack-token") as HTMLInputElement;
-  const slackTestBtn = document.getElementById("settings-slack-test-btn") as HTMLButtonElement;
+  const slackAddBtn = document.getElementById("settings-slack-add-btn") as HTMLButtonElement;
   const slackTestResult = document.getElementById("settings-slack-test-result")!;
-  slackTokenInput.value = getSlackToken();
+  let slackWorkspaces = getSlackWorkspaces();
 
-  slackTestBtn.addEventListener("click", async () => {
+  function renderSlackWorkspaces() {
+    slackWorkspacesEl.innerHTML = slackWorkspaces
+      .map(
+        (ws, i) => `
+      <div class="settings-slack-ws-row">
+        <span class="settings-slack-ws-team">${escapeHtml(ws.team)}</span>
+        <span class="settings-slack-ws-user">(${escapeHtml(ws.user)})</span>
+        <button class="settings-slack-ws-remove" data-index="${i}" title="Remove">&times;</button>
+      </div>`,
+      )
+      .join("");
+
+    slackWorkspacesEl
+      .querySelectorAll<HTMLButtonElement>(".settings-slack-ws-remove")
+      .forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const idx = Number(btn.dataset.index);
+          slackWorkspaces.splice(idx, 1);
+          setSlackWorkspaces(slackWorkspaces);
+          renderSlackWorkspaces();
+          renderFeatureList(featureList, currentTestStatus);
+        });
+      });
+  }
+  renderSlackWorkspaces();
+
+  async function addSlackWorkspace() {
     const token = slackTokenInput.value.trim();
     if (!token) {
       slackTestResult.className = "settings-test-result test-error";
       slackTestResult.textContent = "Enter a Slack Bot Token first";
       return;
     }
-    slackTestBtn.disabled = true;
-    slackTestBtn.textContent = "Testing\u2026";
+    // Check for duplicate
+    if (slackWorkspaces.some((ws) => ws.token === token)) {
+      slackTestResult.className = "settings-test-result test-error";
+      slackTestResult.textContent = "This token is already added";
+      return;
+    }
+    slackAddBtn.disabled = true;
+    slackAddBtn.textContent = "Testing\u2026";
     slackTestResult.className = "settings-test-result test-pending";
     slackTestResult.textContent = "Connecting\u2026";
     try {
@@ -561,8 +632,18 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
         { token },
       );
       if (status.valid) {
+        const ws: SlackWorkspace = {
+          token,
+          team: status.team || "Unknown",
+          user: status.user || "Unknown",
+        };
+        slackWorkspaces.push(ws);
+        setSlackWorkspaces(slackWorkspaces);
+        renderSlackWorkspaces();
+        renderFeatureList(featureList, currentTestStatus);
+        slackTokenInput.value = "";
         slackTestResult.className = "settings-test-result test-ok";
-        slackTestResult.textContent = `Connected \u2014 Team: ${status.team || "?"}, User: ${status.user || "?"}`;
+        slackTestResult.textContent = `Added \u2014 ${ws.team}`;
       } else {
         slackTestResult.className = "settings-test-result test-error";
         slackTestResult.textContent = `Invalid token: ${status.error || "unknown error"}`;
@@ -571,9 +652,14 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
       slackTestResult.className = "settings-test-result test-error";
       slackTestResult.textContent = `Error: ${e}`;
     } finally {
-      slackTestBtn.disabled = false;
-      slackTestBtn.textContent = "Test";
+      slackAddBtn.disabled = false;
+      slackAddBtn.textContent = "Add";
     }
+  }
+
+  slackAddBtn.addEventListener("click", addSlackWorkspace);
+  slackTokenInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addSlackWorkspace();
   });
 
   const allowImageCheckbox = document.getElementById("settings-allow-image") as HTMLInputElement;
@@ -663,7 +749,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
   const saveAndClose = () => {
     const url = urlInput.value.trim();
     setWorkerUrl(url);
-    setSlackToken(slackTokenInput.value.trim());
+    // Slack workspaces are saved immediately on add/remove
     setImageConversionAllowed(allowImageCheckbox.checked);
     setAutoSaveEnabled(autosaveCheckbox.checked);
     markSetupDone();
@@ -789,4 +875,12 @@ export function checkFirstRun() {
   if (!isSetupDone() && !getWorkerUrl()) {
     showSettings();
   }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

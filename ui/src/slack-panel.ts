@@ -1,10 +1,11 @@
-import { getSlackToken } from "./settings.ts";
+import { getSlackWorkspaces } from "./settings.ts";
 
 const { invoke } = window.__TAURI__.core;
 
 let panelEl: HTMLElement | null = null;
 let onInsert: ((body: string, ref_: string) => void) | null = null;
 let statusEl: HTMLElement | null = null;
+let selectEl: HTMLSelectElement | null = null;
 
 export function initSlackPanel(
   el: HTMLElement,
@@ -15,9 +16,37 @@ export function initSlackPanel(
   render();
 }
 
+function getSelectedToken(): string {
+  if (!selectEl) return "";
+  const workspaces = getSlackWorkspaces();
+  const idx = Number(selectEl.value);
+  return workspaces[idx]?.token || "";
+}
+
 function render() {
   if (!panelEl) return;
   panelEl.innerHTML = "";
+
+  const workspaces = getSlackWorkspaces();
+
+  // Workspace selector (only if multiple)
+  if (workspaces.length > 1) {
+    const selectorRow = document.createElement("div");
+    selectorRow.className = "slack-input-row";
+
+    selectEl = document.createElement("select");
+    selectEl.className = "slack-input";
+    workspaces.forEach((ws, i) => {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = ws.team;
+      selectEl!.appendChild(opt);
+    });
+    selectorRow.appendChild(selectEl);
+    panelEl.appendChild(selectorRow);
+  } else {
+    selectEl = null;
+  }
 
   // Input row
   const inputRow = document.createElement("div");
@@ -57,9 +86,14 @@ async function fetchSlack(input: HTMLInputElement) {
   const raw = input.value.trim();
   if (!raw) return;
 
-  const token = getSlackToken();
+  const workspaces = getSlackWorkspaces();
+  if (workspaces.length === 0) {
+    setStatus("Add a Slack Bot Token in Settings first", "slack-status-error");
+    return;
+  }
+  const token = selectEl ? getSelectedToken() : workspaces[0].token;
   if (!token) {
-    setStatus("Set Slack Bot Token in Settings first", "slack-status-error");
+    setStatus("Select a workspace", "slack-status-error");
     return;
   }
 
