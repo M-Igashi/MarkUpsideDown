@@ -196,7 +196,8 @@ function loadContentAsTab(content: string, filePath?: string) {
 function updateStatus(state: EditorState) {
   const lines = state.doc.lines;
   const chars = state.doc.length;
-  const pathInfo = currentFilePath ? ` | ${currentFilePath}` : "";
+  const fp = getCurrentFilePath();
+  const pathInfo = fp ? ` | ${fp}` : "";
   const branch = getBranch();
   const branchInfo = branch ? ` | \u{e0a0} ${branch}` : "";
   statusEl.textContent = `${lines} lines | ${chars} chars${pathInfo}${branchInfo}`;

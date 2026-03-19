@@ -7,8 +7,6 @@ mod commands;
 mod util;
 
 use std::sync::Arc;
-use tauri::Manager;
-
 fn main() {
     let editor_state = Arc::new(commands::EditorState::default());
     let editor_state_managed = editor_state.clone();
@@ -70,7 +68,7 @@ fn main() {
             cloudflare::setup_worker_secrets,
             cloudflare::setup_worker_secrets_with_token,
         ])
-        .on_window_event(|window, event| {
+        .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 bridge::cleanup();
             }

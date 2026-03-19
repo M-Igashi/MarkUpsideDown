@@ -575,7 +575,31 @@ export async function refreshTree() {
   // Stale render — discard
   if (gen !== refreshGeneration) return;
 
-  // Atomic swap: replace old tree element with new one
+  // Atomic swap: replace old tree element with new one.
+  // Re-attach listeners lost by replaceWith.
+  const suppressNativeDrag = (e: DragEvent) => {
+    if (dragSourcePaths.size > 0) e.preventDefault();
+  };
+  newTree.addEventListener("dragenter", suppressNativeDrag);
+  newTree.addEventListener("dragover", suppressNativeDrag);
+  newTree.addEventListener("drop", (e) => {
+    if (dragSourcePaths.size === 0) return;
+    e.preventDefault();
+    // Resolve target folder: if dropped inside an expanded folder's children area,
+    // find the parent folder item (the sibling before .sidebar-tree-children).
+    const target = e.target as HTMLElement;
+    const childrenContainer = target.closest(".sidebar-tree-children");
+    let targetDir = rootPath;
+    if (childrenContainer) {
+      const folderItem = childrenContainer.previousElementSibling as HTMLElement | null;
+      if (folderItem?.dataset.path) targetDir = folderItem.dataset.path;
+    }
+    if (targetDir) {
+      moveEntries(dragSourcePaths, targetDir);
+      dragSourcePaths.clear();
+    }
+  });
+  newTree.addEventListener("keydown", handleTreeKeydown);
   treeEl.replaceWith(newTree);
   treeEl = newTree;
 }
