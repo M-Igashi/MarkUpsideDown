@@ -100,6 +100,36 @@ pub struct CrawlStatusParams {
     pub cursor: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListDirectoryParams {
+    #[schemars(description = "Directory path (absolute or relative to project root). Defaults to project root.")]
+    pub path: Option<String>,
+    #[schemars(description = "Whether to list recursively (default: false)")]
+    pub recursive: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ReadFileParams {
+    #[schemars(description = "File path (absolute or relative to project root)")]
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SwitchTabParams {
+    #[schemars(description = "File path of the tab to switch to")]
+    pub path: Option<String>,
+    #[schemars(description = "Tab ID to switch to")]
+    pub tab_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SearchFilesParams {
+    #[schemars(description = "Search query (substring match against file names)")]
+    pub query: String,
+    #[schemars(description = "Directory to search in (defaults to project root)")]
+    pub path: Option<String>,
+}
+
 // --- Server ---
 
 pub struct McpTools {
@@ -360,6 +390,108 @@ impl McpTools {
             Ok(state) => {
                 let json = serde_json::to_string_pretty(&state).unwrap_or_default();
                 Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Project Context Tools (require running app) ---
+
+    #[tool(name = "list_directory", description = "List files and directories in the project. Respects .gitignore. Returns name, path, is_dir, extension for each entry.", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn list_directory(
+        &self,
+        Parameters(params): Parameters<ListDirectoryParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.list_files(params.path.as_deref(), params.recursive.unwrap_or(false)).await {
+            Ok(entries) => {
+                let json = serde_json::to_string_pretty(&entries).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(format!("{} entries\n\n{json}", entries.len()))]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "get_open_tabs", description = "List all open editor tabs with their path, name, and dirty (unsaved) status", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn get_open_tabs(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.get_tabs().await {
+            Ok(tabs) => {
+                let json = serde_json::to_string_pretty(&tabs).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "get_project_root", description = "Get the current project root directory path", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn get_project_root(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.get_project_root().await {
+            Ok(Some(path)) => Ok(CallToolResult::success(vec![Content::text(path)])),
+            Ok(None) => Ok(CallToolResult::error(vec![Content::text("No project root set (no folder opened in sidebar)")])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "read_file", description = "Read a text file from the project. Works for any file, not just the active editor tab.", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn read_file(
+        &self,
+        Parameters(params): Parameters<ReadFileParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.read_file(&params.path).await {
+            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "get_dirty_files", description = "List files with unsaved changes (dirty tabs)", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn get_dirty_files(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.get_dirty_files().await {
+            Ok(files) => {
+                if files.is_empty() {
+                    Ok(CallToolResult::success(vec![Content::text("No unsaved changes")]))
+                } else {
+                    let json = serde_json::to_string_pretty(&files).unwrap_or_default();
+                    Ok(CallToolResult::success(vec![Content::text(format!("{} files with unsaved changes\n\n{json}", files.len()))]))
+                }
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "switch_tab", description = "Switch the active editor tab by file path or tab ID", annotations(read_only_hint = false, open_world_hint = false))]
+    async fn switch_tab(
+        &self,
+        Parameters(params): Parameters<SwitchTabParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.switch_tab(params.path.as_deref(), params.tab_id.as_deref()).await {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text("Tab switched")])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_status", description = "Get git status of the project: branch, file changes (staged/unstaged), ahead/behind counts", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn git_status(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_status().await {
+            Ok(status) => {
+                let json = serde_json::to_string_pretty(&status).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "search_files", description = "Search file names in the project by substring match. Returns matching file entries.", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn search_files(
+        &self,
+        Parameters(params): Parameters<SearchFilesParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.search_files(&params.query, params.path.as_deref()).await {
+            Ok(matches) => {
+                if matches.is_empty() {
+                    Ok(CallToolResult::success(vec![Content::text("No matching files found")]))
+                } else {
+                    let json = serde_json::to_string_pretty(&matches).unwrap_or_default();
+                    Ok(CallToolResult::success(vec![Content::text(format!("{} matches\n\n{json}", matches.len()))]))
+                }
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }

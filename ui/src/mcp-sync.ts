@@ -1,7 +1,15 @@
 import type { EditorView } from "@codemirror/view";
 import { basename } from "./path-utils.ts";
 import { getWorkerUrl } from "./settings.ts";
-import { getActiveTab, markTabSaved, updateActiveTab } from "./tabs.ts";
+import {
+  getActiveTab,
+  getTabByPath,
+  getTabs,
+  isTabDirty,
+  markTabSaved,
+  switchTab,
+  updateActiveTab,
+} from "./tabs.ts";
 import { getRootPath } from "./sidebar.ts";
 import { suppressNext } from "./file-watcher.ts";
 import { getDocumentStructure } from "./document-structure.ts";
@@ -56,12 +64,20 @@ export function syncEditorState(cachedContent?: string) {
       frontmatter: structure.frontmatter,
       stats: structure.stats,
     });
+    const tabInfos = getTabs().map((t) => ({
+      id: t.id,
+      path: t.path,
+      name: t.name,
+      is_dirty: isTabDirty(t),
+    }));
     invoke("sync_editor_state", {
       content,
       filePath: currentFilePath,
       cursorPos,
       workerUrl: getWorkerUrl() || null,
       documentStructure: structureJson,
+      rootPath: getRootPath() || null,
+      tabs: tabInfos,
     }).catch(() => {});
   }, 2000);
 }
@@ -133,5 +149,16 @@ export function initBridgeListeners() {
       renderPreview(cleaned);
     }
     syncEditorState(cleaned);
+  });
+
+  listen<{ path?: string; tab_id?: string }>("bridge:switch-tab", (event) => {
+    const { path, tab_id } = event.payload;
+    if (tab_id) {
+      switchTab(tab_id);
+    } else if (path) {
+      const tab = getTabByPath(path);
+      if (tab) switchTab(tab.id);
+    }
+    syncEditorState();
   });
 }

@@ -134,6 +134,89 @@ impl BridgeClient {
         }
         Ok(json)
     }
+
+    pub async fn get_tabs(&self) -> Result<Vec<TabInfo>, String> {
+        let val = self.request("GET", "/editor/tabs", None).await?;
+        let json = val.unwrap_or_default();
+        #[derive(Deserialize)]
+        struct Resp { tabs: Vec<TabInfo> }
+        let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
+        Ok(resp.tabs)
+    }
+
+    pub async fn get_project_root(&self) -> Result<Option<String>, String> {
+        let val = self.request("GET", "/editor/root", None).await?;
+        let json = val.unwrap_or_default();
+        Ok(json.get("root_path").and_then(|v| v.as_str()).map(|s| s.to_string()))
+    }
+
+    pub async fn get_dirty_files(&self) -> Result<Vec<TabInfo>, String> {
+        let val = self.request("GET", "/editor/dirty-files", None).await?;
+        let json = val.unwrap_or_default();
+        #[derive(Deserialize)]
+        struct Resp { dirty_files: Vec<TabInfo> }
+        let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
+        Ok(resp.dirty_files)
+    }
+
+    pub async fn switch_tab(&self, path: Option<&str>, tab_id: Option<&str>) -> Result<(), String> {
+        self.request("POST", "/editor/switch-tab", Some(serde_json::json!({ "path": path, "tab_id": tab_id }))).await?;
+        Ok(())
+    }
+
+    pub async fn list_files(&self, path: Option<&str>, recursive: bool) -> Result<Vec<FileEntry>, String> {
+        let mut query = String::from("/files/list?");
+        if let Some(p) = path {
+            query.push_str(&format!("path={}&", urlencoding::encode(p)));
+        }
+        if recursive {
+            query.push_str("recursive=true");
+        }
+        let val = self.request("GET", &query, None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        #[derive(Deserialize)]
+        struct Resp { entries: Vec<FileEntry> }
+        let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
+        Ok(resp.entries)
+    }
+
+    pub async fn read_file(&self, path: &str) -> Result<String, String> {
+        let query = format!("/files/read?path={}", urlencoding::encode(path));
+        let val = self.request("GET", &query, None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub async fn search_files(&self, query_str: &str, path: Option<&str>) -> Result<Vec<FileEntry>, String> {
+        let mut query = format!("/files/search?query={}", urlencoding::encode(query_str));
+        if let Some(p) = path {
+            query.push_str(&format!("&path={}", urlencoding::encode(p)));
+        }
+        let val = self.request("GET", &query, None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        #[derive(Deserialize)]
+        struct Resp { matches: Vec<FileEntry> }
+        let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
+        Ok(resp.matches)
+    }
+
+    pub async fn git_status(&self) -> Result<GitStatus, String> {
+        let val = self.request("GET", "/git/status", None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        serde_json::from_value(json).map_err(|e| e.to_string())
+    }
 }
 
 #[derive(Deserialize, serde::Serialize)]
@@ -141,4 +224,39 @@ pub struct EditorState {
     pub file_path: Option<String>,
     pub worker_url: Option<String>,
     pub cursor_pos: usize,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct TabInfo {
+    pub id: String,
+    pub path: Option<String>,
+    pub name: String,
+    pub is_dirty: bool,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub extension: Option<String>,
+    pub modified_at: Option<u64>,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct GitFileStatus {
+    pub path: String,
+    pub status: String,
+    pub staged: bool,
+    pub added_lines: u32,
+    pub removed_lines: u32,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct GitStatus {
+    pub branch: String,
+    pub files: Vec<GitFileStatus>,
+    pub is_repo: bool,
+    pub ahead: u32,
+    pub behind: u32,
 }

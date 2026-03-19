@@ -5,6 +5,14 @@ use std::time::Duration;
 
 // --- Shared Editor State (for MCP bridge) ---
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct TabInfo {
+    pub id: String,
+    pub path: Option<String>,
+    pub name: String,
+    pub is_dirty: bool,
+}
+
 #[derive(Default)]
 pub struct EditorStateInner {
     pub content: String,
@@ -12,6 +20,8 @@ pub struct EditorStateInner {
     pub cursor_pos: usize,
     pub worker_url: Option<String>,
     pub document_structure: Option<String>, // JSON string from frontend
+    pub root_path: Option<String>,
+    pub tabs: Vec<TabInfo>,
 }
 
 #[derive(Default)]
@@ -26,6 +36,8 @@ pub fn sync_editor_state(
     cursor_pos: Option<usize>,
     worker_url: Option<String>,
     document_structure: Option<String>,
+    root_path: Option<String>,
+    tabs: Option<Vec<TabInfo>>,
     state: tauri::State<'_, std::sync::Arc<EditorState>>,
 ) -> Result<(), String> {
     let mut s = state.inner.lock().unwrap();
@@ -37,6 +49,12 @@ pub fn sync_editor_state(
     s.worker_url = worker_url;
     if let Some(ds) = document_structure {
         s.document_structure = Some(ds);
+    }
+    if let Some(rp) = root_path {
+        s.root_path = Some(rp);
+    }
+    if let Some(t) = tabs {
+        s.tabs = t;
     }
     Ok(())
 }

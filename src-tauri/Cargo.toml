@@ -19,7 +19,7 @@ serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 tokio = { version = "1", features = ["net", "rt", "fs", "macros"] }
 urlencoding = "2"
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
 log = "0.4"
 regex-lite = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
