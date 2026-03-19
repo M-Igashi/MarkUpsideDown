@@ -1,6 +1,8 @@
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 
+import { load, type Store } from "@tauri-apps/plugin-store";
+
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -9,7 +11,33 @@ const { listen } = window.__TAURI__.event;
 const STORAGE_KEY_COLLAPSED = "markupsidedown:claudePanelCollapsed";
 const STORAGE_KEY_WIDTH = "markupsidedown:claudePanelWidth";
 const STORAGE_KEY_AUTH_MODE = "markupsidedown:claudeAuthMode";
-const STORAGE_KEY_API_KEY = "markupsidedown:claudeApiKey";
+const STORE_KEY_API_KEY = "claudeApiKey";
+
+// --- Secure store for sensitive data ---
+
+let storePromise: Promise<Store> | null = null;
+
+function getStore(): Promise<Store> {
+  if (!storePromise) {
+    storePromise = load("claude-secrets.json", { autoSave: true });
+  }
+  return storePromise;
+}
+
+async function getApiKey(): Promise<string | undefined> {
+  const store = await getStore();
+  return ((await store.get<string>(STORE_KEY_API_KEY)) as string | undefined) || undefined;
+}
+
+async function setApiKey(key: string): Promise<void> {
+  const store = await getStore();
+  await store.set(STORE_KEY_API_KEY, key);
+}
+
+async function removeApiKey(): Promise<void> {
+  const store = await getStore();
+  await store.delete(STORE_KEY_API_KEY);
+}
 const DEFAULT_WIDTH = 420;
 const MAX_TABS = 5;
 
@@ -61,8 +89,19 @@ export function initClaudePanel(
   getMcpBinaryPath = opts.getMcpBinaryPath;
   getWorkerUrl = opts.getWorkerUrl;
 
+  migrateApiKeyFromLocalStorage();
   renderPanel();
   setupGlobalListeners();
+}
+
+/** Migrate API key from localStorage to secure store (one-time) */
+async function migrateApiKeyFromLocalStorage() {
+  const OLD_KEY = "markupsidedown:claudeApiKey";
+  const legacyKey = localStorage.getItem(OLD_KEY);
+  if (legacyKey) {
+    await setApiKey(legacyKey);
+    localStorage.removeItem(OLD_KEY);
+  }
 }
 
 export function isClaudePanelOpen() {
@@ -92,7 +131,7 @@ export function toggleClaudePanel() {
 
 export async function resetAuth() {
   localStorage.removeItem(STORAGE_KEY_AUTH_MODE);
-  localStorage.removeItem(STORAGE_KEY_API_KEY);
+  await removeApiKey();
 
   // Kill and dispose all sessions
   for (const [id, session] of sessions) {
@@ -227,7 +266,7 @@ function showNotInstalled() {
   setupEl.querySelector(".claude-setup-retry-btn")!.addEventListener("click", showSetupOrTerminal);
 }
 
-function showSetup() {
+async function showSetup() {
   const setupEl = container.querySelector(".claude-setup") as HTMLElement;
   const terminalsEl = container.querySelector(".claude-terminals") as HTMLElement;
   const tabBar = container.querySelector(".claude-tab-bar") as HTMLElement;
@@ -235,7 +274,7 @@ function showSetup() {
   terminalsEl.style.display = "none";
   tabBar.style.display = "none";
 
-  const savedKey = localStorage.getItem(STORAGE_KEY_API_KEY) || "";
+  const savedKey = (await getApiKey()) || "";
 
   setupEl.innerHTML = `
     <div class="claude-setup-auth">
@@ -281,7 +320,7 @@ function showSetup() {
       return;
     }
     localStorage.setItem(STORAGE_KEY_AUTH_MODE, "apikey");
-    localStorage.setItem(STORAGE_KEY_API_KEY, key);
+    await setApiKey(key);
     await createNewTab();
   });
 
@@ -527,8 +566,7 @@ async function spawnClaude(sessionId: string) {
 
   const cwd = getCwd() || "/";
   const authMode = localStorage.getItem(STORAGE_KEY_AUTH_MODE);
-  const apiKey =
-    authMode === "apikey" ? localStorage.getItem(STORAGE_KEY_API_KEY) || undefined : undefined;
+  const apiKey = authMode === "apikey" ? await getApiKey() : undefined;
 
   // Generate MCP config
   let mcpConfigPath: string | undefined;
