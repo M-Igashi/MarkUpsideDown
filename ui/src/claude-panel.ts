@@ -191,9 +191,9 @@ function renderPanel() {
   const newTabBtn = container.querySelector(".claude-tab-new") as HTMLButtonElement;
   newTabBtn.addEventListener("click", createNewTab);
 
-  // If not collapsed on load, initialize
+  // If not collapsed on load, initialize — but auto-collapse if CLI is missing
   if (!container.classList.contains("collapsed")) {
-    showSetupOrTerminal();
+    showSetupOrTerminal({ autoCollpaseIfMissing: true });
   }
 }
 
@@ -229,9 +229,13 @@ function cleanupGlobalListeners() {
   }
 }
 
-async function showSetupOrTerminal() {
+async function showSetupOrTerminal(opts?: { autoCollpaseIfMissing?: boolean }) {
   const installed = await invoke<boolean>("check_claude_installed").catch(() => false);
   if (!installed) {
+    if (opts?.autoCollpaseIfMissing && !container.classList.contains("collapsed")) {
+      toggleClaudePanel();
+      return;
+    }
     showNotInstalled();
     return;
   }

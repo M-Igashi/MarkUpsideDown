@@ -37,13 +37,37 @@ struct PtyExitPayload {
     session_id: String,
 }
 
+/// Resolve the full path to the `claude` binary.
+/// macOS GUI apps don't inherit shell profile PATH, so we check well-known
+/// install locations first, then fall back to a login-shell `which`.
+fn find_claude_path() -> Option<String> {
+    let candidates = [
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+    ];
+    for path in candidates {
+        if std::path::Path::new(path).exists() {
+            return Some(path.to_string());
+        }
+    }
+
+    // Fallback: ask a login shell (loads /etc/profile, ~/.zprofile, etc.)
+    let output = std::process::Command::new("/bin/zsh")
+        .args(["-l", "-c", "which claude"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            return Some(path);
+        }
+    }
+    None
+}
+
 #[tauri::command]
 pub fn check_claude_installed() -> Result<bool, String> {
-    let output = std::process::Command::new("which")
-        .arg("claude")
-        .output()
-        .map_err(|e| e.to_string())?;
-    Ok(output.status.success())
+    Ok(find_claude_path().is_some())
 }
 
 #[tauri::command]
@@ -83,7 +107,9 @@ pub fn spawn_claude(
         })
         .map_err(|e| format!("Failed to open PTY: {e}"))?;
 
-    let mut cmd = CommandBuilder::new("claude");
+    let claude_bin = find_claude_path()
+        .unwrap_or_else(|| "claude".to_string());
+    let mut cmd = CommandBuilder::new(claude_bin);
     if let Some(ref config_path) = mcp_config_path {
         cmd.arg("--mcp-config");
         cmd.arg(config_path);
