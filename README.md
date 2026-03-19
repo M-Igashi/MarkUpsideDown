@@ -1,6 +1,6 @@
 # MarkUpsideDown
 
-A Markdown editor with built-in power and smile.
+A Markdown browser/editor with built-in power and smile.
 
 No plugins. No extensions. Everything you need — live preview, file browser, Git, website crawling, document import, AI agent integration — ships in a single 15 MB app. Open it and start writing.
 
