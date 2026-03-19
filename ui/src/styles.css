@@ -2764,3 +2764,466 @@ body {
   font-size: 11px;
   color: var(--text-muted);
 }
+
+/* ===== Claude Panel ===== */
+
+#claude-divider {
+  width: 1px;
+  background: var(--border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  padding: 0 3px;
+  background-clip: content-box;
+}
+
+#claude-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  transition: width 0.15s;
+}
+
+#claude-panel.collapsed {
+  width: 0 !important;
+  border-left: none;
+  overflow: hidden;
+}
+
+#claude-panel.collapsed + #claude-divider,
+#claude-panel.collapsed ~ .panel-unfold-btn.claude-unfold {
+  display: none;
+}
+
+.claude-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 32px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.claude-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.claude-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.claude-status-active {
+  background: var(--success);
+}
+
+.claude-status-inactive {
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
+.claude-header .spacer {
+  flex: 1;
+}
+
+.claude-header-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.claude-header-btn:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+/* Messages */
+
+.claude-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.claude-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.claude-empty-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.claude-empty-hint {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.claude-msg {
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.claude-msg-user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 12px 12px 2px 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  max-width: 85%;
+  white-space: pre-wrap;
+}
+
+.claude-msg-assistant {
+  align-self: flex-start;
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 2px 12px 12px 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  max-width: 95%;
+}
+
+.claude-msg-system {
+  align-self: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+/* Markdown inside assistant messages */
+
+.claude-markdown {
+  line-height: 1.55;
+}
+
+.claude-markdown p {
+  margin: 0 0 8px;
+}
+
+.claude-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.claude-markdown pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  margin: 6px 0;
+}
+
+.claude-markdown code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--code-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.claude-markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.claude-markdown ul,
+.claude-markdown ol {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.claude-markdown h1,
+.claude-markdown h2,
+.claude-markdown h3 {
+  margin: 8px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.claude-markdown a {
+  color: var(--accent);
+}
+
+/* Thinking block */
+
+.claude-thinking {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--bg);
+}
+
+.claude-thinking summary {
+  cursor: pointer;
+  font-style: italic;
+}
+
+.claude-thinking-content {
+  white-space: pre-wrap;
+  margin-top: 6px;
+  font-size: 11px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Tool use blocks */
+
+.claude-tool {
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+
+.claude-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg);
+  font-weight: 500;
+}
+
+.claude-tool-icon {
+  font-size: 11px;
+}
+
+.claude-tool-running .claude-tool-icon {
+  color: var(--accent);
+  animation: spin 1s linear infinite;
+}
+
+.claude-tool-done .claude-tool-icon {
+  color: var(--success);
+}
+
+.claude-tool-error .claude-tool-icon {
+  color: var(--error);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.claude-tool-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.claude-tool-input {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  max-height: 100px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+/* Streaming cursor */
+
+.claude-cursor {
+  display: inline-block;
+  animation: blink 0.8s step-end infinite;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.claude-msg-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  margin-top: 4px;
+}
+
+/* Input area */
+
+.claude-input-area {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--toolbar-bg);
+  flex-shrink: 0;
+}
+
+.claude-input {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  background: var(--page);
+  color: var(--text);
+  outline: none;
+  max-height: 120px;
+  line-height: 1.4;
+}
+
+.claude-input:focus {
+  border-color: var(--accent);
+}
+
+.claude-input::placeholder {
+  color: var(--text-muted);
+}
+
+.claude-send-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.claude-send-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* Claude Settings Dialog */
+
+.claude-settings-box {
+  background: var(--page);
+  border-radius: 12px;
+  padding: 20px;
+  width: 380px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.claude-settings-box h3 {
+  font-size: 15px;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+.claude-settings-section {
+  margin-bottom: 14px;
+}
+
+.claude-settings-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.claude-settings-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.claude-settings-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.claude-settings-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+}
+
+.claude-settings-input:focus {
+  border-color: var(--accent);
+}
+
+select.claude-settings-input {
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.claude-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.claude-settings-actions button {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.claude-settings-actions button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.claude-settings-actions button:hover {
+  filter: brightness(1.05);
+}

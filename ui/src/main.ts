@@ -87,6 +87,11 @@ import {
 } from "./markdown-commands.ts";
 import { basename } from "./path-utils.ts";
 import { registerCommands, toggle as toggleCommandPalette } from "./command-palette.ts";
+import {
+  initClaudePanel,
+  togglePanel as toggleClaudePanel,
+  isCollapsed as isClaudePanelCollapsed,
+} from "./claude-panel.ts";
 
 // --- Tauri APIs ---
 
@@ -649,6 +654,46 @@ for (const tab of getTabs()) {
 // Append editor fold button to editor-header (stays at right edge)
 document.getElementById("editor-header")!.appendChild(editorFoldBtn);
 
+// --- Claude Panel ---
+
+const claudePanelEl = document.getElementById("claude-panel")!;
+const claudeDivider = document.getElementById("claude-divider")!;
+
+initClaudePanel(claudePanelEl, {
+  getCwd: () => getRootPath(),
+});
+
+// Claude panel divider drag
+let isClaudeDragging = false;
+claudeDivider.addEventListener("mousedown", () => {
+  isClaudeDragging = true;
+});
+let claudeDragRAF = 0;
+document.addEventListener("mousemove", (e) => {
+  if (!isClaudeDragging) return;
+  cancelAnimationFrame(claudeDragRAF);
+  const clientX = e.clientX;
+  claudeDragRAF = requestAnimationFrame(() => {
+    const width = Math.max(250, Math.min(600, window.innerWidth - clientX));
+    claudePanelEl.style.width = `${width}px`;
+    claudePanelEl.classList.remove("collapsed");
+    localStorage.setItem("markupsidedown:claudeWidth", String(width));
+    localStorage.setItem("markupsidedown:claudeCollapsed", "false");
+  });
+});
+document.addEventListener("mouseup", () => {
+  isClaudeDragging = false;
+});
+
+// Hide divider when collapsed
+if (isClaudePanelCollapsed()) {
+  claudeDivider.style.display = "none";
+}
+// Observe collapsed state for divider visibility
+new MutationObserver(() => {
+  claudeDivider.style.display = claudePanelEl.classList.contains("collapsed") ? "none" : "";
+}).observe(claudePanelEl, { attributes: true, attributeFilter: ["class"] });
+
 // --- Keyboard Shortcuts ---
 
 document.addEventListener("keydown", (e) => {
@@ -698,6 +743,9 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "\\") {
       e.preventDefault();
       togglePreview();
+    } else if (e.key === "j") {
+      e.preventDefault();
+      toggleClaudePanel();
     } else if (e.key === "k") {
       e.preventDefault();
       toggleCommandPalette();
@@ -809,6 +857,13 @@ registerCommands([
     shortcut: "⌘\\",
     category: "View",
     run: togglePreview,
+  },
+  {
+    id: "view.claude",
+    label: "Toggle Claude Panel",
+    shortcut: "⌘J",
+    category: "View",
+    run: toggleClaudePanel,
   },
   {
     id: "app.settings",

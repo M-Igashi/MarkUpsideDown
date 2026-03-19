@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bridge;
+mod claude;
 mod cloudflare;
 mod commands;
 mod util;
@@ -13,6 +14,8 @@ fn main() {
     let http_client = reqwest::Client::builder()
         .build()
         .expect("Failed to create HTTP client");
+    let claude_state = claude::new_state();
+    let claude_state_cleanup = claude_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -21,6 +24,7 @@ fn main() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(editor_state_managed)
         .manage(http_client)
+        .manage(claude_state)
 
         .setup(move |app| {
             bridge::start(app.handle().clone(), editor_state.clone());
@@ -67,10 +71,18 @@ fn main() {
             cloudflare::deploy_worker,
             cloudflare::setup_worker_secrets,
             cloudflare::setup_worker_secrets_with_token,
+            claude::claude_start,
+            claude::claude_stop,
+            claude::claude_send,
+            claude::claude_is_running,
         ])
-        .on_window_event(|_window, event| {
+        .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 bridge::cleanup();
+                let state = claude_state_cleanup.clone();
+                tokio::spawn(async move {
+                    claude::cleanup(&state).await;
+                });
             }
         })
         .run(tauri::generate_context!())
