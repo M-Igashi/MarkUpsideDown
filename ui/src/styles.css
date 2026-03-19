@@ -3087,6 +3087,7 @@ body {
 
 .claude-input-area {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 6px;
   padding: 8px 10px;
@@ -3281,4 +3282,64 @@ select.claude-settings-input {
 
 .claude-restart-btn:hover {
   filter: brightness(1.1);
+}
+
+/* Image paste preview (input area) */
+
+.claude-image-preview {
+  display: none;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+}
+
+.claude-image-thumb {
+  position: relative;
+  display: inline-block;
+}
+
+.claude-image-thumb img {
+  max-width: 80px;
+  max-height: 60px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+
+.claude-image-remove {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  color: var(--page);
+  border: none;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.claude-image-remove:hover {
+  background: var(--text);
+}
+
+/* Inline images in messages */
+
+.claude-msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.claude-msg-image {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  object-fit: contain;
 }

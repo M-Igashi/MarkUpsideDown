@@ -169,13 +169,36 @@ pub async fn claude_stop(state: tauri::State<'_, ClaudeState>) -> Result<(), Str
 #[tauri::command]
 pub async fn claude_send(
     message: String,
+    images: Option<Vec<ImageData>>,
     state: tauri::State<'_, ClaudeState>,
 ) -> Result<(), String> {
     let mut proc = state.lock().await;
     let stdin = proc.stdin.as_mut().ok_or("Claude is not running")?;
+
+    let content = match images {
+        Some(imgs) if !imgs.is_empty() => {
+            let mut blocks = vec![serde_json::json!({"type": "text", "text": message})];
+            for img in imgs {
+                blocks.push(serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img.media_type,
+                        "data": img.data
+                    }
+                }));
+            }
+            serde_json::Value::Array(blocks)
+        }
+        _ => serde_json::Value::String(message),
+    };
+
     let payload = serde_json::json!({
-        "type": "user_message",
-        "text": message
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": content
+        }
     });
     let mut line = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
     line.push('\n');
@@ -188,6 +211,13 @@ pub async fn claude_send(
         .await
         .map_err(|e| format!("Failed to flush stdin: {e}"))?;
     Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageData {
+    pub media_type: String,
+    pub data: String, // base64
 }
 
 #[tauri::command]

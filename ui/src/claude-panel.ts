@@ -21,10 +21,17 @@ interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string; // accumulated text
+  images: PastedImage[]; // inline images
   toolUses: ToolUseBlock[];
   thinking: string;
   status: "streaming" | "done" | "error";
   costUsd?: number;
+}
+
+interface PastedImage {
+  dataUrl: string; // for display
+  mediaType: string; // e.g. "image/png"
+  base64: string; // raw base64 data
 }
 
 interface ToolUseBlock {
@@ -48,6 +55,8 @@ let currentAssistantMsg: ChatMessage | null = null;
 let getCwd: (() => string | null) | null = null;
 let rateLimitResetTime: number | null = null;
 let rateLimitInterval: number | null = null;
+let pendingImages: PastedImage[] = [];
+let imagePreviewEl: HTMLElement | null = null;
 
 // --- Public API ---
 
@@ -160,6 +169,11 @@ function render() {
   inputEl.rows = 1;
   inputArea.appendChild(inputEl);
 
+  // Image preview area (between textarea and send button)
+  imagePreviewEl = document.createElement("div");
+  imagePreviewEl.className = "claude-image-preview";
+  inputArea.appendChild(imagePreviewEl);
+
   sendBtn = document.createElement("button");
   sendBtn.className = "claude-send-btn";
   sendBtn.textContent = "Send";
@@ -183,6 +197,9 @@ function render() {
     inputEl.style.height = "auto";
     inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
   });
+
+  // Image paste handler
+  inputEl.addEventListener("paste", handlePaste);
 
   header.querySelector("#claude-settings-btn")!.addEventListener("click", showClaudeSettings);
   header.querySelector("#claude-clear-btn")!.addEventListener("click", clearConversation);
@@ -230,7 +247,16 @@ function renderMessage(msg: ChatMessage): HTMLElement {
   el.dataset.id = msg.id;
 
   if (msg.role === "user") {
-    el.innerHTML = `<div class="claude-msg-content">${escapeHtml(msg.content)}</div>`;
+    let userHtml = "";
+    if (msg.images?.length > 0) {
+      userHtml += '<div class="claude-msg-images">';
+      for (const img of msg.images) {
+        userHtml += `<img class="claude-msg-image" src="${img.dataUrl}" />`;
+      }
+      userHtml += "</div>";
+    }
+    userHtml += `<div class="claude-msg-content">${escapeHtml(msg.content)}</div>`;
+    el.innerHTML = userHtml;
   } else if (msg.role === "assistant") {
     let html = "";
 
@@ -315,7 +341,11 @@ function updateStatusIndicator() {
 async function handleSend() {
   if (!inputEl) return;
   const text = inputEl.value.trim();
-  if (!text) return;
+  if (!text && pendingImages.length === 0) return;
+
+  const images = [...pendingImages];
+  pendingImages = [];
+  renderImagePreview();
 
   inputEl.value = "";
   inputEl.style.height = "auto";
@@ -336,7 +366,8 @@ async function handleSend() {
   const userMsg: ChatMessage = {
     id: `user-${Date.now()}`,
     role: "user",
-    content: text,
+    content: text || (images.length > 0 ? "(image)" : ""),
+    images,
     toolUses: [],
     thinking: "",
     status: "done",
@@ -348,7 +379,11 @@ async function handleSend() {
 
   // Send to CLI
   try {
-    await invoke("claude_send", { message: text });
+    const imgPayload =
+      images.length > 0
+        ? images.map((img) => ({ mediaType: img.mediaType, data: img.base64 }))
+        : null;
+    await invoke("claude_send", { message: text || "Describe this image.", images: imgPayload });
   } catch (e) {
     addSystemMessage(`Send failed: ${e}`);
   }
@@ -402,6 +437,7 @@ function addSystemMessage(text: string) {
     id: `sys-${Date.now()}`,
     role: "system",
     content: text,
+    images: [],
     toolUses: [],
     thinking: "",
     status: "done",
@@ -416,6 +452,48 @@ function scrollToBottom() {
   requestAnimationFrame(() => {
     messagesEl!.scrollTop = messagesEl!.scrollHeight;
   });
+}
+
+// --- Image Paste ---
+
+function handlePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (!item.type.startsWith("image/")) continue;
+    e.preventDefault();
+    const file = item.getAsFile();
+    if (!file) continue;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      // Extract base64 data after the comma
+      const base64 = dataUrl.split(",")[1];
+      pendingImages.push({ dataUrl, mediaType: file.type, base64 });
+      renderImagePreview();
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+function renderImagePreview() {
+  if (!imagePreviewEl) return;
+  imagePreviewEl.innerHTML = "";
+  if (pendingImages.length === 0) {
+    imagePreviewEl.style.display = "none";
+    return;
+  }
+  imagePreviewEl.style.display = "flex";
+  for (let i = 0; i < pendingImages.length; i++) {
+    const thumb = document.createElement("div");
+    thumb.className = "claude-image-thumb";
+    thumb.innerHTML = `<img src="${pendingImages[i].dataUrl}" /><button class="claude-image-remove" data-idx="${i}" title="Remove">&times;</button>`;
+    thumb.querySelector("button")!.addEventListener("click", () => {
+      pendingImages.splice(i, 1);
+      renderImagePreview();
+    });
+    imagePreviewEl.appendChild(thumb);
+  }
 }
 
 function showRestartButton() {
@@ -512,6 +590,7 @@ function handleAssistantEvent(data: any) {
       id: `asst-${Date.now()}`,
       role: "assistant",
       content: "",
+      images: [],
       toolUses: [],
       thinking: "",
       status: "streaming",
