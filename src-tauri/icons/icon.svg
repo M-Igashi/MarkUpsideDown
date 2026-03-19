@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="rounded">
+      <rect width="1024" height="1024" rx="180" ry="180"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#rounded)">
+    <!-- Background: pure black -->
+    <rect width="1024" height="1024" fill="#0A0A0A"/>
+
+    <!-- Subtle scan lines -->
+    <g opacity="0.06" stroke="#fff" stroke-width="1">
+      <line x1="0" y1="128" x2="1024" y2="128"/>
+      <line x1="0" y1="256" x2="1024" y2="256"/>
+      <line x1="0" y1="384" x2="1024" y2="384"/>
+      <line x1="0" y1="512" x2="1024" y2="512"/>
+      <line x1="0" y1="640" x2="1024" y2="640"/>
+      <line x1="0" y1="768" x2="1024" y2="768"/>
+      <line x1="0" y1="896" x2="1024" y2="896"/>
+    </g>
+
+    <!-- M letterform: geometric brutalist style -->
+    <!-- stroke-width controls the weight of the letter -->
+    <g fill="none" stroke="#FFFFFF" stroke-width="72" stroke-linejoin="miter" stroke-linecap="butt">
+      <!-- M as a single polyline: left leg, up, diagonal down to center, diagonal up, right leg down -->
+      <polyline points="220,700 220,240 512,480 804,240 804,700"/>
+    </g>
+
+    <!-- Downward arrow from center — the "upside down" indicator -->
+    <polygon points="512,520 600,520 512,680 424,520" fill="#FFFFFF"/>
+  </g>
+</svg>
