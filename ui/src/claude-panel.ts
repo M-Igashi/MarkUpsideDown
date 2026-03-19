@@ -11,6 +11,19 @@ const STORAGE_KEY_WIDTH = "markupsidedown:claudePanelWidth";
 const STORAGE_KEY_AUTH_MODE = "markupsidedown:claudeAuthMode";
 const STORAGE_KEY_API_KEY = "markupsidedown:claudeApiKey";
 const DEFAULT_WIDTH = 420;
+const MAX_TABS = 5;
+
+// --- Types ---
+
+interface Session {
+  id: string;
+  terminal: Terminal;
+  fitAddon: FitAddon;
+  resizeObserver: ResizeObserver;
+  containerEl: HTMLElement;
+  isSpawned: boolean;
+  label: string;
+}
 
 // --- State ---
 
@@ -19,12 +32,19 @@ let getCwd: () => string | null;
 let getMcpBinaryPath: () => Promise<string>;
 let getWorkerUrl: () => string;
 
-let terminal: Terminal | null = null;
-let fitAddon: FitAddon | null = null;
-let resizeObserver: ResizeObserver | null = null;
-let isSpawned = false;
+const sessions: Map<string, Session> = new Map();
+let activeSessionId: string | null = null;
 let unlistenData: (() => void) | null = null;
 let unlistenExit: (() => void) | null = null;
+let nextTabNumber = 1;
+
+// xterm modules cached after first lazy load
+let xtermModules: {
+  Terminal: typeof import("@xterm/xterm").Terminal;
+  FitAddon: typeof import("@xterm/addon-fit").FitAddon;
+  WebLinksAddon: typeof import("@xterm/addon-web-links").WebLinksAddon;
+  WebglAddon?: typeof import("@xterm/addon-webgl").WebglAddon;
+} | null = null;
 
 // --- Public API ---
 
@@ -42,6 +62,7 @@ export function initClaudePanel(
   getWorkerUrl = opts.getWorkerUrl;
 
   renderPanel();
+  setupGlobalListeners();
 }
 
 export function isClaudePanelOpen() {
@@ -58,12 +79,45 @@ export function toggleClaudePanel() {
 
   localStorage.setItem(STORAGE_KEY_COLLAPSED, String(collapsed));
 
-  if (!collapsed && !terminal) {
+  if (!collapsed && sessions.size === 0) {
     showSetupOrTerminal();
   }
-  if (!collapsed && terminal && fitAddon) {
-    requestAnimationFrame(() => fitAddon!.fit());
+  if (!collapsed && activeSessionId) {
+    const session = sessions.get(activeSessionId);
+    if (session) {
+      requestAnimationFrame(() => session.fitAddon.fit());
+    }
   }
+}
+
+export async function resetAuth() {
+  localStorage.removeItem(STORAGE_KEY_AUTH_MODE);
+  localStorage.removeItem(STORAGE_KEY_API_KEY);
+
+  // Kill and dispose all sessions
+  for (const [id, session] of sessions) {
+    if (session.isSpawned) {
+      await invoke("kill_pty", { sessionId: id }).catch(() => {});
+    }
+    session.terminal.dispose();
+    session.resizeObserver.disconnect();
+    session.containerEl.remove();
+  }
+  sessions.clear();
+  activeSessionId = null;
+  nextTabNumber = 1;
+
+  cleanupGlobalListeners();
+  showSetup();
+}
+
+export function getStoredWidth(): number {
+  const stored = localStorage.getItem(STORAGE_KEY_WIDTH);
+  return stored ? Number(stored) : DEFAULT_WIDTH;
+}
+
+export function setStoredWidth(width: number) {
+  localStorage.setItem(STORAGE_KEY_WIDTH, String(width));
 }
 
 // --- Internal ---
@@ -78,9 +132,13 @@ function renderPanel() {
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l4 4-4 4"/></svg>
       </button>
     </div>
+    <div class="claude-tab-bar" style="display:none">
+      <div class="claude-tab-list"></div>
+      <button class="claude-tab-new" title="New session (max ${MAX_TABS})">+</button>
+    </div>
     <div class="claude-panel-body">
       <div class="claude-setup" style="display:none"></div>
-      <div class="claude-terminal-container" style="display:none"></div>
+      <div class="claude-terminals"></div>
     </div>
   `;
 
@@ -88,11 +146,46 @@ function renderPanel() {
   foldBtn.addEventListener("click", toggleClaudePanel);
 
   const restartBtn = container.querySelector(".claude-panel-restart-btn") as HTMLButtonElement;
-  restartBtn.addEventListener("click", restartSession);
+  restartBtn.addEventListener("click", restartActiveSession);
+
+  const newTabBtn = container.querySelector(".claude-tab-new") as HTMLButtonElement;
+  newTabBtn.addEventListener("click", createNewTab);
 
   // If not collapsed on load, initialize
   if (!container.classList.contains("collapsed")) {
     showSetupOrTerminal();
+  }
+}
+
+async function setupGlobalListeners() {
+  // Listen for PTY output — route to correct session
+  unlistenData = await listen<{ session_id: string; data: string }>("pty:data", (event) => {
+    const session = sessions.get(event.payload.session_id);
+    if (session) {
+      session.terminal.write(Uint8Array.from(atob(event.payload.data), (c) => c.charCodeAt(0)));
+    }
+  });
+
+  // Listen for process exit — mark session as not spawned
+  unlistenExit = await listen<{ session_id: string }>("pty:exit", (event) => {
+    const session = sessions.get(event.payload.session_id);
+    if (session) {
+      session.isSpawned = false;
+      session.terminal.writeln(
+        "\r\n\x1b[90m[Process exited. Press any key or click Restart to start a new session.]\x1b[0m",
+      );
+    }
+  });
+}
+
+function cleanupGlobalListeners() {
+  if (unlistenData) {
+    unlistenData();
+    unlistenData = null;
+  }
+  if (unlistenExit) {
+    unlistenExit();
+    unlistenExit = null;
   }
 }
 
@@ -105,8 +198,7 @@ async function showSetupOrTerminal() {
 
   const authMode = localStorage.getItem(STORAGE_KEY_AUTH_MODE);
   if (authMode) {
-    // Auth already configured, start terminal
-    await startTerminal();
+    await createNewTab();
   } else {
     showSetup();
   }
@@ -114,9 +206,11 @@ async function showSetupOrTerminal() {
 
 function showNotInstalled() {
   const setupEl = container.querySelector(".claude-setup") as HTMLElement;
-  const termEl = container.querySelector(".claude-terminal-container") as HTMLElement;
+  const terminalsEl = container.querySelector(".claude-terminals") as HTMLElement;
+  const tabBar = container.querySelector(".claude-tab-bar") as HTMLElement;
   setupEl.style.display = "";
-  termEl.style.display = "none";
+  terminalsEl.style.display = "none";
+  tabBar.style.display = "none";
 
   setupEl.innerHTML = `
     <div class="claude-setup-message">
@@ -135,9 +229,11 @@ function showNotInstalled() {
 
 function showSetup() {
   const setupEl = container.querySelector(".claude-setup") as HTMLElement;
-  const termEl = container.querySelector(".claude-terminal-container") as HTMLElement;
+  const terminalsEl = container.querySelector(".claude-terminals") as HTMLElement;
+  const tabBar = container.querySelector(".claude-tab-bar") as HTMLElement;
   setupEl.style.display = "";
-  termEl.style.display = "none";
+  terminalsEl.style.display = "none";
+  tabBar.style.display = "none";
 
   const savedKey = localStorage.getItem(STORAGE_KEY_API_KEY) || "";
 
@@ -173,7 +269,7 @@ function showSetup() {
   // OAuth option
   setupEl.querySelector('[data-mode="oauth"]')!.addEventListener("click", async () => {
     localStorage.setItem(STORAGE_KEY_AUTH_MODE, "oauth");
-    await startTerminal();
+    await createNewTab();
   });
 
   // API key option
@@ -186,7 +282,7 @@ function showSetup() {
     }
     localStorage.setItem(STORAGE_KEY_AUTH_MODE, "apikey");
     localStorage.setItem(STORAGE_KEY_API_KEY, key);
-    await startTerminal();
+    await createNewTab();
   });
 
   apiKeyInput.addEventListener("keydown", (e) => {
@@ -196,29 +292,74 @@ function showSetup() {
   });
 }
 
-async function startTerminal() {
+async function createNewTab() {
+  if (sessions.size >= MAX_TABS) return;
+
   const setupEl = container.querySelector(".claude-setup") as HTMLElement;
-  const termEl = container.querySelector(".claude-terminal-container") as HTMLElement;
+  const terminalsEl = container.querySelector(".claude-terminals") as HTMLElement;
+  const tabBar = container.querySelector(".claude-tab-bar") as HTMLElement;
   setupEl.style.display = "none";
-  termEl.style.display = "";
-  termEl.innerHTML = "";
+  terminalsEl.style.display = "";
+  tabBar.style.display = "";
 
-  if (!terminal) {
-    await initXterm(termEl);
-  }
+  // Create session on backend
+  const sessionId = await invoke<string>("create_session");
+  const label = `Session ${nextTabNumber++}`;
 
-  await spawnClaude();
+  // Create terminal container
+  const containerEl = document.createElement("div");
+  containerEl.className = "claude-terminal-container";
+  containerEl.style.display = "none";
+  terminalsEl.appendChild(containerEl);
+
+  // Initialize xterm
+  const { terminal, fitAddon, resizeObserver } = await initXterm(containerEl, sessionId);
+
+  const session: Session = {
+    id: sessionId,
+    terminal,
+    fitAddon,
+    resizeObserver,
+    containerEl,
+    isSpawned: false,
+    label,
+  };
+  sessions.set(sessionId, session);
+
+  renderTabBar();
+  switchToSession(sessionId);
+  await spawnClaude(sessionId);
 }
 
-async function initXterm(termEl: HTMLElement) {
-  const { Terminal } = await import("@xterm/xterm");
-  const { FitAddon: Fit } = await import("@xterm/addon-fit");
-  const { WebLinksAddon } = await import("@xterm/addon-web-links");
+async function loadXtermModules() {
+  if (xtermModules) return xtermModules;
 
-  // Import xterm CSS
+  const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
+    import("@xterm/xterm"),
+    import("@xterm/addon-fit"),
+    import("@xterm/addon-web-links"),
+  ]);
   await import("@xterm/xterm/css/xterm.css");
 
-  terminal = new Terminal({
+  let WebglAddon: typeof import("@xterm/addon-webgl").WebglAddon | undefined;
+  try {
+    const mod = await import("@xterm/addon-webgl");
+    WebglAddon = mod.WebglAddon;
+  } catch {
+    // WebGL not available
+  }
+
+  xtermModules = { Terminal, FitAddon, WebLinksAddon, WebglAddon };
+  return xtermModules;
+}
+
+async function initXterm(
+  termEl: HTMLElement,
+  sessionId: string,
+): Promise<{ terminal: Terminal; fitAddon: FitAddon; resizeObserver: ResizeObserver }> {
+  const mods = await loadXtermModules();
+
+  const terminal = new mods.Terminal({
     cursorBlink: true,
     fontSize: 13,
     fontFamily: "SF Mono, Fira Code, JetBrains Mono, monospace",
@@ -247,50 +388,36 @@ async function initXterm(termEl: HTMLElement) {
     allowProposedApi: true,
   });
 
-  fitAddon = new Fit();
+  const fitAddon = new mods.FitAddon();
   terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon());
+  terminal.loadAddon(new mods.WebLinksAddon());
 
-  // Try loading WebGL addon for GPU-accelerated rendering
-  try {
-    const { WebglAddon } = await import("@xterm/addon-webgl");
-    terminal.loadAddon(new WebglAddon());
-  } catch {
-    // WebGL not available — fall back to canvas renderer
+  if (mods.WebglAddon) {
+    try {
+      terminal.loadAddon(new mods.WebglAddon());
+    } catch {
+      // fall back to canvas
+    }
   }
 
   terminal.open(termEl);
   fitAddon.fit();
 
-  // Relay keystrokes to backend
+  // Relay keystrokes to backend (scoped to this session)
   terminal.onData((data) => {
     const encoded = btoa(data);
-    invoke("write_pty", { data: encoded }).catch(() => {});
-  });
-
-  // Listen for PTY output
-  unlistenData = await listen<string>("pty:data", (event) => {
-    if (terminal) {
-      terminal.write(Uint8Array.from(atob(event.payload), (c) => c.charCodeAt(0)));
-    }
-  });
-
-  // Listen for process exit
-  unlistenExit = await listen("pty:exit", () => {
-    isSpawned = false;
-    if (terminal) {
-      terminal.writeln(
-        "\r\n\x1b[90m[Process exited. Press any key or click Restart to start a new session.]\x1b[0m",
-      );
-    }
+    invoke("write_pty", { sessionId, data: encoded }).catch(() => {});
   });
 
   // Resize handling
-  resizeObserver = new ResizeObserver(() => {
-    if (fitAddon && terminal && termEl.offsetWidth > 0) {
+  const resizeObserver = new ResizeObserver(() => {
+    if (termEl.offsetWidth > 0) {
       fitAddon.fit();
-      if (isSpawned) {
-        invoke("resize_pty", { cols: terminal.cols, rows: terminal.rows }).catch(() => {});
+      const session = sessions.get(sessionId);
+      if (session?.isSpawned) {
+        invoke("resize_pty", { sessionId, cols: terminal.cols, rows: terminal.rows }).catch(
+          () => {},
+        );
       }
     }
   });
@@ -298,14 +425,105 @@ async function initXterm(termEl: HTMLElement) {
 
   // Handle keypress when process has exited — restart on any key
   terminal.onKey(() => {
-    if (!isSpawned) {
-      restartSession();
+    const session = sessions.get(sessionId);
+    if (session && !session.isSpawned) {
+      restartSession(sessionId);
     }
   });
+
+  return { terminal, fitAddon, resizeObserver };
 }
 
-async function spawnClaude() {
-  if (isSpawned) return;
+function switchToSession(sessionId: string) {
+  // Hide current
+  if (activeSessionId) {
+    const prev = sessions.get(activeSessionId);
+    if (prev) prev.containerEl.style.display = "none";
+  }
+
+  // Show target
+  const target = sessions.get(sessionId);
+  if (target) {
+    target.containerEl.style.display = "";
+    activeSessionId = sessionId;
+    requestAnimationFrame(() => target.fitAddon.fit());
+  }
+
+  renderTabBar();
+}
+
+async function closeTab(sessionId: string) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  // Kill PTY and clean up
+  if (session.isSpawned) {
+    await invoke("kill_pty", { sessionId }).catch(() => {});
+  }
+  session.terminal.dispose();
+  session.resizeObserver.disconnect();
+  session.containerEl.remove();
+  sessions.delete(sessionId);
+
+  if (sessions.size === 0) {
+    // No tabs left — show setup screen
+    activeSessionId = null;
+    showSetup();
+    return;
+  }
+
+  // Switch to an adjacent tab if we closed the active one
+  if (activeSessionId === sessionId) {
+    const remaining = [...sessions.keys()];
+    switchToSession(remaining[remaining.length - 1]);
+  } else {
+    renderTabBar();
+  }
+}
+
+function renderTabBar() {
+  const tabList = container.querySelector(".claude-tab-list") as HTMLElement;
+  const newBtn = container.querySelector(".claude-tab-new") as HTMLButtonElement;
+  if (!tabList) return;
+
+  tabList.innerHTML = "";
+  for (const [id, session] of sessions) {
+    const tab = document.createElement("button");
+    tab.className = `claude-tab${id === activeSessionId ? " active" : ""}`;
+    tab.dataset.session = id;
+
+    const labelSpan = document.createElement("span");
+    labelSpan.className = "claude-tab-label";
+    labelSpan.textContent = session.label;
+    tab.appendChild(labelSpan);
+
+    const closeBtn = document.createElement("span");
+    closeBtn.className = "claude-tab-close";
+    closeBtn.textContent = "×";
+    closeBtn.title = "Close session";
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeTab(id);
+    });
+    tab.appendChild(closeBtn);
+
+    tab.addEventListener("click", () => switchToSession(id));
+    tabList.appendChild(tab);
+  }
+
+  // Hide/show new tab button based on limit
+  newBtn.style.display = sessions.size >= MAX_TABS ? "none" : "";
+
+  // Hide tab bar entirely if only one session
+  const tabBar = container.querySelector(".claude-tab-bar") as HTMLElement;
+  if (tabBar) {
+    tabBar.style.display = sessions.size <= 1 ? "none" : "";
+  }
+}
+
+async function spawnClaude(sessionId: string) {
+  const session = sessions.get(sessionId);
+  if (!session || session.isSpawned) return;
 
   const cwd = getCwd() || "/";
   const authMode = localStorage.getItem(STORAGE_KEY_AUTH_MODE);
@@ -331,66 +549,86 @@ async function spawnClaude() {
 
   try {
     await invoke("spawn_claude", {
+      sessionId,
       cwd,
       apiKey: apiKey || null,
       mcpConfigPath: mcpConfigPath || null,
     });
-    isSpawned = true;
+    session.isSpawned = true;
 
     // Sync terminal size after spawn
-    if (terminal) {
-      await invoke("resize_pty", { cols: terminal.cols, rows: terminal.rows }).catch(() => {});
-    }
+    await invoke("resize_pty", {
+      sessionId,
+      cols: session.terminal.cols,
+      rows: session.terminal.rows,
+    }).catch(() => {});
   } catch (e) {
-    if (terminal) {
-      terminal.writeln(`\r\n\x1b[31mFailed to start Claude: ${e}\x1b[0m`);
-    }
+    session.terminal.writeln(`\r\n\x1b[31mFailed to start Claude: ${e}\x1b[0m`);
   }
 }
 
-async function restartSession() {
-  if (isSpawned) {
-    await invoke("kill_pty").catch(() => {});
-    isSpawned = false;
+async function restartSession(sessionId: string) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  if (session.isSpawned) {
+    // Kill the process but keep the session entry (backend kill_session_inner doesn't remove from map)
+    await invoke("kill_pty", { sessionId }).catch(() => {});
+    session.isSpawned = false;
+    // Re-create backend session since kill_pty removes it from the map
+    const newId = await invoke<string>("create_session");
+    // Migrate session to new ID
+    sessions.delete(sessionId);
+    session.id = newId;
+    sessions.set(newId, session);
+    if (activeSessionId === sessionId) activeSessionId = newId;
+    // Update keystroke handler to use new session ID
+    session.terminal.onData((data) => {
+      const encoded = btoa(data);
+      invoke("write_pty", { sessionId: newId, data: encoded }).catch(() => {});
+    });
+    session.terminal.clear();
+    renderTabBar();
+    await spawnClaude(newId);
+    return;
   }
-  if (terminal) {
-    terminal.clear();
-  }
-  await spawnClaude();
+
+  // Session already exited — just re-create backend and spawn
+  const newId = await invoke<string>("create_session");
+  sessions.delete(sessionId);
+  session.id = newId;
+  sessions.set(newId, session);
+  if (activeSessionId === sessionId) activeSessionId = newId;
+  session.terminal.onData((data) => {
+    const encoded = btoa(data);
+    invoke("write_pty", { sessionId: newId, data: encoded }).catch(() => {});
+  });
+  session.terminal.clear();
+  renderTabBar();
+  await spawnClaude(newId);
 }
 
-export function resetAuth() {
-  localStorage.removeItem(STORAGE_KEY_AUTH_MODE);
-  localStorage.removeItem(STORAGE_KEY_API_KEY);
-  if (isSpawned) {
-    invoke("kill_pty").catch(() => {});
-    isSpawned = false;
+async function restartActiveSession() {
+  if (activeSessionId) {
+    await restartSession(activeSessionId);
   }
-  if (terminal) {
-    terminal.dispose();
-    terminal = null;
-    fitAddon = null;
-  }
-  if (unlistenData) {
-    unlistenData();
-    unlistenData = null;
-  }
-  if (unlistenExit) {
-    unlistenExit();
-    unlistenExit = null;
-  }
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-    resizeObserver = null;
-  }
-  showSetup();
 }
 
-export function getStoredWidth(): number {
-  const stored = localStorage.getItem(STORAGE_KEY_WIDTH);
-  return stored ? Number(stored) : DEFAULT_WIDTH;
+// --- Keyboard shortcuts ---
+
+function handleKeyDown(e: KeyboardEvent) {
+  // ⌘{ / ⌘} to switch tabs (Ctrl on non-Mac)
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod || sessions.size <= 1) return;
+
+  if (e.key === "{" || e.key === "}") {
+    e.preventDefault();
+    const ids = [...sessions.keys()];
+    const currentIdx = activeSessionId ? ids.indexOf(activeSessionId) : 0;
+    const nextIdx =
+      e.key === "}" ? (currentIdx + 1) % ids.length : (currentIdx - 1 + ids.length) % ids.length;
+    switchToSession(ids[nextIdx]);
+  }
 }
 
-export function setStoredWidth(width: number) {
-  localStorage.setItem(STORAGE_KEY_WIDTH, String(width));
-}
+document.addEventListener("keydown", handleKeyDown);

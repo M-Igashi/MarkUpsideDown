@@ -65,6 +65,17 @@ body {
   background: var(--surface);
 }
 
+#toolbar button.icon-btn {
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#toolbar button.icon-btn svg {
+  display: block;
+}
+
 #toolbar .separator {
   width: 1px;
   height: 20px;
@@ -431,9 +442,16 @@ body {
   color: var(--text-muted);
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 4px 6px;
   font-size: 11px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-header-actions button svg {
+  display: block;
 }
 
 .sidebar-header-actions button:hover {
@@ -2830,8 +2848,106 @@ body {
   flex-direction: column;
 }
 
-.claude-terminal-container {
+/* Tab bar */
+.claude-tab-bar {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
+.claude-tab-list {
+  display: flex;
+  overflow-x: auto;
   flex: 1;
+  gap: 1px;
+  scrollbar-width: none;
+}
+
+.claude-tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+.claude-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  border-radius: 4px 4px 0 0;
+  color: #6c7086;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.1s;
+  flex-shrink: 0;
+}
+
+.claude-tab:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.claude-tab.active {
+  background: #1e1e2e;
+  color: #cdd6f4;
+}
+
+.claude-tab-close {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  padding: 0 2px;
+  border-radius: 3px;
+  transition: opacity 0.1s;
+}
+
+.claude-tab:hover .claude-tab-close {
+  opacity: 0.6;
+}
+
+.claude-tab-close:hover {
+  opacity: 1 !important;
+  background: #45475a;
+}
+
+.claude-tab-new {
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  color: #6c7086;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.1s;
+}
+
+.claude-tab-new:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+/* Terminal containers */
+.claude-terminals {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.claude-terminal-container {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
 }
 

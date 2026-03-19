@@ -1,23 +1,40 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
+use serde::Serialize;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 
+struct PtySession {
+    writer: Option<Box<dyn Write + Send>>,
+    master: Option<Box<dyn MasterPty + Send>>,
+    child: Option<Box<dyn portable_pty::Child + Send>>,
+}
+
 pub struct PtyState {
-    writer: Mutex<Option<Box<dyn Write + Send>>>,
-    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
-    child: Mutex<Option<Box<dyn portable_pty::Child + Send>>>,
+    sessions: Mutex<HashMap<String, PtySession>>,
+    next_id: Mutex<u32>,
 }
 
 impl Default for PtyState {
     fn default() -> Self {
         Self {
-            writer: Mutex::new(None),
-            master: Mutex::new(None),
-            child: Mutex::new(None),
+            sessions: Mutex::new(HashMap::new()),
+            next_id: Mutex::new(1),
         }
     }
+}
+
+#[derive(Clone, Serialize)]
+struct PtyDataPayload {
+    session_id: String,
+    data: String,
+}
+
+#[derive(Clone, Serialize)]
+struct PtyExitPayload {
+    session_id: String,
 }
 
 #[tauri::command]
@@ -30,15 +47,31 @@ pub fn check_claude_installed() -> Result<bool, String> {
 }
 
 #[tauri::command]
+pub fn create_session(state: tauri::State<'_, PtyState>) -> Result<String, String> {
+    let mut next_id = state.next_id.lock().unwrap();
+    let id = format!("session-{}", *next_id);
+    *next_id += 1;
+
+    let session = PtySession {
+        writer: None,
+        master: None,
+        child: None,
+    };
+    state.sessions.lock().unwrap().insert(id.clone(), session);
+    Ok(id)
+}
+
+#[tauri::command]
 pub fn spawn_claude(
+    session_id: String,
     cwd: String,
     api_key: Option<String>,
     mcp_config_path: Option<String>,
     app: AppHandle,
     state: tauri::State<'_, PtyState>,
 ) -> Result<(), String> {
-    // Kill existing session if any
-    kill_pty_inner(&state);
+    // Kill existing process in this session if any
+    kill_session_inner(&state, &session_id);
 
     let pty_system = NativePtySystem::default();
     let pair = pty_system
@@ -66,7 +99,6 @@ pub fn spawn_claude(
         .spawn_command(cmd)
         .map_err(|e| format!("Failed to spawn claude: {e}"))?;
 
-    // Take writer and clone reader from master
     let writer = pair
         .master
         .take_writer()
@@ -76,23 +108,37 @@ pub fn spawn_claude(
         .try_clone_reader()
         .map_err(|e| format!("Failed to clone PTY reader: {e}"))?;
 
-    // Store handles
-    *state.writer.lock().unwrap() = Some(writer);
-    *state.master.lock().unwrap() = Some(pair.master);
-    *state.child.lock().unwrap() = Some(child);
+    // Store handles in session
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.writer = Some(writer);
+            session.master = Some(pair.master);
+            session.child = Some(child);
+        } else {
+            return Err(format!("Session {session_id} not found"));
+        }
+    }
 
     // Spawn reader thread to relay PTY output to frontend
+    let sid = session_id.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
-                    let _ = app.emit("pty:exit", ());
+                    let _ = app.emit("pty:exit", PtyExitPayload { session_id: sid });
                     break;
                 }
                 Ok(n) => {
                     let encoded = BASE64.encode(&buf[..n]);
-                    let _ = app.emit("pty:data", encoded);
+                    let _ = app.emit(
+                        "pty:data",
+                        PtyDataPayload {
+                            session_id: sid.clone(),
+                            data: encoded,
+                        },
+                    );
                 }
             }
         }
@@ -102,50 +148,82 @@ pub fn spawn_claude(
 }
 
 #[tauri::command]
-pub fn write_pty(data: String, state: tauri::State<'_, PtyState>) -> Result<(), String> {
+pub fn write_pty(
+    session_id: String,
+    data: String,
+    state: tauri::State<'_, PtyState>,
+) -> Result<(), String> {
     let decoded = BASE64.decode(&data).map_err(|e| e.to_string())?;
-    let mut writer_guard = state.writer.lock().unwrap();
-    if let Some(ref mut writer) = *writer_guard {
-        writer
-            .write_all(&decoded)
-            .map_err(|e: std::io::Error| e.to_string())?;
-        writer
-            .flush()
-            .map_err(|e: std::io::Error| e.to_string())?;
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(session) = sessions.get_mut(&session_id) {
+        if let Some(ref mut writer) = session.writer {
+            writer
+                .write_all(&decoded)
+                .map_err(|e: std::io::Error| e.to_string())?;
+            writer
+                .flush()
+                .map_err(|e: std::io::Error| e.to_string())?;
+        }
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn resize_pty(cols: u16, rows: u16, state: tauri::State<'_, PtyState>) -> Result<(), String> {
-    let master = state.master.lock().unwrap();
-    if let Some(ref pty) = *master {
-        pty.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| e.to_string())?;
+pub fn resize_pty(
+    session_id: String,
+    cols: u16,
+    rows: u16,
+    state: tauri::State<'_, PtyState>,
+) -> Result<(), String> {
+    let sessions = state.sessions.lock().unwrap();
+    if let Some(session) = sessions.get(&session_id) {
+        if let Some(ref pty) = session.master {
+            pty.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn kill_pty(state: tauri::State<'_, PtyState>) -> Result<(), String> {
-    kill_pty_inner(&state);
+pub fn kill_pty(session_id: String, state: tauri::State<'_, PtyState>) -> Result<(), String> {
+    kill_session_inner(&state, &session_id);
+    // Remove session from map
+    state.sessions.lock().unwrap().remove(&session_id);
     Ok(())
 }
 
-fn kill_pty_inner(state: &PtyState) {
-    // Drop writer and master first to close the PTY
-    let _ = state.writer.lock().unwrap().take();
-    let _ = state.master.lock().unwrap().take();
-    // Then kill the child process
-    if let Some(mut child) = state.child.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+fn kill_session_inner(state: &PtyState, session_id: &str) {
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(session) = sessions.get_mut(session_id) {
+        // Drop writer and master first to close the PTY
+        let _ = session.writer.take();
+        let _ = session.master.take();
+        // Then kill the child process
+        if let Some(mut child) = session.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
+}
+
+/// Kill all sessions (used on window destroy).
+pub fn kill_all_sessions(state: tauri::State<'_, PtyState>) {
+    let mut sessions = state.sessions.lock().unwrap();
+    for (_, session) in sessions.iter_mut() {
+        let _ = session.writer.take();
+        let _ = session.master.take();
+        if let Some(mut child) = session.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    sessions.clear();
 }
 
 /// Write a temporary MCP config JSON file and return its path.
