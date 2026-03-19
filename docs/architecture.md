@@ -18,8 +18,9 @@ MCP Server (mcp-server-rs/)
 │          │ invoke()          ▲ scroll sync                │
 │  ┌───────┴───────────────────┴──────────────────────┐    │
 │  │  Tauri Backend (Rust)                             │    │
-│  │  ├─ commands.rs  (IPC: fetch, convert, file, git) │    │
-│  │  ├─ bridge.rs    (axum HTTP server for MCP)       │    │
+│  │  ├─ commands.rs   (IPC: fetch, convert, file, git)│    │
+│  │  ├─ bridge.rs     (axum HTTP server for MCP)      │    │
+│  │  ├─ claude.rs     (Claude Code CLI process mgmt)  │    │
 │  │  └─ cloudflare.rs (wrangler CLI, auto-setup)      │    │
 │  └───────┬──────────────────────────────────────────┘    │
 └──────────┼───────────────────────────────────────────────┘
@@ -28,10 +29,10 @@ MCP Server (mcp-server-rs/)
 ┌──────────────────────────────────────┐
 │  Cloudflare Worker                    │
 │  GET  /health   → capability check    │
+│  POST /fetch    → AI.toMarkdown()    │
 │  POST /convert  → AI.toMarkdown()    │
 │  GET  /render   → Browser Rendering   │
-│       (content → stripBoilerplate     │
-│        → /markdown)                   │
+│       (/content → AI.toMarkdown())   │
 │  POST /crawl    → start site crawl    │
 │  GET  /crawl/:id → poll crawl results │
 └──────────────────────────────────────┘
@@ -52,7 +53,7 @@ MCP Server (mcp-server-rs/)
 | Tabs | Multi-tab editing with state persistence, drag reorder | `ui/src/tabs.ts` |
 | Git panel | Status, stage/unstage, commit, push/pull with ahead/behind, fetch | `ui/src/git-panel.ts` |
 | GitHub panel | Issue/PR body fetcher via `gh` CLI | `ui/src/github-panel.ts` |
-
+| Claude panel | Chat UI via Claude Code CLI stream-json mode | `ui/src/claude-panel.ts` |
 | Table editor | Spreadsheet grid with undo/redo, paste TSV/CSV | `ui/src/table-editor.ts` |
 | Formatting | Markdown shortcuts (bold, italic, link, strikethrough, code) | `ui/src/markdown-commands.ts` |
 | Crawl | Website crawl UI (options dialog, polling, file saving) | `ui/src/crawl.ts` |
@@ -66,26 +67,27 @@ MCP Server (mcp-server-rs/)
 | Command palette | Fuzzy search over all commands (Cmd+K) | `ui/src/command-palette.ts` |
 | Theme | CodeMirror editor theme (warm paper palette) | `ui/src/theme.ts` |
 | Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands.rs` |
+| Claude process | Claude Code CLI stream-json lifecycle | `src-tauri/src/claude.rs` |
 | Auto-setup | Wrangler CLI (login, deploy, secrets) | `src-tauri/src/cloudflare.rs` |
-
 | MCP bridge | Rust (axum HTTP server) | `src-tauri/src/bridge.rs` |
+| Utilities | Home directory helper | `src-tauri/src/util.rs` |
 
 ### Cloudflare Worker (`worker/`)
 
 | Endpoint | Purpose | Cloudflare Service |
 |----------|---------|-------------------|
-| `GET /health` | Capability check (reports convert/render/crawl availability) | — |
+| `GET /health` | Capability check (reports fetch/convert/render/crawl availability) | — |
+| `POST /fetch` | Fetch URL → Markdown | Workers AI `AI.toMarkdown()` |
 | `POST /convert` | Document/image → Markdown | Workers AI `AI.toMarkdown()` |
-| `GET /render?url=` | JS-rendered page → Markdown | Browser Rendering REST API |
+| `GET /render?url=` | JS-rendered page → Markdown | Browser Rendering `/content` API + Workers AI `AI.toMarkdown()` |
 | `POST /crawl` | Start website crawl (returns `job_id`) | Browser Rendering `/crawl` REST API |
 | `GET /crawl/:job_id` | Poll crawl status and retrieve results | Browser Rendering `/crawl` REST API |
 
-The `/render` endpoint uses a multi-step pipeline:
+The `/render` endpoint pipeline:
 
-1. **Content extraction** — `POST /content` gets the rendered HTML
-2. **Boilerplate removal** — HTMLRewriter strips nav, header, footer, cookie banners, ads, etc.
-3. **Markdown conversion** — `POST /markdown` converts cleaned HTML to Markdown
-4. **Caching** — Responses cached for 1 hour via `caches.default`
+1. **Content extraction** — `POST /content` via Browser Rendering API gets the JS-rendered HTML
+2. **Markdown conversion** — `AI.toMarkdown()` converts HTML to Markdown
+3. **Caching** — Responses cached for 1 hour via `caches.default`
 
 Security: SSRF prevention validates URLs and blocks private/reserved IP ranges via DNS-over-HTTPS resolution.
 
@@ -94,7 +96,7 @@ Security: SSRF prevention validates URLs and blocks private/reserved IP ranges v
 | Component | Role |
 |-----------|------|
 | `main.rs` | Entry point, stdio transport |
-| `tools.rs` | 15 MCP tools (editor, conversion, crawl, diagnostics) |
+| `tools.rs` | 27 MCP tools (editor, project context, file ops, conversion, crawl, diagnostics) |
 | `bridge.rs` | HTTP client to Tauri bridge (auto-discovers port) |
 
 Communication: MCP server (Rust sidecar binary) reads the bridge port from `~/.markupsidedown-bridge-port` and sends HTTP requests to the Tauri backend's axum server.
@@ -117,6 +119,7 @@ See [mcp-server.md](mcp-server.md) for the full tool list.
 |---------|-------------|--------|
 | `test_worker_url` | Test Worker health and report capabilities | `commands.rs` |
 | `fetch_url_as_markdown` | Fetch URL with `Accept: text/markdown` header | `commands.rs` |
+| `fetch_url_via_worker` | Fetch URL via Worker `/fetch` (AI.toMarkdown) | `commands.rs` |
 | `fetch_rendered_url_as_markdown` | Fetch JS-rendered page via Worker `/render` | `commands.rs` |
 | `convert_file_to_markdown` | Send file to Worker `/convert` | `commands.rs` |
 | `detect_file_is_image` | Check if file is image (derived from MIME map) | `commands.rs` |
@@ -135,8 +138,11 @@ See [mcp-server.md](mcp-server.md) for the full tool list.
 | `create_directory` | Create directory | `commands.rs` |
 | `rename_entry` | Rename file or folder | `commands.rs` |
 | `delete_entry` | Delete file or folder (recursive for dirs) | `commands.rs` |
+| `copy_entry` | Copy file or folder | `commands.rs` |
 | `duplicate_entry` | Copy with unique name suffix ("file copy.md") | `commands.rs` |
-| `reveal_in_finder` | Open in system file manager (macOS/Windows/Linux) | `commands.rs` |
+| `write_file_bytes` | Write raw bytes to file (for drag & drop) | `commands.rs` |
+| `reveal_in_finder` | Open in system file manager | `commands.rs` |
+| `open_in_terminal` | Open terminal at directory | `commands.rs` |
 
 ### Git
 
@@ -169,9 +175,20 @@ See [mcp-server.md](mcp-server.md) for the full tool list.
 | `setup_worker_secrets` | Auto-configure Worker secrets | `cloudflare.rs` |
 | `setup_worker_secrets_with_token` | Configure secrets with user-provided token | `cloudflare.rs` |
 
+### Claude
+
+| Command | Description | Module |
+|---------|-------------|--------|
+| `claude_start` | Start Claude Code CLI process (stream-json mode) | `claude.rs` |
+| `claude_stop` | Stop Claude Code CLI process | `claude.rs` |
+| `claude_send` | Send message (text + optional images) to Claude | `claude.rs` |
+| `claude_is_running` | Check if Claude process is running | `claude.rs` |
+
 ## MCP Bridge Endpoints
 
 The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416–31420).
+
+### Editor
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -183,15 +200,39 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 | `/editor/open-file` | POST | Open a file in the editor |
 | `/editor/save-file` | POST | Save editor content to file |
 | `/editor/export-pdf` | POST | Trigger PDF export |
+| `/editor/structure` | GET | Get document structure as JSON |
+| `/editor/normalize` | POST | Normalize document |
+| `/editor/tabs` | GET | List open tabs |
+| `/editor/root` | GET | Get project root path |
+| `/editor/dirty-files` | GET | List files with unsaved changes |
+| `/editor/switch-tab` | POST | Switch active tab |
+
+### Files
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/files/list` | GET | List directory entries (supports `?recursive=true`) |
+| `/files/read` | GET | Read file content |
+| `/files/search` | GET | Search file names |
+| `/files/create` | POST | Create empty file |
+| `/files/create-directory` | POST | Create directory |
+| `/files/rename` | POST | Rename/move entry |
+| `/files/delete` | POST | Delete entry |
+
+### Git
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/git/status` | GET | Get git status (branch, files, ahead/behind) |
 
 ## Scroll Sync
 
 The editor and preview panes are bidirectionally scroll-synced using viewport-based live measurement:
 
 1. **Source line annotation** — `marked.lexer()` tokens are mapped to source line numbers with an O(n) incremental counter, then attached as `data-source-line` attributes on preview elements
-2. **Viewport-based mapping** — Instead of pre-computing all anchors, positions are computed on-the-fly using only viewport-local data:
+2. **Viewport-based mapping** — Positions are computed on-the-fly using only viewport-local data:
    - `syncToPreview()` — `posAtCoords()` finds top visible line → live `getBoundingClientRect()` on nearest `data-source-line` elements
-   - `syncToEditor()` — Finds preview element at viewport top → determines source line → `lineBlockAt()` (accurate near viewport)
+   - `syncToEditor()` — Binary search finds preview element at viewport top → determines source line → `lineBlockAt()`
 3. **Cooldown** — Timestamp-based cooldown prevents scroll event feedback loops
 4. **Cursor sync** — Cursor movement scrolls the preview to the corresponding element
 5. **Click-to-jump** — Clicking a preview element jumps the editor cursor to the corresponding source line
@@ -201,7 +242,7 @@ The editor and preview panes are bidirectionally scroll-synced using viewport-ba
 Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-free updates. Key considerations:
 - `overflow-anchor: none` on `#preview-pane` to prevent browser scroll anchoring conflicts
 - Programmatic scroll markers before/after morph to suppress unwanted scroll events
-- Preserved elements (mermaid/katex) retain `data-source-line` attributes across morphs
+- Preserved elements (mermaid/katex/highlighted code) retain rendered state across morphs
 
 ## Data Flow Summary
 
@@ -210,14 +251,15 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | File open/save | Tauri FS plugin (sandboxed) |
 | File tree browse | `list_directory` → `git check-ignore` (via `spawn_blocking`) |
 | URL fetch (standard) | reqwest → target URL (with `Accept: text/markdown`) |
-| URL fetch (rendered) | reqwest → Worker → Browser Rendering REST API |
-| Document import | reqwest → Worker → Workers AI `AI.toMarkdown()` |
-| Website crawl | reqwest → Worker → Browser Rendering `/crawl` REST API → poll → save .md files |
+| URL fetch (Worker) | reqwest → Worker `/fetch` → `AI.toMarkdown()` |
+| URL fetch (rendered) | reqwest → Worker `/render` → Browser Rendering `/content` → `AI.toMarkdown()` |
+| Document import | reqwest → Worker `/convert` → Workers AI `AI.toMarkdown()` |
+| Website crawl | reqwest → Worker `/crawl` → Browser Rendering → poll → save .md files |
 | SVG inlining | reqwest → SVG URL → sanitize (string-based) → inline DOM |
 | Git operations | `git` CLI subprocess (via `spawn_blocking`) |
 | GitHub | `gh` CLI subprocess |
 | MCP agent access | MCP Server → HTTP → axum bridge → Tauri events → Frontend |
-
+| Claude chat | Claude Code CLI (stream-json) → stdout → Tauri events → Frontend |
 | Auto-setup | Rust → wrangler CLI → Cloudflare API |
 | File watcher | Tauri FS plugin → watch events → prompt reload |
 | Settings (Worker URL) | Browser localStorage |
@@ -230,12 +272,11 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 
 | Crate | Purpose |
 |-------|---------|
-| `tauri` + plugins | Desktop app framework (dialog, fs, shell) |
+| `tauri` + plugins | Desktop app framework (dialog, fs, shell, store) |
 | `reqwest` | HTTP client for Worker API and SVG fetch |
-| `axum` + `tokio` | MCP bridge HTTP server |
+| `axum` + `tokio` | MCP bridge HTTP server, Claude process management |
 | `serde` + `serde_json` | JSON serialization |
 | `urlencoding` | URL encoding for Worker API calls |
-| `dirs` | Home directory resolution |
 | `log` | Logging |
 
 ### Frontend (`ui/package.json`)
@@ -245,8 +286,9 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | `@codemirror/*` | Editor (markdown, search, state, view) |
 | `@tauri-apps/*` | Tauri IPC (api, plugin-dialog, plugin-fs) |
 | `marked` | Markdown → HTML |
-| `dompurify` | HTML sanitization for preview |
+| `dompurify` | HTML sanitization for preview and Claude panel |
 | `mermaid` | Diagram rendering (lazy-loaded) |
 | `highlight.js` | Code syntax highlighting (lazy-loaded) |
 | `katex` | Math rendering (lazy-loaded) |
+| `idiomorph` | DOM-diffing for flicker-free preview updates |
 | `vite-plus` (dev) | Unified toolchain (Vite + Oxlint + Oxfmt via `vp` CLI) |

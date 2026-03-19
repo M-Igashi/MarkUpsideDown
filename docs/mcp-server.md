@@ -18,7 +18,7 @@ Editor (CodeMirror)
 - **Editor tools** communicate with the running app via the local HTTP bridge
 - **Conversion tools** call the Cloudflare Worker directly (app not required if Worker URL is set)
 
-## Available Tools
+## Available Tools (27)
 
 ### Editor Tools (require the app to be running)
 
@@ -33,6 +33,28 @@ Editor (CodeMirror)
 | `open_file` | Open a Markdown file in the editor | `path: string` |
 | `save_file` | Save content to a file | `path?: string` (uses current file if omitted) |
 | `export_pdf` | Export as PDF (opens print dialog) | — |
+
+### Project Context Tools (require the app to be running)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `list_directory` | List files and directories (respects .gitignore) | `path?: string`, `recursive?: boolean` |
+| `read_file` | Read a text file from the project | `path: string` |
+| `get_open_tabs` | List all open editor tabs with dirty status | — |
+| `get_project_root` | Get the current project root directory path | — |
+| `get_dirty_files` | List files with unsaved changes | — |
+| `switch_tab` | Switch the active editor tab | `path?: string`, `tab_id?: string` |
+| `git_status` | Get git status (branch, files, ahead/behind) | — |
+| `search_files` | Search file names by substring match | `query: string`, `path?: string` |
+
+### File Mutation Tools (require the app to be running)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `create_file` | Create a new empty file | `path: string` |
+| `create_directory` | Create a new directory | `path: string` |
+| `rename_entry` | Rename or move a file or directory | `from: string`, `to: string` |
+| `delete_entry` | Delete a file or directory (moved to trash) | `path: string`, `is_dir?: boolean` |
 
 ### Conversion Tools (require Worker URL)
 
@@ -99,6 +121,8 @@ Launch MarkUpsideDown. The app automatically starts the HTTP bridge and writes t
 ### 4. Use with the Agent
 
 - **Editor tools** (`get_editor_content`, `set_editor_content`, etc.) require the app to be running
+- **Project context tools** (`list_directory`, `read_file`, `git_status`, etc.) require the app to be running
+- **File mutation tools** (`create_file`, `rename_entry`, etc.) require the app to be running
 - **Conversion tools** (`fetch_markdown`, `render_markdown`, `convert_to_markdown`) work independently if `MARKUPSIDEDOWN_WORKER_URL` is set
 
 ## Configuration
