@@ -18,7 +18,7 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 | **Crawl website** | [Browser Rendering `/crawl` API](https://developers.cloudflare.com/browser-rendering/rest-api/crawl-endpoint/) — crawl entire sites to Markdown files |
 | **Import documents** | [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/) — PDF, DOCX, XLSX, PPTX, HTML, CSV, XML |
 | **Import images** | Workers AI OCR — JPG, PNG, GIF, WebP, BMP, TIFF |
-| **Import Slack** | Slack channels and threads — converts messages to Markdown |
+
 | **Drag & Drop** | Drop any supported file onto the editor to import |
 
 ### Editor
@@ -43,7 +43,7 @@ A desktop Markdown editor that bridges the web and AI, powered by [Tauri v2](htt
 - **File tree sidebar** — Browse, create, rename, duplicate, delete files and folders; drag & drop, search
 - **Git panel** — View changes, stage/unstage files, commit, push/pull with ahead/behind counts, fetch
 - **GitHub panel** — Fetch issue and PR bodies by reference (`owner/repo#123` or URL)
-- **Slack panel** — Import Slack channels and threads as Markdown
+
 
 ### Export
 
@@ -172,7 +172,7 @@ src-tauri/               # Rust backend (Tauri v2)
 │   ├── commands.rs      # IPC commands (fetch, convert, crawl, file ops, git, GitHub)
 │   ├── bridge.rs        # MCP HTTP bridge (axum, localhost:31415)
 │   ├── cloudflare.rs    # Wrangler CLI integration, auto-setup wizard
-│   ├── slack.rs         # Slack API integration (channels, threads → Markdown)
+
 │   └── util.rs          # Shared utilities
 ├── Cargo.toml
 └── tauri.conf.json
@@ -187,7 +187,7 @@ ui/                      # Frontend (Vite+ + TypeScript)
 │   ├── tabs.ts              # Multi-tab management with state persistence
 │   ├── git-panel.ts         # Git status, stage/unstage, commit, push/pull
 │   ├── github-panel.ts      # GitHub issue/PR fetcher
-│   ├── slack-panel.ts       # Slack channel/thread import
+
 │   ├── table-editor.ts      # Spreadsheet-like table editor with undo/redo
 │   ├── markdown-commands.ts # Formatting shortcuts (bold, italic, link, etc.)
 │   ├── crawl.ts             # Website crawl UI (dialog, polling, file saving)

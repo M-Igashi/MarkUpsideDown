@@ -5,7 +5,6 @@ mod bridge;
 mod cloudflare;
 mod commands;
 mod pty;
-mod slack;
 mod util;
 
 use std::sync::Arc;
@@ -24,7 +23,7 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(editor_state_managed)
         .manage(http_client)
-        .manage(slack::SlackUserCache::default())
+
         .manage(pty::PtyState::default())
         .setup(move |app| {
             bridge::start(app.handle().clone(), editor_state.clone());
@@ -71,10 +70,7 @@ fn main() {
             cloudflare::deploy_worker,
             cloudflare::setup_worker_secrets,
             cloudflare::setup_worker_secrets_with_token,
-            slack::test_slack_token,
-            slack::fetch_slack_channel,
-            slack::fetch_slack_thread,
-            slack::parse_slack_input,
+
             pty::check_claude_installed,
             pty::spawn_claude,
             pty::write_pty,

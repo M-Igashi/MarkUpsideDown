@@ -52,7 +52,7 @@ MCP Server (mcp-server-rs/)
 | Tabs | Multi-tab editing with state persistence, drag reorder | `ui/src/tabs.ts` |
 | Git panel | Status, stage/unstage, commit, push/pull with ahead/behind, fetch | `ui/src/git-panel.ts` |
 | GitHub panel | Issue/PR body fetcher via `gh` CLI | `ui/src/github-panel.ts` |
-| Slack panel | Slack channel/thread import as Markdown | `ui/src/slack-panel.ts` |
+
 | Table editor | Spreadsheet grid with undo/redo, paste TSV/CSV | `ui/src/table-editor.ts` |
 | Formatting | Markdown shortcuts (bold, italic, link, strikethrough, code) | `ui/src/markdown-commands.ts` |
 | Crawl | Website crawl UI (options dialog, polling, file saving) | `ui/src/crawl.ts` |
@@ -67,7 +67,7 @@ MCP Server (mcp-server-rs/)
 | Theme | CodeMirror editor theme (warm paper palette) | `ui/src/theme.ts` |
 | Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands.rs` |
 | Auto-setup | Wrangler CLI (login, deploy, secrets) | `src-tauri/src/cloudflare.rs` |
-| Slack backend | Slack API (channels, threads → Markdown) | `src-tauri/src/slack.rs` |
+
 | MCP bridge | Rust (axum HTTP server) | `src-tauri/src/bridge.rs` |
 
 ### Cloudflare Worker (`worker/`)
@@ -159,15 +159,6 @@ See [mcp-server.md](mcp-server.md) for the full tool list.
 | `github_fetch_pr` | Fetch GitHub PR body via `gh` CLI | `commands.rs` |
 | `github_list_repos` | List GitHub repos via `gh` CLI | `commands.rs` |
 
-### Slack
-
-| Command | Description | Module |
-|---------|-------------|--------|
-| `test_slack_token` | Test Slack API token validity | `commands.rs` |
-| `fetch_slack_channel` | Fetch Slack channel messages as Markdown | `slack.rs` |
-| `fetch_slack_thread` | Fetch Slack thread messages as Markdown | `slack.rs` |
-| `parse_slack_input` | Parse Slack URL or channel ID | `slack.rs` |
-
 ### Cloudflare / Wrangler
 
 | Command | Description | Module |
@@ -226,7 +217,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | Git operations | `git` CLI subprocess (via `spawn_blocking`) |
 | GitHub | `gh` CLI subprocess |
 | MCP agent access | MCP Server → HTTP → axum bridge → Tauri events → Frontend |
-| Slack import | reqwest → Slack API → parse/format → Markdown |
+
 | Auto-setup | Rust → wrangler CLI → Cloudflare API |
 | File watcher | Tauri FS plugin → watch events → prompt reload |
 | Settings (Worker URL) | Browser localStorage |
