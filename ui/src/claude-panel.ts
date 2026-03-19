@@ -166,7 +166,7 @@ function render() {
   inputEl = document.createElement("textarea");
   inputEl.className = "claude-input";
   inputEl.placeholder = "Ask Claude…";
-  inputEl.rows = 1;
+  inputEl.rows = 3;
   inputArea.appendChild(inputEl);
 
   // Image preview area (between textarea and send button)
@@ -177,15 +177,29 @@ function render() {
   sendBtn = document.createElement("button");
   sendBtn.className = "claude-send-btn";
   sendBtn.textContent = "Send";
-  sendBtn.title = "Send message (Enter)";
+  sendBtn.title = "Send message (Enter / Shift+Enter for newline)";
   inputArea.appendChild(sendBtn);
 
   panelEl.appendChild(inputArea);
 
   // Events
   sendBtn.addEventListener("click", handleSend);
+
+  // IME composition tracking (WebKit fires keydown with isComposing=false
+  // right after compositionend, so we need a flag to suppress that Enter)
+  let justComposed = false;
+  inputEl.addEventListener("compositionstart", () => {
+    justComposed = false;
+  });
+  inputEl.addEventListener("compositionend", () => {
+    justComposed = true;
+    setTimeout(() => {
+      justComposed = false;
+    }, 300);
+  });
+
   inputEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !justComposed) {
       e.preventDefault();
       handleSend();
     }
@@ -195,7 +209,7 @@ function render() {
   inputEl.addEventListener("input", () => {
     if (!inputEl) return;
     inputEl.style.height = "auto";
-    inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + "px";
   });
 
   // Image paste handler
