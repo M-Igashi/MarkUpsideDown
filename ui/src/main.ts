@@ -14,7 +14,7 @@ import { lintGutter } from "@codemirror/lint";
 import { markdownLinter } from "./markdown-lint.ts";
 import { editorTheme } from "./theme.ts";
 import { editTableAtCursor } from "./table-editor.ts";
-import { showSettings, checkFirstRun } from "./settings.ts";
+import { showSettings, checkFirstRun, getWorkerUrl } from "./settings.ts";
 import {
   initSidebar,
   setSelectedPath,
@@ -87,6 +87,12 @@ import {
   insertLink,
 } from "./markdown-commands.ts";
 import { registerCommands, toggle as toggleCommandPalette } from "./command-palette.ts";
+import {
+  initClaudePanel,
+  toggleClaudePanel,
+  getStoredWidth,
+  setStoredWidth,
+} from "./claude-panel.ts";
 
 // --- Tauri APIs ---
 
@@ -717,6 +723,9 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "k") {
       e.preventDefault();
       toggleCommandPalette();
+    } else if (e.key === "j") {
+      e.preventDefault();
+      toggleClaudePanel();
     }
   }
 });
@@ -827,6 +836,13 @@ registerCommands([
     run: togglePreview,
   },
   {
+    id: "view.claudePanel",
+    label: "Toggle Claude Code",
+    shortcut: "⌘J",
+    category: "View",
+    run: toggleClaudePanel,
+  },
+  {
     id: "app.settings",
     label: "Open Settings",
     category: "App",
@@ -838,6 +854,64 @@ registerCommands([
       }),
   },
 ]);
+
+// --- Claude Code Panel ---
+
+const claudePanel = document.getElementById("claude-panel")!;
+const claudeDivider = document.getElementById("claude-divider")!;
+
+const STORAGE_KEY_CLAUDE_COLLAPSED = "markupsidedown:claudePanelCollapsed";
+
+// Default: collapsed
+const claudeCollapsed = localStorage.getItem(STORAGE_KEY_CLAUDE_COLLAPSED) !== "false";
+if (claudeCollapsed) {
+  claudePanel.classList.add("collapsed");
+  claudeDivider.classList.add("hidden");
+}
+
+// Set stored width
+claudePanel.style.width = `${getStoredWidth()}px`;
+
+initClaudePanel(claudePanel, {
+  getCwd: getRootPath,
+  getMcpBinaryPath: () => invoke<string>("get_mcp_binary_path"),
+  getWorkerUrl,
+});
+
+// Unfold button for Claude panel
+const claudeUnfoldBtn = document.createElement("button");
+claudeUnfoldBtn.id = "claude-unfold-btn";
+claudeUnfoldBtn.className = "panel-unfold-btn";
+claudeUnfoldBtn.title = "Expand Claude Code (⌘J)";
+claudeUnfoldBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"/></svg>`;
+claudeUnfoldBtn.addEventListener("click", toggleClaudePanel);
+appEl.appendChild(claudeUnfoldBtn);
+
+if (claudeCollapsed) {
+  claudeUnfoldBtn.classList.add("visible");
+}
+
+// Claude divider drag
+let isClaudeDragging = false;
+let claudeDragRAF = 0;
+
+claudeDivider.addEventListener("mousedown", () => {
+  isClaudeDragging = true;
+});
+document.addEventListener("mousemove", (e) => {
+  if (!isClaudeDragging) return;
+  cancelAnimationFrame(claudeDragRAF);
+  const clientX = e.clientX;
+  claudeDragRAF = requestAnimationFrame(() => {
+    const appRight = appEl.getBoundingClientRect().right;
+    const width = Math.max(200, Math.min(800, appRight - clientX));
+    claudePanel.style.width = `${width}px`;
+    setStoredWidth(width);
+  });
+});
+document.addEventListener("mouseup", () => {
+  isClaudeDragging = false;
+});
 
 // --- First-run ---
 
