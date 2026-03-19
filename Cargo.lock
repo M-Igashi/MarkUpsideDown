@@ -1981,7 +1981,7 @@ dependencies = [
 
 [[package]]
 name = "markupsidedown"
-version = "0.1.70"
+version = "0.1.71"
 dependencies = [
  "axum",
  "base64 0.22.1",

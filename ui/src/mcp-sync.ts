@@ -51,7 +51,6 @@ export function syncEditorState(cachedContent?: string) {
     lastSyncedFilePath = currentFilePath;
     const cursorPos = editor.state.selection.main.head;
     const structure = getDocumentStructure(content);
-    // Serialize structure to JSON (convert Set to Array for JSON compat)
     const structureJson = JSON.stringify({
       headings: structure.headings,
       links: structure.links,
@@ -62,7 +61,7 @@ export function syncEditorState(cachedContent?: string) {
     invoke("sync_editor_state", {
       content,
       filePath: currentFilePath,
-      cursorPos: cursorPos,
+      cursorPos,
       workerUrl: getWorkerUrl() || null,
       documentStructure: structureJson,
     }).catch(() => {});

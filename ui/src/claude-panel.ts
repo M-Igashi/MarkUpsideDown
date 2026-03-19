@@ -51,6 +51,7 @@ interface Session {
   containerEl: HTMLElement;
   isSpawned: boolean;
   label: string;
+  dataDisposable: { dispose(): void } | null;
 }
 
 // --- State ---
@@ -352,7 +353,10 @@ async function createNewTab() {
   terminalsEl.appendChild(containerEl);
 
   // Initialize xterm
-  const { terminal, fitAddon, resizeObserver } = await initXterm(containerEl, sessionId);
+  const { terminal, fitAddon, resizeObserver, dataDisposable } = await initXterm(
+    containerEl,
+    sessionId,
+  );
 
   const session: Session = {
     id: sessionId,
@@ -362,6 +366,7 @@ async function createNewTab() {
     containerEl,
     isSpawned: false,
     label,
+    dataDisposable,
   };
   sessions.set(sessionId, session);
 
@@ -443,7 +448,7 @@ async function initXterm(
   fitAddon.fit();
 
   // Relay keystrokes to backend (scoped to this session)
-  terminal.onData((data) => {
+  const dataDisposable = terminal.onData((data) => {
     const encoded = btoa(data);
     invoke("write_pty", { sessionId, data: encoded }).catch(() => {});
   });
@@ -470,7 +475,7 @@ async function initXterm(
     }
   });
 
-  return { terminal, fitAddon, resizeObserver };
+  return { terminal, fitAddon, resizeObserver, dataDisposable };
 }
 
 function switchToSession(sessionId: string) {
@@ -610,37 +615,24 @@ async function restartSession(sessionId: string) {
   if (!session) return;
 
   if (session.isSpawned) {
-    // Kill the process but keep the session entry (backend kill_session_inner doesn't remove from map)
     await invoke("kill_pty", { sessionId }).catch(() => {});
     session.isSpawned = false;
-    // Re-create backend session since kill_pty removes it from the map
-    const newId = await invoke<string>("create_session");
-    // Migrate session to new ID
-    sessions.delete(sessionId);
-    session.id = newId;
-    sessions.set(newId, session);
-    if (activeSessionId === sessionId) activeSessionId = newId;
-    // Update keystroke handler to use new session ID
-    session.terminal.onData((data) => {
-      const encoded = btoa(data);
-      invoke("write_pty", { sessionId: newId, data: encoded }).catch(() => {});
-    });
-    session.terminal.clear();
-    renderTabBar();
-    await spawnClaude(newId);
-    return;
   }
 
-  // Session already exited — just re-create backend and spawn
+  // Re-create backend session and migrate
   const newId = await invoke<string>("create_session");
   sessions.delete(sessionId);
   session.id = newId;
   sessions.set(newId, session);
   if (activeSessionId === sessionId) activeSessionId = newId;
-  session.terminal.onData((data) => {
+
+  // Dispose old keystroke handler to prevent listener leak, then re-register
+  session.dataDisposable?.dispose();
+  session.dataDisposable = session.terminal.onData((data) => {
     const encoded = btoa(data);
     invoke("write_pty", { sessionId: newId, data: encoded }).catch(() => {});
   });
+
   session.terminal.clear();
   renderTabBar();
   await spawnClaude(newId);
