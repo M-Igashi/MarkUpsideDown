@@ -158,6 +158,66 @@ pub struct DeleteEntryParams {
     pub is_dir: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CopyEntryParams {
+    #[schemars(description = "Absolute path of the source file or directory")]
+    pub from: String,
+    #[schemars(description = "Absolute path of the destination directory")]
+    pub to_dir: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DuplicateEntryParams {
+    #[schemars(description = "Absolute path to duplicate")]
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitFileParams {
+    #[schemars(description = "File path to stage/unstage (relative to repo root)")]
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitCommitParams {
+    #[schemars(description = "Commit message")]
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CrawlSaveParams {
+    #[schemars(description = "Array of pages to save, each with url and markdown fields")]
+    pub pages: Vec<CrawlSavePageParam>,
+    #[schemars(description = "Base directory to save files into")]
+    pub base_dir: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CrawlSavePageParam {
+    #[schemars(description = "URL of the page")]
+    pub url: String,
+    #[schemars(description = "Markdown content of the page")]
+    pub markdown: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DownloadImageParams {
+    #[schemars(description = "URL of the image to download")]
+    pub url: String,
+    #[schemars(description = "Local file path to save the image to")]
+    pub dest_path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitHubIssueParams {
+    #[schemars(description = "Repository owner (e.g., 'octocat')")]
+    pub owner: String,
+    #[schemars(description = "Repository name (e.g., 'hello-world')")]
+    pub repo: String,
+    #[schemars(description = "Issue or PR number")]
+    pub number: u64,
+}
+
 // --- Server ---
 
 pub struct McpTools {
@@ -704,6 +764,184 @@ impl McpTools {
 
         match result {
             Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Content & Asset Tools ---
+
+    #[tool(name = "download_image", description = "Download an image from a URL and save it to a local file path", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
+    async fn download_image(
+        &self,
+        Parameters(params): Parameters<DownloadImageParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.download_image(&params.url, &params.dest_path).await {
+            Ok(path) => Ok(CallToolResult::success(vec![Content::text(format!("Downloaded to: {path}"))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "fetch_page_title", description = "Extract the <title> from a web page. Useful for generating [Title](url) Markdown links.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn fetch_page_title(
+        &self,
+        Parameters(params): Parameters<UrlParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.fetch_page_title(&params.url).await {
+            Ok(title) => Ok(CallToolResult::success(vec![Content::text(title)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- File Copy/Duplicate ---
+
+    #[tool(name = "copy_entry", description = "Copy a file or directory to another directory", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
+    async fn copy_entry(
+        &self,
+        Parameters(params): Parameters<CopyEntryParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.copy_entry(&params.from, &params.to_dir).await {
+            Ok(dest) => Ok(CallToolResult::success(vec![Content::text(format!("Copied to: {dest}"))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "duplicate_entry", description = "Duplicate a file or directory with auto-naming (e.g., 'file copy.md', 'file copy 2.md')", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
+    async fn duplicate_entry(
+        &self,
+        Parameters(params): Parameters<DuplicateEntryParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.duplicate_entry(&params.path).await {
+            Ok(dest) => Ok(CallToolResult::success(vec![Content::text(format!("Duplicated to: {dest}"))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Crawl Save ---
+
+    #[tool(name = "crawl_save", description = "Save crawled pages as local Markdown files. Use with crawl_status results.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
+    async fn crawl_save(
+        &self,
+        Parameters(params): Parameters<CrawlSaveParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let pages: Vec<crate::bridge::CrawlSavePage> = params
+            .pages
+            .into_iter()
+            .map(|p| crate::bridge::CrawlSavePage {
+                url: p.url,
+                markdown: p.markdown,
+            })
+            .collect();
+        match self.bridge.crawl_save(&pages, &params.base_dir).await {
+            Ok(result) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Saved {} files to {}",
+                result.saved_count, result.base_dir
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Git Write Operations ---
+
+    #[tool(name = "git_stage", description = "Stage a file for commit (git add)", annotations(read_only_hint = false, open_world_hint = false))]
+    async fn git_stage(
+        &self,
+        Parameters(params): Parameters<GitFileParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_stage(&params.path).await {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Staged: {}", params.path))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_unstage", description = "Unstage a file (git reset HEAD)", annotations(read_only_hint = false, open_world_hint = false))]
+    async fn git_unstage(
+        &self,
+        Parameters(params): Parameters<GitFileParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_unstage(&params.path).await {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Unstaged: {}", params.path))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_commit", description = "Commit staged changes with a message", annotations(read_only_hint = false, open_world_hint = false))]
+    async fn git_commit(
+        &self,
+        Parameters(params): Parameters<GitCommitParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_commit(&params.message).await {
+            Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_push", description = "Push commits to the remote repository", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
+    async fn git_push(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_push().await {
+            Ok(output) => {
+                let msg = if output.is_empty() { "Push completed".to_string() } else { output };
+                Ok(CallToolResult::success(vec![Content::text(msg)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_pull", description = "Pull changes from the remote repository", annotations(read_only_hint = false, open_world_hint = true))]
+    async fn git_pull(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_pull().await {
+            Ok(output) => {
+                let msg = if output.is_empty() { "Pull completed".to_string() } else { output };
+                Ok(CallToolResult::success(vec![Content::text(msg)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_fetch", description = "Fetch updates from the remote repository without merging", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn git_fetch(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_fetch().await {
+            Ok(output) => {
+                let msg = if output.is_empty() { "Fetch completed".to_string() } else { output };
+                Ok(CallToolResult::success(vec![Content::text(msg)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- GitHub Integration ---
+
+    #[tool(name = "github_fetch_issue", description = "Fetch a GitHub issue body as Markdown. Requires gh CLI to be authenticated.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn github_fetch_issue(
+        &self,
+        Parameters(params): Parameters<GitHubIssueParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.github_fetch_issue(&params.owner, &params.repo, params.number).await {
+            Ok(body) => Ok(CallToolResult::success(vec![Content::text(body)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "github_fetch_pr", description = "Fetch a GitHub pull request body as Markdown. Requires gh CLI to be authenticated.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn github_fetch_pr(
+        &self,
+        Parameters(params): Parameters<GitHubIssueParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.github_fetch_pr(&params.owner, &params.repo, params.number).await {
+            Ok(body) => Ok(CallToolResult::success(vec![Content::text(body)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "github_list_repos", description = "List accessible GitHub repositories. Requires gh CLI to be authenticated.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn github_list_repos(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.github_list_repos().await {
+            Ok(repos) => {
+                if repos.is_empty() {
+                    Ok(CallToolResult::success(vec![Content::text("No repositories found")]))
+                } else {
+                    Ok(CallToolResult::success(vec![Content::text(repos.join("\n"))]))
+                }
+            }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }

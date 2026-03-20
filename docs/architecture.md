@@ -217,12 +217,41 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 | `/files/create-directory` | POST | Create directory |
 | `/files/rename` | POST | Rename/move entry |
 | `/files/delete` | POST | Delete entry |
+| `/files/copy` | POST | Copy file or directory to another directory |
+| `/files/duplicate` | POST | Duplicate with auto-naming |
+
+### Content & Assets
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/content/download-image` | POST | Download image from URL to local file |
+| `/content/fetch-title` | POST | Extract `<title>` from a web page |
+
+### Crawl
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/crawl/save` | POST | Save crawled pages as local Markdown files |
 
 ### Git
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/git/status` | GET | Get git status (branch, files, ahead/behind) |
+| `/git/stage` | POST | Stage a file |
+| `/git/unstage` | POST | Unstage a file |
+| `/git/commit` | POST | Commit staged changes |
+| `/git/push` | POST | Push to remote |
+| `/git/pull` | POST | Pull from remote |
+| `/git/fetch` | POST | Fetch from remote |
+
+### GitHub
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/github/issue` | GET | Fetch issue body as Markdown |
+| `/github/pr` | GET | Fetch PR body as Markdown |
+| `/github/repos` | GET | List accessible repositories |
 
 ## Scroll Sync
 

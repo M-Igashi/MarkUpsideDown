@@ -238,6 +238,137 @@ impl BridgeClient {
     pub async fn delete_entry(&self, path: &str, is_dir: bool) -> Result<(), String> {
         self.post_check_error("/files/delete", serde_json::json!({ "path": path, "is_dir": is_dir })).await
     }
+
+    pub async fn copy_entry(&self, from: &str, to_dir: &str) -> Result<String, String> {
+        let val = self.request("POST", "/files/copy", Some(serde_json::json!({ "from": from, "to_dir": to_dir }))).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub async fn duplicate_entry(&self, path: &str) -> Result<String, String> {
+        let val = self.request("POST", "/files/duplicate", Some(serde_json::json!({ "path": path }))).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    // --- Git write operations ---
+
+    pub async fn git_stage(&self, path: &str) -> Result<(), String> {
+        self.post_check_error("/git/stage", serde_json::json!({ "path": path })).await
+    }
+
+    pub async fn git_unstage(&self, path: &str) -> Result<(), String> {
+        self.post_check_error("/git/unstage", serde_json::json!({ "path": path })).await
+    }
+
+    pub async fn git_commit(&self, message: &str) -> Result<String, String> {
+        let val = self.request("POST", "/git/commit", Some(serde_json::json!({ "message": message }))).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    async fn git_remote_op(&self, endpoint: &str) -> Result<String, String> {
+        let val = self.request("POST", endpoint, None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub async fn git_push(&self) -> Result<String, String> {
+        self.git_remote_op("/git/push").await
+    }
+
+    pub async fn git_pull(&self) -> Result<String, String> {
+        self.git_remote_op("/git/pull").await
+    }
+
+    pub async fn git_fetch(&self) -> Result<String, String> {
+        self.git_remote_op("/git/fetch").await
+    }
+
+    // --- Crawl save ---
+
+    pub async fn crawl_save(&self, pages: &[CrawlSavePage], base_dir: &str) -> Result<CrawlSaveResult, String> {
+        let val = self.request("POST", "/crawl/save", Some(serde_json::json!({
+            "pages": pages,
+            "base_dir": base_dir,
+        }))).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        serde_json::from_value(json).map_err(|e| e.to_string())
+    }
+
+    // --- Content & assets ---
+
+    pub async fn download_image(&self, url: &str, dest_path: &str) -> Result<String, String> {
+        let val = self.request("POST", "/content/download-image", Some(serde_json::json!({
+            "url": url,
+            "dest_path": dest_path,
+        }))).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub async fn fetch_page_title(&self, url: &str) -> Result<String, String> {
+        let val = self.request("POST", "/content/fetch-title", Some(serde_json::json!({
+            "url": url,
+        }))).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    // --- GitHub ---
+
+    pub async fn github_fetch_issue(&self, owner: &str, repo: &str, number: u64) -> Result<String, String> {
+        let query = format!("/github/issue?owner={}&repo={}&number={}", urlencoding::encode(owner), urlencoding::encode(repo), number);
+        let val = self.request("GET", &query, None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub async fn github_fetch_pr(&self, owner: &str, repo: &str, number: u64) -> Result<String, String> {
+        let query = format!("/github/pr?owner={}&repo={}&number={}", urlencoding::encode(owner), urlencoding::encode(repo), number);
+        let val = self.request("GET", &query, None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub async fn github_list_repos(&self) -> Result<Vec<String>, String> {
+        let val = self.request("GET", "/github/repos", None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        #[derive(Deserialize)]
+        struct Resp { repos: Vec<String> }
+        let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
+        Ok(resp.repos)
+    }
 }
 
 #[derive(Deserialize, serde::Serialize)]
@@ -280,4 +411,16 @@ pub struct GitStatus {
     pub is_repo: bool,
     pub ahead: u32,
     pub behind: u32,
+}
+
+#[derive(serde::Serialize)]
+pub struct CrawlSavePage {
+    pub url: String,
+    pub markdown: String,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct CrawlSaveResult {
+    pub saved_count: u32,
+    pub base_dir: String,
 }

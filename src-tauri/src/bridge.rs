@@ -17,6 +17,7 @@ const PORT_RANGE_END: u16 = 31420;
 struct BridgeState {
     editor: Arc<EditorStates>,
     app: AppHandle,
+    http: reqwest::Client,
 }
 
 impl BridgeState {
@@ -43,9 +44,11 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
     let port = find_available_port().expect("No available port for MCP bridge");
     std::fs::write(port_file_path(), port.to_string()).ok();
 
+    let http = reqwest::Client::new();
     let state = Arc::new(BridgeState {
         editor: editor_state,
         app,
+        http,
     });
 
     let router = Router::new()
@@ -69,6 +72,20 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/files/rename", post(rename_entry))
         .route("/files/delete", post(delete_entry))
         .route("/git/status", get(git_status))
+        .route("/git/stage", post(git_stage))
+        .route("/git/unstage", post(git_unstage))
+        .route("/git/commit", post(git_commit))
+        .route("/git/push", post(git_push))
+        .route("/git/pull", post(git_pull))
+        .route("/git/fetch", post(git_fetch))
+        .route("/files/copy", post(copy_entry))
+        .route("/files/duplicate", post(duplicate_entry))
+        .route("/crawl/save", post(crawl_save))
+        .route("/content/download-image", post(download_image))
+        .route("/content/fetch-title", post(fetch_page_title))
+        .route("/github/issue", get(github_fetch_issue))
+        .route("/github/pr", get(github_fetch_pr))
+        .route("/github/repos", get(github_list_repos))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
@@ -437,7 +454,7 @@ async fn delete_entry(Json(body): Json<DeleteEntryRequest>) -> Json<serde_json::
     }
 }
 
-// --- Git handler ---
+// --- Git handlers ---
 
 async fn git_status(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
     let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
@@ -447,6 +464,278 @@ async fn git_status(State(state): State<Arc<BridgeState>>) -> Json<serde_json::V
 
     match commands::git_status(repo_path).await {
         Ok(status) => Json(serde_json::json!(status)),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+fn get_repo_path(state: &BridgeState) -> Result<String, Json<serde_json::Value>> {
+    state
+        .editor
+        .get_focused_state()
+        .and_then(|s| s.root_path)
+        .ok_or_else(|| Json(serde_json::json!({ "error": "No project root available" })))
+}
+
+#[derive(Deserialize)]
+struct GitFileRequest {
+    path: String,
+}
+
+async fn git_stage(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<GitFileRequest>,
+) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::git_stage(repo_path, body.path).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+async fn git_unstage(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<GitFileRequest>,
+) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::git_unstage(repo_path, body.path).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct GitCommitRequest {
+    message: String,
+}
+
+async fn git_commit(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<GitCommitRequest>,
+) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::git_commit(repo_path, body.message).await {
+        Ok(output) => Json(serde_json::json!({ "output": output })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+async fn git_push(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::git_push(repo_path).await {
+        Ok(output) => Json(serde_json::json!({ "output": output })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+async fn git_pull(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::git_pull(repo_path).await {
+        Ok(output) => Json(serde_json::json!({ "output": output })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+async fn git_fetch(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::git_fetch(repo_path).await {
+        Ok(output) => Json(serde_json::json!({ "output": output })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+// --- File copy/duplicate handlers ---
+
+#[derive(Deserialize)]
+struct CopyEntryRequest {
+    from: String,
+    to_dir: String,
+}
+
+async fn copy_entry(Json(body): Json<CopyEntryRequest>) -> Json<serde_json::Value> {
+    match commands::copy_entry(body.from, body.to_dir).await {
+        Ok(dest) => Json(serde_json::json!({ "path": dest })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct DuplicateEntryRequest {
+    path: String,
+}
+
+async fn duplicate_entry(Json(body): Json<DuplicateEntryRequest>) -> Json<serde_json::Value> {
+    match commands::duplicate_entry(body.path).await {
+        Ok(dest) => Json(serde_json::json!({ "path": dest })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+// --- Crawl save handler ---
+
+async fn crawl_save(Json(body): Json<CrawlSaveRequest>) -> Json<serde_json::Value> {
+    match commands::crawl_save(body.pages, body.base_dir).await {
+        Ok(result) => Json(serde_json::json!({
+            "saved_count": result.saved_count,
+            "base_dir": result.base_dir,
+        })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CrawlSaveRequest {
+    pages: Vec<commands::CrawlPage>,
+    base_dir: String,
+}
+
+// --- Content & asset handlers ---
+
+#[derive(Deserialize)]
+struct DownloadImageRequest {
+    url: String,
+    dest_path: String,
+}
+
+async fn download_image(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<DownloadImageRequest>,
+) -> Json<serde_json::Value> {
+    let result = async {
+        let response = state
+            .http
+            .get(&body.url)
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch image: {e}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP {}", response.status()));
+        }
+
+        let bytes = response.bytes().await.map_err(|e| format!("Failed to read image: {e}"))?;
+
+        if let Some(parent) = std::path::Path::new(&body.dest_path).parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create directory: {e}"))?;
+        }
+
+        tokio::fs::write(&body.dest_path, &bytes)
+            .await
+            .map_err(|e| format!("Failed to write image: {e}"))?;
+
+        Ok::<_, String>(body.dest_path.clone())
+    }
+    .await;
+
+    match result {
+        Ok(path) => Json(serde_json::json!({ "path": path })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct FetchTitleRequest {
+    url: String,
+}
+
+async fn fetch_page_title(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<FetchTitleRequest>,
+) -> Json<serde_json::Value> {
+    let result = async {
+        let response = state
+            .http
+            .get(&body.url)
+            .timeout(std::time::Duration::from_secs(10))
+            .header("Accept", "text/html")
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch: {e}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP {}", response.status()));
+        }
+
+        let bytes = response.bytes().await.map_err(|e| format!("Failed to read body: {e}"))?;
+        let text = String::from_utf8_lossy(&bytes[..bytes.len().min(65536)]);
+
+        let lower = text.to_ascii_lowercase();
+        let start = lower.find("<title").and_then(|i| lower[i..].find('>').map(|j| i + j + 1));
+        let end = lower.find("</title>");
+        match (start, end) {
+            (Some(s), Some(e)) if s < e => {
+                let title = text[s..e].trim().to_string();
+                let title = title
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+                    .replace("&#39;", "'")
+                    .replace("&#x27;", "'")
+                    .replace("&apos;", "'");
+                if title.is_empty() {
+                    Err("Empty title".to_string())
+                } else {
+                    Ok(title)
+                }
+            }
+            _ => Err("No title found".to_string()),
+        }
+    }
+    .await;
+
+    match result {
+        Ok(title) => Json(serde_json::json!({ "title": title })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+// --- GitHub handlers ---
+
+#[derive(Deserialize)]
+struct GitHubIssueQuery {
+    owner: String,
+    repo: String,
+    number: u64,
+}
+
+async fn github_fetch_issue(Query(q): Query<GitHubIssueQuery>) -> Json<serde_json::Value> {
+    match commands::github_fetch_issue(q.owner, q.repo, q.number).await {
+        Ok(body) => Json(serde_json::json!({ "body": body })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+async fn github_fetch_pr(Query(q): Query<GitHubIssueQuery>) -> Json<serde_json::Value> {
+    match commands::github_fetch_pr(q.owner, q.repo, q.number).await {
+        Ok(body) => Json(serde_json::json!({ "body": body })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+async fn github_list_repos() -> Json<serde_json::Value> {
+    match commands::github_list_repos().await {
+        Ok(repos) => Json(serde_json::json!({ "repos": repos })),
         Err(e) => Json(serde_json::json!({ "error": e })),
     }
 }

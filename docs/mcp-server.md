@@ -18,7 +18,7 @@ Editor (CodeMirror)
 - **Editor tools** communicate with the running app via the local HTTP bridge
 - **Conversion tools** call the Cloudflare Worker directly (app not required if Worker URL is set)
 
-## Available Tools (26)
+## Available Tools (40)
 
 ### Editor Tools (require the app to be running)
 
@@ -54,6 +54,15 @@ Editor (CodeMirror)
 | `create_directory` | Create a new directory | `path: string` |
 | `rename_entry` | Rename or move a file or directory | `from: string`, `to: string` |
 | `delete_entry` | Delete a file or directory (moved to trash) | `path: string`, `is_dir?: boolean` |
+| `copy_entry` | Copy a file or directory to another directory | `from: string`, `to_dir: string` |
+| `duplicate_entry` | Duplicate with auto-naming (e.g., "file copy.md") | `path: string` |
+
+### Content & Asset Tools (require the app to be running)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `download_image` | Download an image from URL to a local file | `url: string`, `dest_path: string` |
+| `fetch_page_title` | Extract `<title>` from a web page | `url: string` |
 
 ### Conversion Tools (require Worker URL)
 
@@ -71,6 +80,26 @@ Editor (CodeMirror)
 |------|-------------|------------|
 | `crawl_website` | Start a website crawl job (returns `job_id`) | `url: string`, `depth?: number`, `limit?: number`, `render?: boolean`, `include_patterns?: string[]`, `exclude_patterns?: string[]` |
 | `crawl_status` | Poll crawl job status and retrieve Markdown pages | `job_id: string`, `cursor?: string` |
+| `crawl_save` | Save crawled pages as local Markdown files | `pages: {url, markdown}[]`, `base_dir: string` |
+
+### Git Operations (require the app to be running)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `git_stage` | Stage a file for commit | `path: string` |
+| `git_unstage` | Unstage a file | `path: string` |
+| `git_commit` | Commit staged changes | `message: string` |
+| `git_push` | Push commits to remote | — |
+| `git_pull` | Pull changes from remote | — |
+| `git_fetch` | Fetch updates from remote without merging | — |
+
+### GitHub Integration (require gh CLI)
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `github_fetch_issue` | Fetch a GitHub issue body as Markdown | `owner: string`, `repo: string`, `number: number` |
+| `github_fetch_pr` | Fetch a GitHub PR body as Markdown | `owner: string`, `repo: string`, `number: number` |
+| `github_list_repos` | List accessible GitHub repositories | — |
 
 ### Diagnostics
 
@@ -121,7 +150,10 @@ Launch MarkUpsideDown. The app automatically starts the HTTP bridge and writes t
 
 - **Editor tools** (`get_editor_content`, `set_editor_content`, etc.) require the app to be running
 - **Project context tools** (`list_directory`, `read_file`, `git_status`, etc.) require the app to be running
-- **File mutation tools** (`create_file`, `rename_entry`, etc.) require the app to be running
+- **File mutation tools** (`create_file`, `rename_entry`, `copy_entry`, etc.) require the app to be running
+- **Git tools** (`git_stage`, `git_commit`, `git_push`, etc.) require the app to be running
+- **GitHub tools** (`github_fetch_issue`, `github_fetch_pr`, etc.) require the app and `gh` CLI
+- **Content tools** (`download_image`, `fetch_page_title`) require the app to be running
 - **Conversion tools** (`fetch_markdown`, `render_markdown`, `convert_to_markdown`) work independently if `MARKUPSIDEDOWN_WORKER_URL` is set
 
 ## Configuration

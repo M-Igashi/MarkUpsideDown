@@ -52,7 +52,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 ### Integration
 
 - **Claude Panel** — Chat with Claude directly from the editor, powered by Claude Code CLI `stream-json` mode. Supports image paste, session persistence, and auto-reconnection.
-- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (26 tools). See [docs/mcp-server.md](docs/mcp-server.md).
+- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (40 tools). See [docs/mcp-server.md](docs/mcp-server.md).
 
 ### Keyboard Shortcuts
 
@@ -103,7 +103,7 @@ cargo tauri build      # production build
 | Document | Contents |
 |----------|----------|
 | [docs/architecture.md](docs/architecture.md) | Data flow, components, IPC/bridge API reference |
-| [docs/mcp-server.md](docs/mcp-server.md) | MCP setup guide and 26-tool reference |
+| [docs/mcp-server.md](docs/mcp-server.md) | MCP setup guide and 40-tool reference |
 | [docs/worker-deployment.md](docs/worker-deployment.md) | Worker deployment, API tokens, pricing |
 | [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md) | All keyboard shortcuts |
 
