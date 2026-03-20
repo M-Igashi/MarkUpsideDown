@@ -756,6 +756,18 @@ initClaudePanel(claudePanelEl, {
     const tab = getTabByPath(filePath);
     if (tab) reloadTabFromDisk(filePath);
   },
+  getEditorSelection: () => {
+    const sel = editor.state.selection.main;
+    if (sel.empty) return null;
+    return editor.state.sliceDoc(sel.from, sel.to);
+  },
+  listDirectory: async (path: string) => {
+    const root = getRootPath();
+    return invoke<{ name: string; path: string; is_dir: boolean }[]>("list_directory", {
+      path,
+      repoRoot: root,
+    });
+  },
 });
 
 // Claude panel divider drag

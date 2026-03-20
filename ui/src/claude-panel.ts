@@ -45,6 +45,12 @@ interface ToolUseBlock {
   status: "running" | "done" | "error";
 }
 
+interface AttachedContext {
+  type: "file" | "selection";
+  label: string; // display name (basename for files, "Selection" for selection)
+  content: string; // file path or selected text
+}
+
 // --- State ---
 
 let panelEl: HTMLElement | null = null;
@@ -64,6 +70,13 @@ let rateLimitInterval: number | null = null;
 let pendingImages: PastedImage[] = [];
 let imagePreviewEl: HTMLElement | null = null;
 let onFileEditedCallback: ((filePath: string) => void) | null = null;
+let attachedContexts: AttachedContext[] = [];
+let contextChipsEl: HTMLElement | null = null;
+let contextMenuEl: HTMLElement | null = null;
+let getEditorSelection: (() => string | null) | null = null;
+let listDirectory:
+  | ((path: string) => Promise<{ name: string; path: string; is_dir: boolean }[]>)
+  | null = null;
 
 // --- Public API ---
 
@@ -73,12 +86,16 @@ export function initClaudePanel(
     getCwd: () => string | null;
     getActiveFilePath: () => string | null;
     onFileEdited?: (filePath: string) => void;
+    getEditorSelection?: () => string | null;
+    listDirectory?: (path: string) => Promise<{ name: string; path: string; is_dir: boolean }[]>;
   },
 ) {
   panelEl = el;
   getCwd = callbacks.getCwd;
   getActiveFilePath = callbacks.getActiveFilePath;
   onFileEditedCallback = callbacks.onFileEdited ?? null;
+  getEditorSelection = callbacks.getEditorSelection ?? null;
+  listDirectory = callbacks.listDirectory ?? null;
   messages = loadMessages();
   render();
   setupListeners();
@@ -195,23 +212,44 @@ function render() {
   const inputArea = document.createElement("div");
   inputArea.className = "claude-input-area";
 
+  // Context chips (above textarea row)
+  contextChipsEl = document.createElement("div");
+  contextChipsEl.className = "claude-context-chips";
+  contextChipsEl.style.display = "none";
+  inputArea.appendChild(contextChipsEl);
+
+  // Textarea row (+ button, textarea, send button)
+  const inputRow = document.createElement("div");
+  inputRow.className = "claude-input-row";
+
+  const addCtxBtn = document.createElement("button");
+  addCtxBtn.className = "claude-add-context-btn";
+  addCtxBtn.title = "Attach context (@)";
+  addCtxBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>`;
+  addCtxBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showContextMenu(addCtxBtn);
+  });
+  inputRow.appendChild(addCtxBtn);
+
   inputEl = document.createElement("textarea");
   inputEl.className = "claude-input";
-  inputEl.placeholder = "Ask Claude…";
+  inputEl.placeholder = "Ask Claude… (@ to attach context)";
   inputEl.rows = 3;
-  inputArea.appendChild(inputEl);
+  inputRow.appendChild(inputEl);
 
   // Image preview area (between textarea and send button)
   imagePreviewEl = document.createElement("div");
   imagePreviewEl.className = "claude-image-preview";
-  inputArea.appendChild(imagePreviewEl);
+  inputRow.appendChild(imagePreviewEl);
 
   sendBtn = document.createElement("button");
   sendBtn.className = "claude-send-btn";
   sendBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 13V3l11 5-11 5z" fill="currentColor"/></svg>`;
   sendBtn.title = "Send message (Enter / Shift+Enter for newline)";
-  inputArea.appendChild(sendBtn);
+  inputRow.appendChild(sendBtn);
 
+  inputArea.appendChild(inputRow);
   panelEl.appendChild(inputArea);
 
   // Events
@@ -246,6 +284,16 @@ function render() {
     if (!inputEl) return;
     inputEl.style.height = "auto";
     inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + "px";
+
+    // Detect @ trigger for context menu
+    const pos = inputEl.selectionStart;
+    const val = inputEl.value;
+    if (pos > 0 && val[pos - 1] === "@") {
+      // Only trigger if @ is at start or preceded by whitespace
+      if (pos === 1 || /\s/.test(val[pos - 2])) {
+        showContextMenu(addCtxBtn);
+      }
+    }
   });
 
   // Image paste handler
@@ -402,8 +450,11 @@ async function handleSend() {
   if (!text && pendingImages.length === 0) return;
 
   const images = [...pendingImages];
+  const contexts = [...attachedContexts];
   pendingImages = [];
+  attachedContexts = [];
   renderImagePreview();
+  renderContextChips();
 
   inputEl.value = "";
   inputEl.style.height = "auto";
@@ -435,16 +486,29 @@ async function handleSend() {
   renderMessages();
   scrollToBottom();
 
-  // Send to CLI with active file context
+  // Send to CLI with active file context and attached contexts
   try {
     const imgPayload =
       images.length > 0
         ? images.map((img) => ({ mediaType: img.mediaType, data: img.base64 }))
         : null;
     let msgText = text || "Describe this image.";
+
+    // Prepend attached contexts
+    const contextParts: string[] = [];
     const activeFile = getActiveFilePath?.();
     if (activeFile) {
-      msgText = `[Active file: ${activeFile}]\n${msgText}`;
+      contextParts.push(`[Active file: ${activeFile}]`);
+    }
+    for (const ctx of contexts) {
+      if (ctx.type === "file") {
+        contextParts.push(`[Attached file: ${ctx.content}]`);
+      } else if (ctx.type === "selection") {
+        contextParts.push(`[Editor selection:\n${ctx.content}\n]`);
+      }
+    }
+    if (contextParts.length > 0) {
+      msgText = contextParts.join("\n") + "\n" + msgText;
     }
     await invoke("claude_send", { message: msgText, images: imgPayload });
   } catch (e) {
@@ -489,6 +553,8 @@ async function stopClaude() {
 function clearConversation() {
   messages = [];
   currentAssistantMsg = null;
+  attachedContexts = [];
+  renderContextChips();
   localStorage.removeItem(KEY_CLAUDE_MESSAGES);
   renderMessages();
   if (isRunning) {
@@ -557,6 +623,249 @@ function renderImagePreview() {
       renderImagePreview();
     });
     imagePreviewEl.appendChild(thumb);
+  }
+}
+
+// --- Context Menu ---
+
+function removeAtTrigger() {
+  if (!inputEl) return;
+  const pos = inputEl.selectionStart;
+  const val = inputEl.value;
+  if (pos > 0 && val[pos - 1] === "@") {
+    inputEl.value = val.slice(0, pos - 1) + val.slice(pos);
+    inputEl.selectionStart = inputEl.selectionEnd = pos - 1;
+  }
+}
+
+function dismissContextMenu() {
+  if (contextMenuEl) {
+    contextMenuEl.remove();
+    contextMenuEl = null;
+  }
+}
+
+function showContextMenu(anchor: HTMLElement) {
+  dismissContextMenu();
+  const menu = document.createElement("div");
+  menu.className = "claude-context-menu";
+
+  const items: { label: string; icon: string; action: () => void }[] = [
+    {
+      label: "File",
+      icon: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 1.5h5l3 3V12.5H3z"/><path d="M8 1.5v3h3"/></svg>`,
+      action: () => {
+        dismissContextMenu();
+        removeAtTrigger();
+        showFilePicker();
+      },
+    },
+    {
+      label: "Selection",
+      icon: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 3h6M4 7h6M4 11h3"/></svg>`,
+      action: () => {
+        dismissContextMenu();
+        removeAtTrigger();
+        attachSelection();
+      },
+    },
+  ];
+
+  for (const item of items) {
+    const row = document.createElement("button");
+    row.className = "claude-context-menu-item";
+    row.innerHTML = `${item.icon}<span>${item.label}</span>`;
+    row.addEventListener("click", (e) => {
+      e.stopPropagation();
+      item.action();
+    });
+    menu.appendChild(row);
+  }
+
+  // Position above the anchor
+  const rect = anchor.getBoundingClientRect();
+  menu.style.position = "fixed";
+  menu.style.left = `${rect.left}px`;
+  menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+
+  document.body.appendChild(menu);
+  contextMenuEl = menu;
+
+  // Close on outside click
+  const closeHandler = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node)) {
+      dismissContextMenu();
+      document.removeEventListener("click", closeHandler);
+    }
+  };
+  // Delay so the current click doesn't immediately close it
+  requestAnimationFrame(() => document.addEventListener("click", closeHandler));
+}
+
+function attachSelection() {
+  const sel = getEditorSelection?.();
+  if (!sel) return;
+  // Avoid duplicates
+  if (attachedContexts.some((c) => c.type === "selection")) {
+    // Replace existing selection
+    attachedContexts = attachedContexts.filter((c) => c.type !== "selection");
+  }
+  const lines = sel.split("\n");
+  const preview =
+    lines.length > 1 ? `${lines[0].slice(0, 30)}… (${lines.length} lines)` : sel.slice(0, 40);
+  attachedContexts.push({ type: "selection", label: preview, content: sel });
+  renderContextChips();
+}
+
+async function showFilePicker() {
+  const root = getCwd?.();
+  if (!root || !listDirectory) return;
+
+  const overlay = document.createElement("div");
+  overlay.className = "dialog-overlay";
+  overlay.innerHTML = `
+    <div class="claude-file-picker">
+      <input type="text" class="claude-file-picker-input" placeholder="Search files…" autofocus />
+      <div class="claude-file-picker-list"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const searchInput = overlay.querySelector<HTMLInputElement>(".claude-file-picker-input")!;
+  const listEl = overlay.querySelector<HTMLElement>(".claude-file-picker-list")!;
+  let allFiles: { name: string; path: string; relativePath: string }[] = [];
+  let selectedIndex = 0;
+
+  // Recursively collect files (limit depth to keep it fast)
+  async function collectFiles(dir: string, depth: number) {
+    if (depth > 5) return;
+    try {
+      const entries = await listDirectory!(dir);
+      for (const entry of entries) {
+        if (entry.is_dir) {
+          // Skip hidden dirs and common large dirs
+          if (
+            entry.name.startsWith(".") ||
+            entry.name === "node_modules" ||
+            entry.name === "target" ||
+            entry.name === "dist"
+          )
+            continue;
+          await collectFiles(entry.path, depth + 1);
+        } else {
+          allFiles.push({
+            name: entry.name,
+            path: entry.path,
+            relativePath: entry.path.startsWith(root + "/")
+              ? entry.path.slice(root.length + 1)
+              : entry.name,
+          });
+        }
+      }
+    } catch {
+      // Permission error etc. — skip
+    }
+  }
+
+  listEl.innerHTML = `<div class="claude-file-picker-loading">Loading…</div>`;
+  await collectFiles(root, 0);
+  renderFileList("");
+
+  function renderFileList(query: string) {
+    const q = query.toLowerCase();
+    const filtered = q
+      ? allFiles.filter((f) => f.relativePath.toLowerCase().includes(q))
+      : allFiles;
+    const display = filtered.slice(0, 50);
+    selectedIndex = 0;
+
+    listEl.innerHTML = "";
+    if (display.length === 0) {
+      listEl.innerHTML = `<div class="claude-file-picker-empty">No files found</div>`;
+      return;
+    }
+    for (let i = 0; i < display.length; i++) {
+      const item = document.createElement("div");
+      item.className = "claude-file-picker-item" + (i === 0 ? " selected" : "");
+      item.textContent = display[i].relativePath;
+      item.addEventListener("click", () => pickFile(display[i]));
+      item.addEventListener("mouseenter", () => {
+        listEl.querySelector(".selected")?.classList.remove("selected");
+        item.classList.add("selected");
+        selectedIndex = i;
+      });
+      listEl.appendChild(item);
+    }
+  }
+
+  function pickFile(file: { name: string; path: string; relativePath: string }) {
+    // Avoid duplicates
+    if (!attachedContexts.some((c) => c.type === "file" && c.content === file.path)) {
+      attachedContexts.push({ type: "file", label: file.relativePath, content: file.path });
+      renderContextChips();
+    }
+    overlay.remove();
+    inputEl?.focus();
+  }
+
+  searchInput.addEventListener("input", () => renderFileList(searchInput.value));
+  searchInput.addEventListener("keydown", (e) => {
+    const items = listEl.querySelectorAll<HTMLElement>(".claude-file-picker-item");
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+      items.forEach((it, i) => it.classList.toggle("selected", i === selectedIndex));
+      items[selectedIndex]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      selectedIndex = Math.max(selectedIndex - 1, 0);
+      items.forEach((it, i) => it.classList.toggle("selected", i === selectedIndex));
+      items[selectedIndex]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const visibleFiles = allFiles
+        .filter((f) => f.relativePath.toLowerCase().includes(searchInput.value.toLowerCase()))
+        .slice(0, 50);
+      if (visibleFiles[selectedIndex]) pickFile(visibleFiles[selectedIndex]);
+    } else if (e.key === "Escape") {
+      overlay.remove();
+      inputEl?.focus();
+    }
+  });
+
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+      inputEl?.focus();
+    }
+  });
+
+  requestAnimationFrame(() => searchInput.focus());
+}
+
+function renderContextChips() {
+  if (!contextChipsEl) return;
+  if (attachedContexts.length === 0) {
+    contextChipsEl.style.display = "none";
+    contextChipsEl.innerHTML = "";
+    return;
+  }
+  contextChipsEl.style.display = "flex";
+  contextChipsEl.innerHTML = "";
+  for (let i = 0; i < attachedContexts.length; i++) {
+    const ctx = attachedContexts[i];
+    const chip = document.createElement("span");
+    chip.className = `claude-context-chip claude-context-chip-${ctx.type}`;
+    const icon =
+      ctx.type === "file"
+        ? `<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 1.5h5l3 3V12.5H3z"/><path d="M8 1.5v3h3"/></svg>`
+        : `<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 3h6M4 7h6M4 11h3"/></svg>`;
+    chip.innerHTML = `${icon}<span class="claude-context-chip-label">${escapeHtml(ctx.label)}</span><button class="claude-context-chip-remove" title="Remove">&times;</button>`;
+    chip.querySelector("button")!.addEventListener("click", () => {
+      attachedContexts.splice(i, 1);
+      renderContextChips();
+    });
+    contextChipsEl.appendChild(chip);
   }
 }
 

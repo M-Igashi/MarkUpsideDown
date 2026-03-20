@@ -3187,13 +3187,18 @@ body {
 
 .claude-input-area {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
   padding: 8px 10px;
   border-top: 1px solid var(--border);
   background: var(--toolbar-bg);
   flex-shrink: 0;
+}
+
+.claude-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 .claude-input {
@@ -3384,6 +3389,164 @@ select.claude-settings-input {
 
 .claude-restart-btn:hover {
   filter: brightness(1.1);
+}
+
+/* Add context button (+) */
+
+.claude-add-context-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.claude-add-context-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Context menu popup */
+
+.claude-context-menu {
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  min-width: 140px;
+  z-index: 9999;
+}
+
+.claude-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.claude-context-menu-item:hover {
+  background: var(--surface);
+}
+
+/* Context chips */
+
+.claude-context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.claude-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  max-width: 200px;
+}
+
+.claude-context-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-context-chip-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.claude-context-chip-remove:hover {
+  color: var(--text);
+}
+
+/* File picker */
+
+.claude-file-picker {
+  background: var(--page);
+  border-radius: 12px;
+  padding: 12px;
+  width: 420px;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.claude-file-picker-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  margin-bottom: 8px;
+}
+
+.claude-file-picker-input:focus {
+  border-color: var(--accent);
+}
+
+.claude-file-picker-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.claude-file-picker-item {
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-file-picker-item:hover,
+.claude-file-picker-item.selected {
+  background: var(--surface);
+}
+
+.claude-file-picker-loading,
+.claude-file-picker-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* Image paste preview (input area) */
