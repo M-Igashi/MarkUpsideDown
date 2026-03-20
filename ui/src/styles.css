@@ -1505,6 +1505,15 @@ body {
   margin-top: 2px;
 }
 
+.git-diff-file-header {
+  color: var(--fg);
+  font-weight: 600;
+  margin-top: 6px;
+  padding: 2px 4px;
+  background: var(--bg-darker, rgba(0, 0, 0, 0.05));
+  border-radius: 2px;
+}
+
 /* Recent Commits section */
 .git-log-section {
   border-top: 1px solid var(--border);
@@ -1523,6 +1532,11 @@ body {
   padding: 3px 10px 3px 16px;
   font-size: 11px;
   min-height: 22px;
+  cursor: pointer;
+}
+
+.git-log-row.expanded {
+  background: var(--bg);
 }
 
 .git-log-row:hover {

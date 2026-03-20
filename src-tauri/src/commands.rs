@@ -1759,6 +1759,17 @@ pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String
     .map_err(|e| format!("Task error: {e}"))?
 }
 
+// --- Show commit diff ---
+
+#[tauri::command]
+pub async fn git_show(repo_path: String, commit_hash: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&repo_path, &["show", "--patch", "--format=", &commit_hash])
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
 // --- Clone ---
 
 #[tauri::command]

@@ -36,7 +36,7 @@ let onFileClick: ((path: string) => void) | null = null;
 let onRefreshCb: (() => void) | null = null;
 let commitMessage = generateDefaultMessage();
 
-// Track which file's diff is currently expanded (by path)
+// Track which file's diff is currently expanded (by path or commit hash)
 let expandedDiffPath: string | null = null;
 
 const DEFAULT_MSG_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
@@ -233,6 +233,15 @@ async function loadDiff(filePath: string, staged: boolean): Promise<string> {
   if (!repoPath) return "";
   try {
     return await invoke<string>("git_diff", { repoPath, filePath, staged });
+  } catch {
+    return "";
+  }
+}
+
+async function loadCommitDiff(commitHash: string): Promise<string> {
+  if (!repoPath) return "";
+  try {
+    return await invoke<string>("git_show", { repoPath, commitHash });
   } catch {
     return "";
   }
@@ -610,9 +619,19 @@ function createSection(title: string, files: GitFile[], isStaged: boolean): HTML
 
 function renderDiffLines(container: HTMLElement, diff: string) {
   const lines = diff.split("\n");
-  // Skip the header lines (---, +++, @@, etc.) until first hunk
   let inHunk = false;
   for (const line of lines) {
+    // Show file headers for multi-file diffs (e.g. commit diffs)
+    if (line.startsWith("diff --git")) {
+      inHunk = false;
+      const fileHeader = document.createElement("div");
+      fileHeader.className = "git-diff-line git-diff-file-header";
+      // Extract file path from "diff --git a/path b/path"
+      const match = line.match(/b\/(.+)$/);
+      fileHeader.textContent = match ? match[1] : line;
+      container.appendChild(fileHeader);
+      continue;
+    }
     if (line.startsWith("@@")) {
       inHunk = true;
       const hunkLine = document.createElement("div");
@@ -648,6 +667,9 @@ function createLogSection(): HTMLElement {
   list.className = "git-log-list";
 
   for (const entry of logEntries) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "git-log-wrapper";
+
     const row = document.createElement("div");
     row.className = "git-log-row";
 
@@ -677,7 +699,44 @@ function createLogSection(): HTMLElement {
     });
     row.appendChild(revertBtn);
 
-    list.appendChild(row);
+    // Click to toggle commit diff
+    row.addEventListener("click", () => {
+      const key = `commit:${entry.hash}`;
+      if (expandedDiffPath === key) {
+        expandedDiffPath = null;
+        const diffEl = wrapper.querySelector(".git-inline-diff");
+        if (diffEl) diffEl.remove();
+        row.classList.remove("expanded");
+      } else {
+        // Collapse any previously expanded diff
+        const prev = panelEl?.querySelector(".git-file-row.expanded, .git-log-row.expanded");
+        if (prev) {
+          prev.classList.remove("expanded");
+          prev
+            .closest(".git-file-wrapper, .git-log-wrapper")
+            ?.querySelector(".git-inline-diff")
+            ?.remove();
+        }
+        expandedDiffPath = key;
+        row.classList.add("expanded");
+        const diffContainer = document.createElement("div");
+        diffContainer.className = "git-inline-diff";
+        diffContainer.textContent = "Loading...";
+        wrapper.appendChild(diffContainer);
+        loadCommitDiff(entry.hash).then((diff) => {
+          if (expandedDiffPath !== key) return;
+          if (!diff.trim()) {
+            diffContainer.textContent = "(no diff available)";
+          } else {
+            diffContainer.textContent = "";
+            renderDiffLines(diffContainer, diff);
+          }
+        });
+      }
+    });
+
+    wrapper.appendChild(row);
+    list.appendChild(wrapper);
   }
 
   section.appendChild(list);

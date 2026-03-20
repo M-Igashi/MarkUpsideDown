@@ -80,6 +80,7 @@ fn main() {
             commands::git_discard_all,
             commands::git_log,
             commands::git_revert,
+            commands::git_show,
             cloudflare::check_wrangler_status,
             cloudflare::wrangler_login,
             cloudflare::deploy_worker,
