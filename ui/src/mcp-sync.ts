@@ -58,6 +58,9 @@ export function syncEditorState(cachedContent?: string) {
     lastSyncedContent = content;
     lastSyncedFilePath = currentFilePath;
     const cursorPos = editor.state.selection.main.head;
+    const cursorLineObj = editor.state.doc.lineAt(cursorPos);
+    const cursorLine = cursorLineObj.number;
+    const cursorColumn = cursorPos - cursorLineObj.from;
     if (content !== cachedStructureContent) {
       const structure = getDocumentStructure(content);
       cachedStructureJson = JSON.stringify({
@@ -79,6 +82,8 @@ export function syncEditorState(cachedContent?: string) {
       content,
       filePath: currentFilePath,
       cursorPos,
+      cursorLine,
+      cursorColumn,
       workerUrl: getWorkerUrl() || null,
       documentStructure: cachedStructureJson,
       rootPath: getRootPath() || null,

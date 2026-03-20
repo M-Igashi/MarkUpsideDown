@@ -18,7 +18,7 @@ Editor (CodeMirror)
 - **Editor tools** communicate with the running app via the local HTTP bridge
 - **Conversion tools** call the Cloudflare Worker directly (app not required if Worker URL is set)
 
-## Available Tools (40)
+## Available Tools (36)
 
 ### Editor Tools (require the app to be running)
 
@@ -27,7 +27,7 @@ Editor (CodeMirror)
 | `get_editor_content` | Get current Markdown from the editor | — |
 | `set_editor_content` | Replace editor content | `markdown: string` |
 | `insert_text` | Insert text at cursor, start, or end | `text: string`, `position?: "cursor" \| "start" \| "end"` |
-| `get_editor_state` | Get editor state (file path, cursor, Worker URL) | — |
+| `get_editor_state` | Get editor state (file path, cursor position/line/column, Worker URL) | — |
 | `get_document_structure` | Get document structure (headings, links, stats) as JSON | — |
 | `normalize_document` | Normalize headings, tables, list markers, whitespace | — |
 | `open_file` | Open a Markdown file in the editor | `path: string` |
@@ -37,14 +37,14 @@ Editor (CodeMirror)
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `list_directory` | List files and directories (respects .gitignore) | `path?: string`, `recursive?: boolean` |
+| `list_directory` | List files and directories (respects .gitignore) | `path?: string`, `recursive?: boolean`, `max_entries?: number` (default: 1000) |
 | `read_file` | Read a text file from the project | `path: string` |
 | `get_open_tabs` | List all open editor tabs with dirty status | — |
 | `get_project_root` | Get the current project root directory path | — |
 | `get_dirty_files` | List files with unsaved changes | — |
 | `switch_tab` | Switch the active editor tab | `path?: string`, `tab_id?: string` |
 | `git_status` | Get git status (branch, files, ahead/behind) | — |
-| `search_files` | Search file names by substring match | `query: string`, `path?: string` |
+| `search_files` | Search file names (not content) by substring match | `query: string`, `path?: string` |
 
 ### File Mutation Tools (require the app to be running)
 
@@ -93,19 +93,6 @@ Editor (CodeMirror)
 | `git_pull` | Pull changes from remote | — |
 | `git_fetch` | Fetch updates from remote without merging | — |
 
-### GitHub Integration (require gh CLI)
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `github_fetch_issue` | Fetch a GitHub issue body as Markdown | `owner: string`, `repo: string`, `number: number` |
-| `github_fetch_pr` | Fetch a GitHub PR body as Markdown | `owner: string`, `repo: string`, `number: number` |
-| `github_list_repos` | List accessible GitHub repositories | — |
-
-### Diagnostics
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `check_worker` | Test Worker URL connectivity and report capabilities | — |
 
 ## Setup
 
@@ -152,7 +139,6 @@ Launch MarkUpsideDown. The app automatically starts the HTTP bridge and writes t
 - **Project context tools** (`list_directory`, `read_file`, `git_status`, etc.) require the app to be running
 - **File mutation tools** (`create_file`, `rename_entry`, `copy_entry`, etc.) require the app to be running
 - **Git tools** (`git_stage`, `git_commit`, `git_push`, etc.) require the app to be running
-- **GitHub tools** (`github_fetch_issue`, `github_fetch_pr`, etc.) require the app and `gh` CLI
 - **Content tools** (`download_image`, `fetch_page_title`) require the app to be running
 - **Conversion tools** (`fetch_markdown`, `render_markdown`, `convert_to_markdown`) work independently if `MARKUPSIDEDOWN_WORKER_URL` is set
 

@@ -106,6 +106,8 @@ pub struct ListDirectoryParams {
     pub path: Option<String>,
     #[schemars(description = "Whether to list recursively (default: false)")]
     pub recursive: Option<bool>,
+    #[schemars(description = "Maximum number of entries to return (default: 1000)")]
+    pub max_entries: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -206,16 +208,6 @@ pub struct DownloadImageParams {
     pub url: String,
     #[schemars(description = "Local file path to save the image to")]
     pub dest_path: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct GitHubIssueParams {
-    #[schemars(description = "Repository owner (e.g., 'octocat')")]
-    pub owner: String,
-    #[schemars(description = "Repository name (e.g., 'hello-world')")]
-    pub repo: String,
-    #[schemars(description = "Issue or PR number")]
-    pub number: u64,
 }
 
 // --- Server ---
@@ -464,7 +456,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_editor_state", description = "Get the current editor state: file path, cursor position, and Worker URL", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "get_editor_state", description = "Get the current editor state: file path, cursor position (byte offset, line, column), and Worker URL", annotations(read_only_hint = true, open_world_hint = false))]
     async fn get_editor_state(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_editor_state().await {
             Ok(state) => {
@@ -483,9 +475,19 @@ impl McpTools {
         Parameters(params): Parameters<ListDirectoryParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.list_files(params.path.as_deref(), params.recursive.unwrap_or(false)).await {
-            Ok(entries) => {
+            Ok(mut entries) => {
+                let max = params.max_entries.unwrap_or(1000);
+                let truncated = entries.len() > max;
+                if truncated {
+                    entries.truncate(max);
+                }
                 let json = serde_json::to_string_pretty(&entries).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(format!("{} entries\n\n{json}", entries.len()))]))
+                let header = if truncated {
+                    format!("{} entries (truncated, limit: {max})", entries.len())
+                } else {
+                    format!("{} entries", entries.len())
+                };
+                Ok(CallToolResult::success(vec![Content::text(format!("{header}\n\n{json}"))]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
@@ -559,7 +561,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "search_files", description = "Search file names in the project by substring match. Returns matching file entries.", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "search_files", description = "Search file names (not content) in the project by substring match. Does not search file contents. Returns matching file entries with path, name, and metadata.", annotations(read_only_hint = true, open_world_hint = false))]
     async fn search_files(
         &self,
         Parameters(params): Parameters<SearchFilesParams>,
@@ -908,103 +910,6 @@ impl McpTools {
         }
     }
 
-    // --- GitHub Integration ---
-
-    #[tool(name = "github_fetch_issue", description = "Fetch a GitHub issue body as Markdown. Requires gh CLI to be authenticated.", annotations(read_only_hint = true, open_world_hint = true))]
-    async fn github_fetch_issue(
-        &self,
-        Parameters(params): Parameters<GitHubIssueParams>,
-    ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.github_fetch_issue(&params.owner, &params.repo, params.number).await {
-            Ok(body) => Ok(CallToolResult::success(vec![Content::text(body)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
-    }
-
-    #[tool(name = "github_fetch_pr", description = "Fetch a GitHub pull request body as Markdown. Requires gh CLI to be authenticated.", annotations(read_only_hint = true, open_world_hint = true))]
-    async fn github_fetch_pr(
-        &self,
-        Parameters(params): Parameters<GitHubIssueParams>,
-    ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.github_fetch_pr(&params.owner, &params.repo, params.number).await {
-            Ok(body) => Ok(CallToolResult::success(vec![Content::text(body)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
-    }
-
-    #[tool(name = "github_list_repos", description = "List accessible GitHub repositories. Requires gh CLI to be authenticated.", annotations(read_only_hint = true, open_world_hint = true))]
-    async fn github_list_repos(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.github_list_repos().await {
-            Ok(repos) => {
-                if repos.is_empty() {
-                    Ok(CallToolResult::success(vec![Content::text("No repositories found")]))
-                } else {
-                    Ok(CallToolResult::success(vec![Content::text(repos.join("\n"))]))
-                }
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
-    }
-
-    // --- Diagnostics ---
-
-    #[tool(name = "check_worker", description = "Test the Worker URL connectivity and report available capabilities (convert, render, crawl)", annotations(read_only_hint = true, open_world_hint = true))]
-    async fn check_worker(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let health_url = format!("{}/health", worker_url.trim_end_matches('/'));
-
-            let response = self
-                .http
-                .get(&health_url)
-                .timeout(std::time::Duration::from_secs(10))
-                .send()
-                .await
-                .map_err(|e| format!("Worker unreachable: {e}"))?;
-
-            if !response.status().is_success() {
-                return Err(format!("Worker returned {}", response.status()));
-            }
-
-            #[derive(Deserialize)]
-            struct Caps {
-                fetch: Option<bool>,
-                convert: Option<bool>,
-                render: Option<bool>,
-                crawl: Option<bool>,
-            }
-            #[derive(Deserialize)]
-            struct Resp {
-                capabilities: Option<Caps>,
-            }
-            let data: Resp = response.json().await.map_err(|e| format!("Unexpected response: {e}"))?;
-            let caps = data.capabilities.unwrap_or(Caps {
-                fetch: None,
-                convert: None,
-                render: None,
-                crawl: None,
-            });
-
-            let fmt = |name: &str, v: Option<bool>| {
-                let icon = if v.unwrap_or(false) { "OK" } else { "N/A" };
-                format!("  {name}: {icon}")
-            };
-
-            Ok(format!(
-                "Worker: {worker_url}\nStatus: reachable\nCapabilities:\n{}\n{}\n{}\n{}",
-                fmt("fetch", caps.fetch),
-                fmt("convert", caps.convert),
-                fmt("render", caps.render),
-                fmt("crawl", caps.crawl),
-            ))
-        }
-        .await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
-    }
 }
 
 #[tool_handler]

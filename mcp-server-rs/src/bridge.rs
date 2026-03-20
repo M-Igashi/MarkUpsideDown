@@ -336,39 +336,6 @@ impl BridgeClient {
         Ok(json.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string())
     }
 
-    // --- GitHub ---
-
-    pub async fn github_fetch_issue(&self, owner: &str, repo: &str, number: u64) -> Result<String, String> {
-        let query = format!("/github/issue?owner={}&repo={}&number={}", urlencoding::encode(owner), urlencoding::encode(repo), number);
-        let val = self.request("GET", &query, None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string())
-    }
-
-    pub async fn github_fetch_pr(&self, owner: &str, repo: &str, number: u64) -> Result<String, String> {
-        let query = format!("/github/pr?owner={}&repo={}&number={}", urlencoding::encode(owner), urlencoding::encode(repo), number);
-        let val = self.request("GET", &query, None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string())
-    }
-
-    pub async fn github_list_repos(&self) -> Result<Vec<String>, String> {
-        let val = self.request("GET", "/github/repos", None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        #[derive(Deserialize)]
-        struct Resp { repos: Vec<String> }
-        let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
-        Ok(resp.repos)
-    }
 }
 
 #[derive(Deserialize, serde::Serialize)]
@@ -376,6 +343,8 @@ pub struct EditorState {
     pub file_path: Option<String>,
     pub worker_url: Option<String>,
     pub cursor_pos: usize,
+    pub cursor_line: usize,
+    pub cursor_column: usize,
 }
 
 #[derive(Deserialize, serde::Serialize)]

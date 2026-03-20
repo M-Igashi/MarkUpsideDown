@@ -18,6 +18,8 @@ pub struct EditorStateInner {
     pub content: String,
     pub file_path: Option<String>,
     pub cursor_pos: usize,
+    pub cursor_line: usize,
+    pub cursor_column: usize,
     pub worker_url: Option<String>,
     pub document_structure: Option<String>, // JSON string from frontend
     pub root_path: Option<String>,
@@ -76,6 +78,8 @@ impl Clone for EditorStateInner {
             content: self.content.clone(),
             file_path: self.file_path.clone(),
             cursor_pos: self.cursor_pos,
+            cursor_line: self.cursor_line,
+            cursor_column: self.cursor_column,
             worker_url: self.worker_url.clone(),
             document_structure: self.document_structure.clone(),
             root_path: self.root_path.clone(),
@@ -90,6 +94,8 @@ pub fn sync_editor_state(
     content: String,
     file_path: Option<String>,
     cursor_pos: Option<usize>,
+    cursor_line: Option<usize>,
+    cursor_column: Option<usize>,
     worker_url: Option<String>,
     document_structure: Option<String>,
     root_path: Option<String>,
@@ -103,6 +109,12 @@ pub fn sync_editor_state(
     s.file_path = file_path;
     if let Some(pos) = cursor_pos {
         s.cursor_pos = pos;
+    }
+    if let Some(line) = cursor_line {
+        s.cursor_line = line;
+    }
+    if let Some(col) = cursor_column {
+        s.cursor_column = col;
     }
     s.worker_url = worker_url;
     if let Some(ds) = document_structure {

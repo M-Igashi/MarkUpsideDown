@@ -83,9 +83,6 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/crawl/save", post(crawl_save))
         .route("/content/download-image", post(download_image))
         .route("/content/fetch-title", post(fetch_page_title))
-        .route("/github/issue", get(github_fetch_issue))
-        .route("/github/pr", get(github_fetch_pr))
-        .route("/github/repos", get(github_list_repos))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
@@ -170,6 +167,8 @@ struct EditorStateResponse {
     file_path: Option<String>,
     worker_url: Option<String>,
     cursor_pos: usize,
+    cursor_line: usize,
+    cursor_column: usize,
 }
 
 async fn get_state(State(state): State<Arc<BridgeState>>) -> Json<EditorStateResponse> {
@@ -178,6 +177,8 @@ async fn get_state(State(state): State<Arc<BridgeState>>) -> Json<EditorStateRes
         file_path: s.file_path,
         worker_url: s.worker_url,
         cursor_pos: s.cursor_pos,
+        cursor_line: s.cursor_line,
+        cursor_column: s.cursor_column,
     })
 }
 
@@ -710,32 +711,3 @@ async fn fetch_page_title(
     }
 }
 
-// --- GitHub handlers ---
-
-#[derive(Deserialize)]
-struct GitHubIssueQuery {
-    owner: String,
-    repo: String,
-    number: u64,
-}
-
-async fn github_fetch_issue(Query(q): Query<GitHubIssueQuery>) -> Json<serde_json::Value> {
-    match commands::github_fetch_issue(q.owner, q.repo, q.number).await {
-        Ok(body) => Json(serde_json::json!({ "body": body })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
-    }
-}
-
-async fn github_fetch_pr(Query(q): Query<GitHubIssueQuery>) -> Json<serde_json::Value> {
-    match commands::github_fetch_pr(q.owner, q.repo, q.number).await {
-        Ok(body) => Json(serde_json::json!({ "body": body })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
-    }
-}
-
-async fn github_list_repos() -> Json<serde_json::Value> {
-    match commands::github_list_repos().await {
-        Ok(repos) => Json(serde_json::json!({ "repos": repos })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
-    }
-}
