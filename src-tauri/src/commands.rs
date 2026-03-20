@@ -24,13 +24,69 @@ pub struct EditorStateInner {
     pub tabs: Vec<TabInfo>,
 }
 
-#[derive(Default)]
-pub struct EditorState {
-    pub inner: Mutex<EditorStateInner>,
+/// Per-window editor state, keyed by window label.
+/// Also tracks which window is currently focused for bridge routing.
+pub struct EditorStates {
+    pub map: Mutex<std::collections::HashMap<String, EditorStateInner>>,
+    pub focused: Mutex<Option<String>>,
+}
+
+impl Default for EditorStates {
+    fn default() -> Self {
+        Self {
+            map: Mutex::new(std::collections::HashMap::new()),
+            focused: Mutex::new(None),
+        }
+    }
+}
+
+impl EditorStates {
+    /// Get a clone of the focused window's state, or the first available window's state.
+    pub fn get_focused_state(&self) -> Option<EditorStateInner> {
+        let map = self.map.lock().unwrap();
+        let focused = self.focused.lock().unwrap();
+        if let Some(label) = focused.as_ref() {
+            if let Some(state) = map.get(label) {
+                return Some(state.clone());
+            }
+        }
+        // Fallback: return first available window's state
+        map.values().next().cloned()
+    }
+
+    /// Remove a window's state entry.
+    pub fn remove_window(&self, label: &str) {
+        self.map.lock().unwrap().remove(label);
+    }
+
+    /// Set the focused window label.
+    pub fn set_focused(&self, label: String) {
+        *self.focused.lock().unwrap() = Some(label);
+    }
+
+    /// Get the focused window label.
+    pub fn get_focused_label(&self) -> Option<String> {
+        self.focused.lock().unwrap().clone()
+    }
+}
+
+impl Clone for EditorStateInner {
+    fn clone(&self) -> Self {
+        Self {
+            content: self.content.clone(),
+            file_path: self.file_path.clone(),
+            cursor_pos: self.cursor_pos,
+            worker_url: self.worker_url.clone(),
+            document_structure: self.document_structure.clone(),
+            root_path: self.root_path.clone(),
+            tabs: self.tabs.clone(),
+        }
+    }
 }
 
 #[tauri::command]
 pub fn sync_editor_state(
+    window: tauri::Window,
     content: String,
     file_path: Option<String>,
     cursor_pos: Option<usize>,
@@ -38,9 +94,11 @@ pub fn sync_editor_state(
     document_structure: Option<String>,
     root_path: Option<String>,
     tabs: Option<Vec<TabInfo>>,
-    state: tauri::State<'_, std::sync::Arc<EditorState>>,
+    state: tauri::State<'_, std::sync::Arc<EditorStates>>,
 ) -> Result<(), String> {
-    let mut s = state.inner.lock().unwrap();
+    let label = window.label().to_string();
+    let mut map = state.map.lock().unwrap();
+    let s = map.entry(label).or_default();
     s.content = content;
     s.file_path = file_path;
     if let Some(pos) = cursor_pos {

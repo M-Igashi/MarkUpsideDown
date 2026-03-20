@@ -7,16 +7,30 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
-use crate::commands::{self, EditorState};
+use crate::commands::{self, EditorStates};
 
 const PORT_RANGE_START: u16 = 31415;
 const PORT_RANGE_END: u16 = 31420;
 
 struct BridgeState {
-    editor: Arc<EditorState>,
+    editor: Arc<EditorStates>,
     app: AppHandle,
+}
+
+impl BridgeState {
+    /// Emit an event to the focused window, or broadcast if no window is focused.
+    fn emit_to_focused<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
+        if let Some(label) = self.editor.get_focused_label() {
+            if let Some(win) = self.app.webview_windows().get(&label) {
+                let _ = win.emit(event, payload);
+                return;
+            }
+        }
+        // Fallback: broadcast to all windows
+        let _ = self.app.emit(event, payload);
+    }
 }
 
 fn port_file_path() -> PathBuf {
@@ -25,7 +39,7 @@ fn port_file_path() -> PathBuf {
         .join(".markupsidedown-bridge-port")
 }
 
-pub fn start(app: AppHandle, editor_state: Arc<EditorState>) {
+pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
     let port = find_available_port().expect("No available port for MCP bridge");
     std::fs::write(port_file_path(), port.to_string()).ok();
 
@@ -83,7 +97,11 @@ async fn health() -> Json<serde_json::Value> {
 }
 
 async fn get_content(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let content = state.editor.inner.lock().unwrap().content.clone();
+    let content = state
+        .editor
+        .get_focused_state()
+        .map(|s| s.content)
+        .unwrap_or_default();
     Json(serde_json::json!({ "content": content }))
 }
 
@@ -96,8 +114,14 @@ async fn set_content(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<SetContentRequest>,
 ) -> StatusCode {
-    state.editor.inner.lock().unwrap().content = body.content.clone();
-    state.app.emit("bridge:set-content", &body.content).ok();
+    // Update focused window's state
+    if let Some(label) = state.editor.get_focused_label() {
+        let mut map = state.editor.map.lock().unwrap();
+        if let Some(s) = map.get_mut(&label) {
+            s.content = body.content.clone();
+        }
+    }
+    state.emit_to_focused("bridge:set-content", &body.content);
     StatusCode::OK
 }
 
@@ -120,7 +144,7 @@ async fn insert_text(
         text: body.text,
         position: body.position.unwrap_or_else(|| "end".to_string()),
     };
-    state.app.emit("bridge:insert-text", &payload).ok();
+    state.emit_to_focused("bridge:insert-text", &payload);
     StatusCode::OK
 }
 
@@ -132,10 +156,10 @@ struct EditorStateResponse {
 }
 
 async fn get_state(State(state): State<Arc<BridgeState>>) -> Json<EditorStateResponse> {
-    let s = state.editor.inner.lock().unwrap();
+    let s = state.editor.get_focused_state().unwrap_or_default();
     Json(EditorStateResponse {
-        file_path: s.file_path.clone(),
-        worker_url: s.worker_url.clone(),
+        file_path: s.file_path,
+        worker_url: s.worker_url,
         cursor_pos: s.cursor_pos,
     })
 }
@@ -149,7 +173,7 @@ async fn open_file(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<OpenFileRequest>,
 ) -> StatusCode {
-    state.app.emit("bridge:open-file", &body.path).ok();
+    state.emit_to_focused("bridge:open-file", &body.path);
     StatusCode::OK
 }
 
@@ -162,20 +186,20 @@ async fn save_file(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<SaveFileRequest>,
 ) -> StatusCode {
-    state.app.emit("bridge:save-file", &body.path).ok();
+    state.emit_to_focused("bridge:save-file", &body.path);
     StatusCode::OK
 }
 
 async fn normalize_document(State(state): State<Arc<BridgeState>>) -> StatusCode {
-    state.app.emit("bridge:normalize", ()).ok();
+    state.emit_to_focused("bridge:normalize", ());
     StatusCode::OK
 }
 
 async fn get_structure(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let s = state.editor.inner.lock().unwrap();
-    match &s.document_structure {
+    let s = state.editor.get_focused_state();
+    match s.and_then(|s| s.document_structure) {
         Some(json_str) => {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 Json(val)
             } else {
                 Json(serde_json::json!({ "error": "Invalid structure data" }))
@@ -188,41 +212,49 @@ async fn get_structure(State(state): State<Arc<BridgeState>>) -> Json<serde_json
 // --- Project context handlers ---
 
 async fn get_tabs(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let s = state.editor.inner.lock().unwrap();
-    let tabs: Vec<serde_json::Value> = s
-        .tabs
-        .iter()
-        .map(|t| {
-            serde_json::json!({
-                "id": t.id,
-                "path": t.path,
-                "name": t.name,
-                "is_dirty": t.is_dirty,
-            })
+    let tabs: Vec<serde_json::Value> = state
+        .editor
+        .get_focused_state()
+        .map(|s| {
+            s.tabs
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "id": t.id,
+                        "path": t.path,
+                        "name": t.name,
+                        "is_dirty": t.is_dirty,
+                    })
+                })
+                .collect()
         })
-        .collect();
+        .unwrap_or_default();
     Json(serde_json::json!({ "tabs": tabs }))
 }
 
 async fn get_root(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let s = state.editor.inner.lock().unwrap();
-    Json(serde_json::json!({ "root_path": s.root_path }))
+    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
+    Json(serde_json::json!({ "root_path": root_path }))
 }
 
 async fn get_dirty_files(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let s = state.editor.inner.lock().unwrap();
-    let dirty: Vec<serde_json::Value> = s
-        .tabs
-        .iter()
-        .filter(|t| t.is_dirty)
-        .map(|t| {
-            serde_json::json!({
-                "id": t.id,
-                "path": t.path,
-                "name": t.name,
-            })
+    let dirty: Vec<serde_json::Value> = state
+        .editor
+        .get_focused_state()
+        .map(|s| {
+            s.tabs
+                .iter()
+                .filter(|t| t.is_dirty)
+                .map(|t| {
+                    serde_json::json!({
+                        "id": t.id,
+                        "path": t.path,
+                        "name": t.name,
+                    })
+                })
+                .collect()
         })
-        .collect();
+        .unwrap_or_default();
     Json(serde_json::json!({ "dirty_files": dirty }))
 }
 
@@ -245,7 +277,7 @@ async fn switch_tab(
         path: body.path,
         tab_id: body.tab_id,
     };
-    state.app.emit("bridge:switch-tab", &payload).ok();
+    state.emit_to_focused("bridge:switch-tab", &payload);
     StatusCode::OK
 }
 
@@ -261,7 +293,7 @@ async fn list_files(
     State(state): State<Arc<BridgeState>>,
     Query(query): Query<ListFilesQuery>,
 ) -> Json<serde_json::Value> {
-    let root_path = state.editor.inner.lock().unwrap().root_path.clone();
+    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
     let path = query.path.or(root_path);
     let Some(path) = path else {
         return Json(serde_json::json!({ "error": "No path specified and no project root available" }));
@@ -334,7 +366,7 @@ async fn search_files(
     State(state): State<Arc<BridgeState>>,
     Query(query): Query<SearchFilesQuery>,
 ) -> Json<serde_json::Value> {
-    let root_path = state.editor.inner.lock().unwrap().root_path.clone();
+    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
     let search_path = query.path.or(root_path);
     let Some(search_path) = search_path else {
         return Json(serde_json::json!({ "error": "No path specified and no project root available" }));
@@ -408,7 +440,7 @@ async fn delete_entry(Json(body): Json<DeleteEntryRequest>) -> Json<serde_json::
 // --- Git handler ---
 
 async fn git_status(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let root_path = state.editor.inner.lock().unwrap().root_path.clone();
+    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
     let Some(repo_path) = root_path else {
         return Json(serde_json::json!({ "error": "No project root available" }));
     };

@@ -1,6 +1,6 @@
 use serde_json::json;
 use tauri::menu::{Menu, MenuEvent, MenuItem, SubmenuBuilder};
-use tauri::{AppHandle, Emitter, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_store::StoreExt;
 
 const STORE_FILE: &str = "recent-files.json";
@@ -131,7 +131,21 @@ pub fn handle_event(handle: &AppHandle, event: &MenuEvent) {
         if let Ok(idx) = idx_str.parse::<usize>() {
             let files = get_recent_files(handle);
             if let Some(path) = files.get(idx) {
-                let _ = handle.emit("menu:open-recent", path.clone());
+                // Emit to focused window if available, otherwise broadcast
+                let editor_states = handle
+                    .try_state::<std::sync::Arc<crate::commands::EditorStates>>();
+                let mut emitted = false;
+                if let Some(states) = editor_states {
+                    if let Some(label) = states.get_focused_label() {
+                        if let Some(win) = handle.webview_windows().get(&label) {
+                            let _ = win.emit("menu:open-recent", path.clone());
+                            emitted = true;
+                        }
+                    }
+                }
+                if !emitted {
+                    let _ = handle.emit("menu:open-recent", path.clone());
+                }
             }
         }
     }

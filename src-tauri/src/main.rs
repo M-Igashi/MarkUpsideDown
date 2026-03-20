@@ -12,8 +12,9 @@ use std::sync::Arc;
 use tauri::Manager;
 
 fn main() {
-    let editor_state = Arc::new(commands::EditorState::default());
-    let editor_state_managed = editor_state.clone();
+    let editor_states = Arc::new(commands::EditorStates::default());
+    let editor_states_managed = editor_states.clone();
+    let editor_states_events = editor_states.clone();
     let http_client = reqwest::Client::builder()
         .build()
         .expect("Failed to create HTTP client");
@@ -25,14 +26,14 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .manage(editor_state_managed)
+        .manage(editor_states_managed)
         .manage(http_client)
         .manage(claude_state)
 
         .setup(move |app| {
             let m = menu::build(app.handle())?;
             app.set_menu(m)?;
-            bridge::start(app.handle().clone(), editor_state.clone());
+            bridge::start(app.handle().clone(), editor_states.clone());
             Ok(())
         })
         .on_menu_event(|handle, event| {
@@ -88,15 +89,23 @@ fn main() {
             menu::add_recent_file,
         ])
         .on_window_event(move |window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                // Only clean up bridge/Claude when the last window closes
-                if window.app_handle().webview_windows().len() <= 1 {
-                    bridge::cleanup();
-                    let state = claude_state_cleanup.clone();
-                    tokio::spawn(async move {
-                        claude::cleanup(&state).await;
-                    });
+            match event {
+                tauri::WindowEvent::Focused(true) => {
+                    editor_states_events.set_focused(window.label().to_string());
                 }
+                tauri::WindowEvent::Destroyed => {
+                    // Remove this window's editor state
+                    editor_states_events.remove_window(window.label());
+                    // Only clean up bridge/Claude when the last window closes
+                    if window.app_handle().webview_windows().len() <= 1 {
+                        bridge::cleanup();
+                        let state = claude_state_cleanup.clone();
+                        tokio::spawn(async move {
+                            claude::cleanup(&state).await;
+                        });
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
