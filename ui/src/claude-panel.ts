@@ -13,6 +13,7 @@ import {
   KEY_CLAUDE_API_KEY,
   KEY_CLAUDE_AUTH_MODE,
   KEY_CLAUDE_PERMISSION,
+  KEY_CLAUDE_MODEL,
   KEY_CLAUDE_WIDTH,
   KEY_CLAUDE_MESSAGES,
 } from "./storage-keys.ts";
@@ -128,6 +129,18 @@ function getPermissionMode(): string {
 
 function setPermissionMode(mode: string) {
   localStorage.setItem(KEY_CLAUDE_PERMISSION, mode);
+}
+
+function getModel(): string {
+  return localStorage.getItem(KEY_CLAUDE_MODEL) || "";
+}
+
+function setModel(model: string) {
+  if (model) {
+    localStorage.setItem(KEY_CLAUDE_MODEL, model);
+  } else {
+    localStorage.removeItem(KEY_CLAUDE_MODEL);
+  }
 }
 
 function getSavedWidth(): number {
@@ -454,7 +467,7 @@ async function startClaude() {
       cwd,
       apiKey: apiKey || null,
       permissionMode: getPermissionMode() || null,
-      model: null,
+      model: getModel() || null,
     },
   });
   isRunning = true;
@@ -794,6 +807,7 @@ function showClaudeSettings() {
   const authMode = getAuthMode();
   const apiKey = getApiKey();
   const permission = getPermissionMode();
+  const model = getModel();
 
   overlay.innerHTML = `
     <div class="claude-settings-box">
@@ -816,6 +830,15 @@ function showClaudeSettings() {
           <option value="acceptEdits" ${permission === "acceptEdits" ? "selected" : ""}>Accept Edits</option>
           <option value="bypassPermissions" ${permission === "bypassPermissions" ? "selected" : ""}>Bypass All Permissions</option>
           <option value="plan" ${permission === "plan" ? "selected" : ""}>Plan Mode</option>
+        </select>
+      </div>
+      <div class="claude-settings-section">
+        <label class="claude-settings-label">Model</label>
+        <select id="claude-model-select" class="claude-settings-input">
+          <option value="" ${!model ? "selected" : ""}>Default</option>
+          <option value="sonnet" ${model === "sonnet" ? "selected" : ""}>Sonnet</option>
+          <option value="haiku" ${model === "haiku" ? "selected" : ""}>Haiku</option>
+          <option value="opus" ${model === "opus" ? "selected" : ""}>Opus</option>
         </select>
       </div>
       <div class="claude-settings-actions">
@@ -851,6 +874,10 @@ function showClaudeSettings() {
 
     const perm = (overlay.querySelector("#claude-permission-select") as HTMLSelectElement).value;
     setPermissionMode(perm);
+
+    const selectedModel = (overlay.querySelector("#claude-model-select") as HTMLSelectElement)
+      .value;
+    setModel(selectedModel);
 
     overlay.remove();
 
