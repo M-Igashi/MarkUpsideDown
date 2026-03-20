@@ -35,6 +35,7 @@ pub struct ClaudeStartOptions {
     pub api_key: Option<String>,
     pub permission_mode: Option<String>,
     pub model: Option<String>,
+    pub resume: Option<bool>,
 }
 
 #[tauri::command]
@@ -56,6 +57,10 @@ pub async fn claude_start(
         .arg("--output-format=stream-json")
         .arg("--input-format=stream-json")
         .arg("--verbose");
+
+    if options.resume.unwrap_or(false) {
+        cmd.arg("--resume");
+    }
 
     if let Some(ref mode) = options.permission_mode {
         cmd.arg(format!("--permission-mode={mode}"));

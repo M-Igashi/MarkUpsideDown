@@ -72,6 +72,8 @@ let imagePreviewEl: HTMLElement | null = null;
 let onFileEditedCallback: ((filePath: string) => void) | null = null;
 // File paths pending reload after tool execution completes
 const pendingFileEditPaths: string[] = [];
+// Resume the previous session on next start (set when process stops with history)
+let shouldResume = false;
 let attachedContexts: AttachedContext[] = [];
 let contextChipsEl: HTMLElement | null = null;
 let contextMenuEl: HTMLElement | null = null;
@@ -534,12 +536,15 @@ async function startClaude() {
     throw new Error("API key not configured");
   }
 
+  const resume = shouldResume;
+  shouldResume = false;
   await invoke("claude_start", {
     options: {
       cwd,
       apiKey: apiKey || null,
       permissionMode: getPermissionMode() || null,
       model: getModel() || null,
+      resume: resume || null,
     },
   });
   isRunning = true;
@@ -561,6 +566,7 @@ async function stopClaude() {
 function clearConversation() {
   messages = [];
   currentAssistantMsg = null;
+  shouldResume = false;
   attachedContexts = [];
   renderContextChips();
   localStorage.removeItem(KEY_CLAUDE_MESSAGES);
@@ -935,6 +941,10 @@ function setupListeners() {
     currentAssistantMsg = null;
     updateStatusIndicator();
     if (wasRunning) {
+      // Mark for resume if there is conversation history
+      if (messages.some((m) => m.role === "user" || m.role === "assistant")) {
+        shouldResume = true;
+      }
       const exitCode = event.payload.exit_code;
       const detail = exitCode !== null && exitCode !== undefined ? ` (exit ${exitCode})` : "";
       addSystemMessage(`Claude process ended${detail}`);
