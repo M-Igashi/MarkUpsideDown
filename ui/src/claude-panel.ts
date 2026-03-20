@@ -190,7 +190,7 @@ function render() {
     <span class="claude-status" id="claude-status-indicator"></span>
     <span class="spacer"></span>
     <button class="claude-header-btn" id="claude-settings-btn" title="Settings">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 1.6h2.8l.4 2 1.4.8 1.9-.8 1.4 1.4-.8 1.9.8 1.4 2 .4v2.8l-2 .4-.8 1.4.8 1.9-1.4 1.4-1.9-.8-1.4.8-.4 2H6.6l-.4-2-1.4-.8-1.9.8-1.4-1.4.8-1.9-.8-1.4-2-.4V6.6l2-.4.8-1.4-.8-1.9 1.4-1.4 1.9.8 1.4-.8z"/><circle cx="8" cy="8" r="2.3"/></svg>
+      <svg width="14" height="14" viewBox="-1 -1 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 1.6h2.8l.4 2 1.4.8 1.9-.8 1.4 1.4-.8 1.9.8 1.4 2 .4v2.8l-2 .4-.8 1.4.8 1.9-1.4 1.4-1.9-.8-1.4.8-.4 2H6.6l-.4-2-1.4-.8-1.9.8-1.4-1.4.8-1.9-.8-1.4-2-.4V6.6l2-.4.8-1.4-.8-1.9 1.4-1.4 1.9.8 1.4-.8z"/><circle cx="8" cy="8" r="2.3"/></svg>
     </button>
     <button class="claude-header-btn" id="claude-clear-btn" title="Clear conversation">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h8M5.5 3V2h3v1M4 3v8.5h6V3"/></svg>
