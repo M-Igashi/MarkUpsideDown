@@ -34,7 +34,7 @@ export const autoLinkTitle = ViewPlugin.fromClass(
             if (isInsideCodeBlock(update.state, fromB)) return;
             // Don't auto-link if already inside a markdown link
             const before = update.state.doc.sliceString(Math.max(0, fromB - 2), fromB);
-            if (before.endsWith("](") || before.endsWith("](")) return;
+            if (before.endsWith("](") || before.endsWith("![")) return;
 
             this.pending = { from: fromB, to: toB, url };
           }

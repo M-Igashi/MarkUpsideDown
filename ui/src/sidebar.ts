@@ -1,6 +1,7 @@
 import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
 import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
 import { basename } from "./path-utils.ts";
+import { escapeHtml } from "./settings.ts";
 import { watch, type UnwatchFn } from "@tauri-apps/plugin-fs";
 
 const { invoke } = window.__TAURI__.core;
@@ -14,7 +15,7 @@ function promptInput(label: string, defaultValue = ""): Promise<string | null> {
     box.className = "prompt-box";
     box.innerHTML = `
       <label>${label}</label>
-      <input type="text" value="${defaultValue.replace(/"/g, "&quot;")}" />
+      <input type="text" value="${escapeHtml(defaultValue)}" />
       <div class="prompt-buttons">
         <button class="prompt-cancel">Cancel</button>
         <button class="prompt-ok">OK</button>
