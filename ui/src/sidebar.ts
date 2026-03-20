@@ -3,6 +3,7 @@ import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
 import { basename } from "./path-utils.ts";
 import { escapeHtml } from "./settings.ts";
 import { watch, type UnwatchFn } from "@tauri-apps/plugin-fs";
+import { KEY_SIDEBAR, KEY_SIDEBAR_SORT, KEY_SIDEBAR_PANEL } from "./storage-keys.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog, confirm, message } = window.__TAURI__.dialog;
@@ -40,8 +41,6 @@ function promptInput(label: string, defaultValue = ""): Promise<string | null> {
     });
   });
 }
-
-const STORAGE_KEY = "markupsidedown:sidebar";
 
 interface DirEntry {
   name: string;
@@ -128,12 +127,10 @@ function updateSelectionDOM() {
 }
 
 type SortBy = "name" | "date" | "type";
-const SORT_STORAGE_KEY = "markupsidedown:sidebar-sort";
-let sortBy: SortBy = (localStorage.getItem(SORT_STORAGE_KEY) as SortBy) || "name";
+let sortBy: SortBy = (localStorage.getItem(KEY_SIDEBAR_SORT) as SortBy) || "name";
 
 export type SidebarPanel = "files" | "git" | "github";
 let activePanel: SidebarPanel = "files";
-const PANEL_STORAGE_KEY = "markupsidedown:sidebarPanel";
 
 // --- DOM ---
 
@@ -166,7 +163,7 @@ export function initSidebar(
   onExternalChange = onDirChange ?? null;
 
   // Restore state
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = localStorage.getItem(KEY_SIDEBAR);
   if (saved) {
     try {
       const state = JSON.parse(saved);
@@ -178,7 +175,7 @@ export function initSidebar(
   }
 
   // Restore active panel
-  const savedPanel = localStorage.getItem(PANEL_STORAGE_KEY);
+  const savedPanel = localStorage.getItem(KEY_SIDEBAR_PANEL);
   if (savedPanel === "files" || savedPanel === "git" || savedPanel === "github") {
     activePanel = savedPanel;
   }
@@ -193,7 +190,7 @@ export function initSidebar(
 
 function saveState() {
   localStorage.setItem(
-    STORAGE_KEY,
+    KEY_SIDEBAR,
     JSON.stringify({
       rootPath,
       expandedDirs: [...expandedDirs],
@@ -340,7 +337,7 @@ function render() {
   }
   sortSelect.addEventListener("change", () => {
     sortBy = sortSelect.value as SortBy;
-    localStorage.setItem(SORT_STORAGE_KEY, sortBy);
+    localStorage.setItem(KEY_SIDEBAR_SORT, sortBy);
     refreshTree();
   });
   searchWrap.appendChild(sortSelect);
@@ -481,7 +478,7 @@ function createNavButton(panel: SidebarPanel, label: string, svgIcon: string): H
 
 export function switchPanel(panel: SidebarPanel) {
   activePanel = panel;
-  localStorage.setItem(PANEL_STORAGE_KEY, panel);
+  localStorage.setItem(KEY_SIDEBAR_PANEL, panel);
   // Update header title
   const titleEl = sidebarEl?.querySelector(".sidebar-title");
   if (titleEl) titleEl.textContent = panelTitle();

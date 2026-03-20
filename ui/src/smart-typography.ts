@@ -3,15 +3,15 @@
 
 import { ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { isPositionInCode } from "./document-structure.ts";
-
-const STORAGE_KEY = "markupsidedown:smartTypography";
+import { getStorageBool, setStorageBool } from "./storage-utils.ts";
+import { KEY_SMART_TYPOGRAPHY } from "./storage-keys.ts";
 
 export function isSmartTypographyEnabled(): boolean {
-  return localStorage.getItem(STORAGE_KEY) !== "0";
+  return getStorageBool(KEY_SMART_TYPOGRAPHY);
 }
 
 export function setSmartTypographyEnabled(enabled: boolean) {
-  localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
+  setStorageBool(KEY_SMART_TYPOGRAPHY, enabled);
 }
 
 interface Rule {

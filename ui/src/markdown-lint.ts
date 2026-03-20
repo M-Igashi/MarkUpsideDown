@@ -1,19 +1,19 @@
 import { linter, type Diagnostic } from "@codemirror/lint";
 import { getDocumentStructure, type DocumentStructure } from "./document-structure.ts";
+import { getStorageBool, setStorageBool } from "./storage-utils.ts";
+import { KEY_LINT_ENABLED } from "./storage-keys.ts";
 
 /**
  * CodeMirror 6 lint extension for Markdown structural issues.
  * Uses the shared document-structure parser for analysis.
  */
 
-const STORAGE_KEY_LINT = "markupsidedown:lintEnabled";
-
 export function isLintEnabled(): boolean {
-  return localStorage.getItem(STORAGE_KEY_LINT) !== "0";
+  return getStorageBool(KEY_LINT_ENABLED);
 }
 
 export function setLintEnabled(enabled: boolean) {
-  localStorage.setItem(STORAGE_KEY_LINT, enabled ? "1" : "0");
+  setStorageBool(KEY_LINT_ENABLED, enabled);
 }
 
 export const markdownLinter = linter(

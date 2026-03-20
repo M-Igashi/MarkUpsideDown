@@ -1,4 +1,4 @@
-const STORAGE_KEY = "markupsidedown:tabs";
+import { KEY_TABS } from "./storage-keys.ts";
 
 // --- Types ---
 
@@ -50,7 +50,7 @@ export function initTabs(
   onTabClose = onClose || null;
 
   // Restore state
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = localStorage.getItem(KEY_TABS);
   if (saved) {
     try {
       const state = JSON.parse(saved);
@@ -83,7 +83,7 @@ export function initTabs(
 
 function saveState(): void {
   localStorage.setItem(
-    STORAGE_KEY,
+    KEY_TABS,
     JSON.stringify({
       tabs: tabs.map((t) => ({
         id: t.id,

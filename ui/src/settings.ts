@@ -1,5 +1,7 @@
 import { isLintEnabled, setLintEnabled } from "./markdown-lint.ts";
 import { isSmartTypographyEnabled, setSmartTypographyEnabled } from "./smart-typography.ts";
+import { getStorageBool, setStorageBool } from "./storage-utils.ts";
+import { KEY_WORKER_URL, KEY_SETUP_DONE, KEY_ALLOW_IMAGE, KEY_AUTOSAVE } from "./storage-keys.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -16,44 +18,40 @@ interface WranglerStatus {
   accounts: { id: string; name: string }[];
 }
 
-const STORAGE_KEY_WORKER_URL = "markupsidedown:workerUrl";
-const STORAGE_KEY_SETUP_DONE = "markupsidedown:setupDone";
-const STORAGE_KEY_ALLOW_IMAGE = "markupsidedown:allowImageConversion";
-const STORAGE_KEY_AUTOSAVE = "markupsidedown:autosave";
 export function getWorkerUrl() {
-  return localStorage.getItem(STORAGE_KEY_WORKER_URL) || "";
+  return localStorage.getItem(KEY_WORKER_URL) || "";
 }
 
 export function setWorkerUrl(url: string) {
   if (url) {
-    localStorage.setItem(STORAGE_KEY_WORKER_URL, url.replace(/\/+$/, ""));
+    localStorage.setItem(KEY_WORKER_URL, url.replace(/\/+$/, ""));
   } else {
-    localStorage.removeItem(STORAGE_KEY_WORKER_URL);
+    localStorage.removeItem(KEY_WORKER_URL);
   }
 }
 
 export function isSetupDone() {
-  return localStorage.getItem(STORAGE_KEY_SETUP_DONE) === "1";
+  return getStorageBool(KEY_SETUP_DONE, false);
 }
 
 export function isImageConversionAllowed() {
-  return localStorage.getItem(STORAGE_KEY_ALLOW_IMAGE) !== "0";
+  return getStorageBool(KEY_ALLOW_IMAGE);
 }
 
 export function isAutoSaveEnabled() {
-  return localStorage.getItem(STORAGE_KEY_AUTOSAVE) !== "0";
+  return getStorageBool(KEY_AUTOSAVE);
 }
 
 function setAutoSaveEnabled(enabled: boolean) {
-  localStorage.setItem(STORAGE_KEY_AUTOSAVE, enabled ? "1" : "0");
+  setStorageBool(KEY_AUTOSAVE, enabled);
 }
 
 function setImageConversionAllowed(allowed: boolean) {
-  localStorage.setItem(STORAGE_KEY_ALLOW_IMAGE, allowed ? "1" : "0");
+  setStorageBool(KEY_ALLOW_IMAGE, allowed);
 }
 
 function markSetupDone() {
-  localStorage.setItem(STORAGE_KEY_SETUP_DONE, "1");
+  setStorageBool(KEY_SETUP_DONE, true);
 }
 
 let currentTestStatus: WorkerStatus | null = null; // cached last test result

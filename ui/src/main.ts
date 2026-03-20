@@ -87,6 +87,14 @@ import {
   insertLink,
 } from "./markdown-commands.ts";
 import { basename } from "./path-utils.ts";
+import { getStorageBool, setStorageBool } from "./storage-utils.ts";
+import {
+  KEY_SIDEBAR_COLLAPSED,
+  KEY_EDITOR_COLLAPSED,
+  KEY_PREVIEW_COLLAPSED,
+  KEY_CLAUDE_WIDTH,
+  KEY_CLAUDE_COLLAPSED,
+} from "./storage-keys.ts";
 import { registerCommands, toggle as toggleCommandPalette } from "./command-palette.ts";
 import { autoLinkTitle } from "./auto-link-title.ts";
 import { initLinkContextMenu } from "./link-context-menu.ts";
@@ -464,9 +472,7 @@ makeDraggable(divider, (clientX) => {
 const sidebarEl = document.getElementById("sidebar")!;
 const sidebarDivider = document.getElementById("sidebar-divider")!;
 
-const STORAGE_KEY_SIDEBAR_COLLAPSED = "markupsidedown:sidebarCollapsed";
-
-const sidebarCollapsed = localStorage.getItem(STORAGE_KEY_SIDEBAR_COLLAPSED) === "true";
+const sidebarCollapsed = getStorageBool(KEY_SIDEBAR_COLLAPSED, false);
 if (sidebarCollapsed) {
   sidebarEl.classList.add("collapsed");
 }
@@ -523,7 +529,7 @@ function toggleSidebar() {
   preservePreviewScroll(() => {
     const collapsed = sidebarEl.classList.toggle("collapsed");
     sidebarUnfoldBtn.classList.toggle("visible", collapsed);
-    localStorage.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, String(collapsed));
+    setStorageBool(KEY_SIDEBAR_COLLAPSED, collapsed);
   });
 }
 
@@ -536,14 +542,11 @@ makeDraggable(
     sidebarUnfoldBtn.classList.remove("visible");
   },
   () => {
-    localStorage.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, "false");
+    setStorageBool(KEY_SIDEBAR_COLLAPSED, false);
   },
 );
 
 // --- Panel Fold/Unfold ---
-
-const STORAGE_KEY_EDITOR_COLLAPSED = "markupsidedown:editorCollapsed";
-const STORAGE_KEY_PREVIEW_COLLAPSED = "markupsidedown:previewCollapsed";
 
 const SVG_CHEVRON_LEFT = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"/></svg>`;
 const SVG_CHEVRON_RIGHT = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l4 4-4 4"/></svg>`;
@@ -596,7 +599,7 @@ function toggleEditor() {
     const collapsed = editorContainer.classList.toggle("collapsed");
     divider.classList.toggle("hidden", collapsed);
     editorUnfoldBtn.classList.toggle("visible", collapsed);
-    localStorage.setItem(STORAGE_KEY_EDITOR_COLLAPSED, String(collapsed));
+    setStorageBool(KEY_EDITOR_COLLAPSED, collapsed);
   });
 }
 
@@ -604,7 +607,7 @@ function togglePreview() {
   const collapsed = previewWrapper.classList.toggle("collapsed");
   divider.classList.toggle("hidden", collapsed);
   previewUnfoldBtn.classList.toggle("visible", collapsed);
-  localStorage.setItem(STORAGE_KEY_PREVIEW_COLLAPSED, String(collapsed));
+  setStorageBool(KEY_PREVIEW_COLLAPSED, collapsed);
 }
 
 sidebarUnfoldBtn.addEventListener("click", toggleSidebar);
@@ -618,12 +621,12 @@ claudeUnfoldBtn.addEventListener("click", toggleClaudePanel);
 if (sidebarCollapsed) {
   sidebarUnfoldBtn.classList.add("visible");
 }
-if (localStorage.getItem(STORAGE_KEY_EDITOR_COLLAPSED) === "true") {
+if (getStorageBool(KEY_EDITOR_COLLAPSED, false)) {
   editorContainer.classList.add("collapsed");
   divider.classList.add("hidden");
   editorUnfoldBtn.classList.add("visible");
 }
-if (localStorage.getItem(STORAGE_KEY_PREVIEW_COLLAPSED) === "true") {
+if (getStorageBool(KEY_PREVIEW_COLLAPSED, false)) {
   previewWrapper.classList.add("collapsed");
   divider.classList.add("hidden");
   previewUnfoldBtn.classList.add("visible");
@@ -717,8 +720,8 @@ makeDraggable(claudeDivider, (clientX) => {
   const width = Math.max(250, Math.min(600, window.innerWidth - clientX));
   claudePanelEl.style.width = `${width}px`;
   claudePanelEl.classList.remove("collapsed");
-  localStorage.setItem("markupsidedown:claudeWidth", String(width));
-  localStorage.setItem("markupsidedown:claudeCollapsed", "false");
+  localStorage.setItem(KEY_CLAUDE_WIDTH, String(width));
+  setStorageBool(KEY_CLAUDE_COLLAPSED, false);
 });
 
 // Hide divider and show unfold button when collapsed

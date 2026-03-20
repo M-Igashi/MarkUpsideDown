@@ -7,12 +7,15 @@ const { listen } = window.__TAURI__.event;
 
 // --- Storage ---
 
-const STORAGE_KEY_COLLAPSED = "markupsidedown:claudeCollapsed";
-const STORAGE_KEY_API_KEY = "markupsidedown:claudeApiKey";
-const STORAGE_KEY_AUTH_MODE = "markupsidedown:claudeAuthMode"; // "oauth" | "apikey"
-const STORAGE_KEY_PERMISSION = "markupsidedown:claudePermission";
-const STORAGE_KEY_WIDTH = "markupsidedown:claudeWidth";
-const STORAGE_KEY_MESSAGES = "markupsidedown:claudeMessages";
+import { getStorageBool, setStorageBool } from "./storage-utils.ts";
+import {
+  KEY_CLAUDE_COLLAPSED,
+  KEY_CLAUDE_API_KEY,
+  KEY_CLAUDE_AUTH_MODE,
+  KEY_CLAUDE_PERMISSION,
+  KEY_CLAUDE_WIDTH,
+  KEY_CLAUDE_MESSAGES,
+} from "./storage-keys.ts";
 const MAX_PERSISTED_MESSAGES = 100;
 
 // --- Types ---
@@ -81,54 +84,54 @@ export function initClaudePanel(
 }
 
 export function isCollapsed(): boolean {
-  return localStorage.getItem(STORAGE_KEY_COLLAPSED) !== "false";
+  return getStorageBool(KEY_CLAUDE_COLLAPSED, true);
 }
 
 export function togglePanel() {
   if (!panelEl) return;
   const collapsed = panelEl.classList.toggle("collapsed");
-  localStorage.setItem(STORAGE_KEY_COLLAPSED, String(collapsed));
+  setStorageBool(KEY_CLAUDE_COLLAPSED, collapsed);
 }
 
 export function showPanel() {
   if (!panelEl) return;
   panelEl.classList.remove("collapsed");
-  localStorage.setItem(STORAGE_KEY_COLLAPSED, "false");
+  setStorageBool(KEY_CLAUDE_COLLAPSED, false);
   requestAnimationFrame(() => inputEl?.focus());
 }
 
 // --- Auth helpers ---
 
 function getAuthMode(): string {
-  return localStorage.getItem(STORAGE_KEY_AUTH_MODE) || "oauth";
+  return localStorage.getItem(KEY_CLAUDE_AUTH_MODE) || "oauth";
 }
 
 function setAuthMode(mode: string) {
-  localStorage.setItem(STORAGE_KEY_AUTH_MODE, mode);
+  localStorage.setItem(KEY_CLAUDE_AUTH_MODE, mode);
 }
 
 function getApiKey(): string {
-  return localStorage.getItem(STORAGE_KEY_API_KEY) || "";
+  return localStorage.getItem(KEY_CLAUDE_API_KEY) || "";
 }
 
 function setApiKey(key: string) {
   if (key) {
-    localStorage.setItem(STORAGE_KEY_API_KEY, key);
+    localStorage.setItem(KEY_CLAUDE_API_KEY, key);
   } else {
-    localStorage.removeItem(STORAGE_KEY_API_KEY);
+    localStorage.removeItem(KEY_CLAUDE_API_KEY);
   }
 }
 
 function getPermissionMode(): string {
-  return localStorage.getItem(STORAGE_KEY_PERMISSION) || "acceptEdits";
+  return localStorage.getItem(KEY_CLAUDE_PERMISSION) || "acceptEdits";
 }
 
 function setPermissionMode(mode: string) {
-  localStorage.setItem(STORAGE_KEY_PERMISSION, mode);
+  localStorage.setItem(KEY_CLAUDE_PERMISSION, mode);
 }
 
 function getSavedWidth(): number {
-  const w = localStorage.getItem(STORAGE_KEY_WIDTH);
+  const w = localStorage.getItem(KEY_CLAUDE_WIDTH);
   return w ? parseInt(w, 10) : 380;
 }
 
@@ -473,7 +476,7 @@ async function stopClaude() {
 function clearConversation() {
   messages = [];
   currentAssistantMsg = null;
-  localStorage.removeItem(STORAGE_KEY_MESSAGES);
+  localStorage.removeItem(KEY_CLAUDE_MESSAGES);
   renderMessages();
   if (isRunning) {
     stopClaude();
@@ -873,7 +876,7 @@ function truncate(s: string, max: number): string {
 function persistMessages() {
   const toSave = messages.filter((m) => m.status !== "streaming").slice(-MAX_PERSISTED_MESSAGES);
   try {
-    localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(toSave));
+    localStorage.setItem(KEY_CLAUDE_MESSAGES, JSON.stringify(toSave));
   } catch {
     // Storage full — silently fail
   }
@@ -881,7 +884,7 @@ function persistMessages() {
 
 function loadMessages(): ChatMessage[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_MESSAGES);
+    const raw = localStorage.getItem(KEY_CLAUDE_MESSAGES);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
