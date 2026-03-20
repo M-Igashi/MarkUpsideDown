@@ -289,7 +289,7 @@ body {
   background: var(--border);
   cursor: col-resize;
   flex-shrink: 0;
-  padding: 0 3px;
+  padding: 0 4px;
   background-clip: content-box;
 }
 
@@ -323,12 +323,10 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  transition: width 0.15s ease;
 }
 
 #sidebar.collapsed {
-  width: 0;
-  border-right: none;
+  display: none;
 }
 
 #sidebar-divider {
@@ -336,6 +334,8 @@ body {
   background: var(--border);
   cursor: col-resize;
   flex-shrink: 0;
+  padding: 0 4px;
+  background-clip: content-box;
 }
 
 #sidebar.collapsed + #sidebar-divider {
@@ -2797,7 +2797,7 @@ body {
   background: var(--border);
   cursor: col-resize;
   flex-shrink: 0;
-  padding: 0 3px;
+  padding: 0 4px;
   background-clip: content-box;
 }
 
@@ -2808,16 +2808,9 @@ body {
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   background: var(--surface);
-  transition: width 0.15s;
 }
 
 #claude-panel.collapsed {
-  width: 0 !important;
-  border-left: none;
-  overflow: hidden;
-}
-
-#claude-panel.collapsed + #claude-divider {
   display: none;
 }
 

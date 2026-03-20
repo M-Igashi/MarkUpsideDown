@@ -152,10 +152,14 @@ function render() {
     <button class="claude-header-btn" id="claude-clear-btn" title="Clear conversation">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h8M5.5 3V2h3v1M4 3v8.5h6V3"/></svg>
     </button>
+    <button class="claude-header-btn" id="claude-fold-btn" title="Collapse Claude Panel (⌘4)">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l4 4-4 4"/></svg>
+    </button>
   `;
   panelEl.appendChild(header);
 
   statusIndicator = header.querySelector("#claude-status-indicator");
+  header.querySelector("#claude-fold-btn")?.addEventListener("click", togglePanel);
 
   // Messages area
   messagesEl = document.createElement("div");

@@ -517,7 +517,7 @@ const SVG_CHEVRON_RIGHT = `<svg width="14" height="14" viewBox="0 0 14 14" fill=
 // Editor fold button (in tab-bar, right side)
 const editorFoldBtn = document.createElement("button");
 editorFoldBtn.className = "panel-fold-btn";
-editorFoldBtn.title = "Collapse Editor (⌘E)";
+editorFoldBtn.title = "Collapse Editor (⌘2)";
 editorFoldBtn.innerHTML = SVG_CHEVRON_LEFT;
 
 // Preview header with fold button
@@ -525,7 +525,7 @@ const previewHeader = document.createElement("div");
 previewHeader.className = "preview-header";
 const previewFoldBtn = document.createElement("button");
 previewFoldBtn.className = "panel-fold-btn";
-previewFoldBtn.title = "Collapse Preview (⌘\\)";
+previewFoldBtn.title = "Collapse Preview (⌘3)";
 previewFoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 previewHeader.appendChild(previewFoldBtn);
 previewWrapper.insertBefore(previewHeader, previewPane);
@@ -535,25 +535,25 @@ const appEl = document.getElementById("app")!;
 
 const sidebarUnfoldBtn = document.createElement("button");
 sidebarUnfoldBtn.className = "panel-unfold-btn";
-sidebarUnfoldBtn.title = "Expand Sidebar (⌘⇧B)";
+sidebarUnfoldBtn.title = "Expand Sidebar (⌘1)";
 sidebarUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 appEl.insertBefore(sidebarUnfoldBtn, sidebarDivider);
 
 const editorUnfoldBtn = document.createElement("button");
 editorUnfoldBtn.className = "panel-unfold-btn";
-editorUnfoldBtn.title = "Expand Editor (⌘E)";
+editorUnfoldBtn.title = "Expand Editor (⌘2)";
 editorUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 appEl.insertBefore(editorUnfoldBtn, divider);
 
 const previewUnfoldBtn = document.createElement("button");
 previewUnfoldBtn.className = "panel-unfold-btn";
-previewUnfoldBtn.title = "Expand Preview (⌘\\)";
+previewUnfoldBtn.title = "Expand Preview (⌘3)";
 previewUnfoldBtn.innerHTML = SVG_CHEVRON_LEFT;
 appEl.appendChild(previewUnfoldBtn);
 
 const claudeUnfoldBtn = document.createElement("button");
 claudeUnfoldBtn.className = "panel-unfold-btn claude-unfold";
-claudeUnfoldBtn.title = "Expand Claude Panel (⌘J)";
+claudeUnfoldBtn.title = "Expand Claude Panel (⌘4)";
 claudeUnfoldBtn.innerHTML = SVG_CHEVRON_LEFT;
 appEl.appendChild(claudeUnfoldBtn);
 
@@ -705,10 +705,19 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "]") {
       e.preventDefault();
       switchToNextTab();
-    } else if (e.key === "B") {
-      e.preventDefault();
-      toggleSidebar();
     }
+  } else if (e.key === "1") {
+    e.preventDefault();
+    toggleSidebar();
+  } else if (e.key === "2") {
+    e.preventDefault();
+    toggleEditor();
+  } else if (e.key === "3") {
+    e.preventDefault();
+    togglePreview();
+  } else if (e.key === "4") {
+    e.preventDefault();
+    toggleClaudePanel();
   } else if (e.key === "c") {
     // Cmd+C with no selection: copy entire content from focused pane
     const previewEl = document.getElementById("preview-pane")!;
@@ -735,15 +744,6 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "w") {
       e.preventDefault();
       closeActiveTab();
-    } else if (e.key === "e") {
-      e.preventDefault();
-      toggleEditor();
-    } else if (e.key === "\\") {
-      e.preventDefault();
-      togglePreview();
-    } else if (e.key === "j") {
-      e.preventDefault();
-      toggleClaudePanel();
     } else if (e.key === "k") {
       e.preventDefault();
       toggleCommandPalette();
@@ -838,28 +838,28 @@ registerCommands([
   {
     id: "view.sidebar",
     label: "Toggle Sidebar",
-    shortcut: "⌘⇧B",
+    shortcut: "⌘1",
     category: "View",
     run: toggleSidebar,
   },
   {
     id: "view.editor",
     label: "Toggle Editor",
-    shortcut: "⌘E",
+    shortcut: "⌘2",
     category: "View",
     run: toggleEditor,
   },
   {
     id: "view.preview",
     label: "Toggle Preview",
-    shortcut: "⌘\\",
+    shortcut: "⌘3",
     category: "View",
     run: togglePreview,
   },
   {
     id: "view.claude",
     label: "Toggle Claude Panel",
-    shortcut: "⌘J",
+    shortcut: "⌘4",
     category: "View",
     run: toggleClaudePanel,
   },
