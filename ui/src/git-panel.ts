@@ -27,6 +27,8 @@ let onFileClick: ((path: string) => void) | null = null;
 let onRefreshCb: (() => void) | null = null;
 let commitMessage = generateDefaultMessage();
 
+const DEFAULT_MSG_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+
 function generateDefaultMessage(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -302,6 +304,13 @@ function ensureBottom(): HTMLElement {
 
 function updateBottom(staged: GitFile[]) {
   if (!gitData || !branchLabelEl || !pullBtnEl || !pushBtnEl || !commitBtnEl) return;
+
+  // Refresh timestamp if the message is still the default pattern
+  if (DEFAULT_MSG_RE.test(commitMessage)) {
+    commitMessage = generateDefaultMessage();
+    const textarea = bottomEl?.querySelector<HTMLTextAreaElement>(".git-commit-textarea");
+    if (textarea) textarea.value = commitMessage;
+  }
 
   branchLabelEl.textContent = `\u{e0a0} ${gitData.branch || "HEAD (detached)"}`;
 
