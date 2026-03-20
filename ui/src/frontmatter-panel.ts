@@ -14,6 +14,7 @@ export function initFrontmatterPanel(ed: EditorView, container: HTMLElement) {
   panelEl = document.createElement("div");
   panelEl.className = "frontmatter-panel";
   panelEl.style.display = "none";
+  panelEl.dataset.collapsed = "true";
   container.insertBefore(panelEl, container.firstChild);
 }
 
