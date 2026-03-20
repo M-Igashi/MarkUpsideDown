@@ -2,6 +2,7 @@
 // as the user types. Respects code blocks and inline code.
 
 import { ViewPlugin, ViewUpdate } from "@codemirror/view";
+import { isPositionInCode } from "./document-structure.ts";
 
 const STORAGE_KEY = "markupsidedown:smartTypography";
 
@@ -27,20 +28,6 @@ const rules: Rule[] = [
   { pattern: /--/, replace: "\u2013" },
 ];
 
-function isInsideCode(doc: string, pos: number): boolean {
-  const before = doc.slice(0, pos);
-
-  // Inside fenced code block?
-  const fences = before.split("```").length - 1;
-  if (fences % 2 === 1) return true;
-
-  // Inside inline code? Count backticks on the current line
-  const lineStart = before.lastIndexOf("\n") + 1;
-  const line = before.slice(lineStart);
-  const backticks = line.split("`").length - 1;
-  return backticks % 2 === 1;
-}
-
 export const smartTypography = ViewPlugin.fromClass(
   class {
     update(update: ViewUpdate) {
@@ -63,7 +50,7 @@ export const smartTypography = ViewPlugin.fromClass(
             const matchStart = start + match.index!;
             const matchEnd = matchStart + match[0].length;
 
-            if (isInsideCode(doc, matchStart)) continue;
+            if (isPositionInCode(doc, matchStart)) continue;
 
             const replacement =
               typeof rule.replace === "function" ? rule.replace(match) : rule.replace;

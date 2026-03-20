@@ -2,6 +2,7 @@
 // Offers: Open in Browser, Fetch as Markdown, Render as Markdown, Crawl Site.
 
 import { getWorkerUrl } from "./settings.ts";
+import { fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fetch-markdown.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -10,7 +11,6 @@ let menu: HTMLElement | null = null;
 interface LinkMenuDeps {
   statusEl: HTMLElement;
   loadContentAsTab: (content: string) => void;
-  normalizeMarkdown: (s: string) => string;
   crawlUrl: (urlInput: HTMLInputElement, urlBar: HTMLElement) => void;
   urlInput: HTMLInputElement;
   urlBar: HTMLElement;
@@ -100,28 +100,10 @@ function showMenu(x: number, y: number, url: string) {
 async function fetchAsMarkdown(url: string) {
   deps.statusEl.textContent = "Fetching page…";
   try {
-    const result = await invoke<{ body: string; is_markdown: boolean }>("fetch_url_as_markdown", {
-      url,
-    });
-    if (result.is_markdown) {
-      deps.loadContentAsTab(deps.normalizeMarkdown(result.body));
-      deps.statusEl.textContent = `Fetched (Markdown for Agents): ${url}`;
-      return;
-    }
-    // Try Worker conversion
-    const workerUrl = getWorkerUrl();
-    if (workerUrl) {
-      try {
-        const markdown = await invoke<string>("fetch_url_via_worker", { url, workerUrl });
-        deps.loadContentAsTab(deps.normalizeMarkdown(markdown));
-        deps.statusEl.textContent = `Fetched (AI.toMarkdown): ${url}`;
-        return;
-      } catch {
-        // Fall through
-      }
-    }
-    deps.loadContentAsTab(result.body);
-    deps.statusEl.textContent = `Fetched (raw HTML): ${url}`;
+    const workerUrl = getWorkerUrl() || null;
+    const { content, method } = await fetchUrlAsMarkdown(url, workerUrl);
+    deps.loadContentAsTab(content);
+    deps.statusEl.textContent = `Fetched (${method}): ${url}`;
   } catch (e) {
     deps.statusEl.textContent = `Fetch error: ${e}`;
   }
@@ -130,8 +112,8 @@ async function fetchAsMarkdown(url: string) {
 async function renderAsMarkdown(url: string, workerUrl: string) {
   deps.statusEl.textContent = "Rendering page…";
   try {
-    const markdown = await invoke<string>("fetch_rendered_url_as_markdown", { url, workerUrl });
-    deps.loadContentAsTab(deps.normalizeMarkdown(markdown));
+    const markdown = await renderUrlAsMarkdown(url, workerUrl);
+    deps.loadContentAsTab(markdown);
     deps.statusEl.textContent = `Rendered: ${url}`;
   } catch (e) {
     deps.statusEl.textContent = `Render error: ${e}`;

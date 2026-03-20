@@ -1,6 +1,7 @@
 import type { EditorView } from "@codemirror/view";
 import { basename } from "./path-utils.ts";
 import { ensureWorkerUrl, isImageConversionAllowed, isAutoSaveEnabled } from "./settings.ts";
+import { fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fetch-markdown.ts";
 import { normalizeMarkdown } from "./normalize.ts";
 import { getRootPath, refreshTree } from "./sidebar.ts";
 import { getActiveTab, isTabDirty, markTabSaved, updateActiveTab } from "./tabs.ts";
@@ -9,11 +10,6 @@ import { suppressNext } from "./file-watcher.ts";
 const { invoke } = window.__TAURI__.core;
 const { open, save, confirm } = window.__TAURI__.dialog;
 const { writeTextFile } = window.__TAURI__.fs;
-
-export interface FetchResult {
-  body: string;
-  is_markdown: boolean;
-}
 
 export interface ConvertResult {
   markdown: string;
@@ -145,32 +141,10 @@ export async function fetchUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
   statusEl.textContent = "Fetching page…";
 
   try {
-    // First try Markdown for Agents (free, no Worker needed)
-    const result = await invoke<FetchResult>("fetch_url_as_markdown", { url });
-
-    if (result.is_markdown) {
-      loadContentAsTab(normalizeMarkdown(result.body));
-      statusEl.textContent = `Fetched (Markdown for Agents): ${url}`;
-      return;
-    }
-
-    // HTML returned — use Worker /fetch for AI.toMarkdown() conversion
     const workerUrl = await ensureWorkerUrl();
-    if (workerUrl) {
-      statusEl.textContent = "Converting via AI.toMarkdown()…";
-      try {
-        const markdown = await invoke<string>("fetch_url_via_worker", { url, workerUrl });
-        loadContentAsTab(normalizeMarkdown(markdown));
-        statusEl.textContent = `Fetched (AI.toMarkdown): ${url}`;
-        return;
-      } catch {
-        // Fall through to raw HTML
-      }
-    }
-
-    // Fallback: load raw HTML as-is (no normalization for raw HTML)
-    loadContentAsTab(result.body);
-    statusEl.textContent = `Fetched (raw HTML): ${url}`;
+    const { content, method } = await fetchUrlAsMarkdown(url, workerUrl);
+    loadContentAsTab(content);
+    statusEl.textContent = `Fetched (${method}): ${url}`;
   } catch (e) {
     statusEl.textContent = `Fetch error: ${e}`;
   } finally {
@@ -191,8 +165,8 @@ export async function renderUrl(urlInput: HTMLInputElement, urlBar: HTMLElement)
   statusEl.textContent = "Rendering page (this may take a moment)…";
 
   try {
-    const markdown = await invoke<string>("fetch_rendered_url_as_markdown", { url, workerUrl });
-    loadContentAsTab(normalizeMarkdown(markdown));
+    const markdown = await renderUrlAsMarkdown(url, workerUrl);
+    loadContentAsTab(markdown);
     statusEl.textContent = "Rendered: " + url;
   } catch (e) {
     statusEl.textContent = `Render error: ${e}`;

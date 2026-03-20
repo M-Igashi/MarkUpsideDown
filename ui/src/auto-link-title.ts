@@ -1,19 +1,12 @@
 // Auto Link Title: when a bare URL is pasted, fetch the page title
 // and replace it with [Title](url) format.
 
-import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
+import { ViewPlugin, ViewUpdate } from "@codemirror/view";
+import { isPositionInCode } from "./document-structure.ts";
 
 const { invoke } = window.__TAURI__.core;
 
 const URL_REGEX = /^https?:\/\/[^\s]+$/;
-
-function isInsideCodeBlock(state: EditorView["state"], pos: number): boolean {
-  const doc = state.doc.toString();
-  const before = doc.slice(0, pos);
-  // Count triple backtick fences before position
-  const fences = before.split("```").length - 1;
-  return fences % 2 === 1;
-}
 
 export const autoLinkTitle = ViewPlugin.fromClass(
   class {
@@ -31,7 +24,7 @@ export const autoLinkTitle = ViewPlugin.fromClass(
           if (URL_REGEX.test(inserted.trim())) {
             const url = inserted.trim();
             // Don't auto-link inside code blocks
-            if (isInsideCodeBlock(update.state, fromB)) return;
+            if (isPositionInCode(update.state.doc.toString(), fromB)) return;
             // Don't auto-link if already inside a markdown link
             const before = update.state.doc.sliceString(Math.max(0, fromB - 2), fromB);
             if (before.endsWith("](") || before.endsWith("![")) return;

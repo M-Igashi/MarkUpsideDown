@@ -393,7 +393,6 @@ initNoteRefactor({ editor, statusEl, getCurrentFilePath, loadContentAsTab });
 initLinkContextMenu(previewPane, {
   statusEl,
   loadContentAsTab,
-  normalizeMarkdown,
   crawlUrl,
   urlInput,
   urlBar,

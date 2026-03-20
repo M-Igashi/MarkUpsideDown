@@ -3,6 +3,20 @@
  * Used by markdown-lint.ts (diagnostics) and MCP bridge (get_document_structure).
  */
 
+export function isPositionInCode(doc: string, pos: number): boolean {
+  const before = doc.slice(0, pos);
+
+  // Inside fenced code block?
+  const fences = before.split("```").length - 1;
+  if (fences % 2 === 1) return true;
+
+  // Inside inline code? Count backticks on the current line
+  const lineStart = before.lastIndexOf("\n") + 1;
+  const line = before.slice(lineStart);
+  const backticks = line.split("`").length - 1;
+  return backticks % 2 === 1;
+}
+
 export interface Heading {
   level: number;
   text: string;
