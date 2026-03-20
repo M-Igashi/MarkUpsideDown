@@ -285,9 +285,6 @@ function cleanupDocument() {
 }
 
 document.getElementById("btn-cleanup")!.addEventListener("click", cleanupDocument);
-document.getElementById("btn-export-pdf")!.addEventListener("click", () => {
-  window.print();
-});
 document.getElementById("btn-settings")!.addEventListener("click", () => {
   showSettings({
     onSave: (url: string) => {
@@ -762,12 +759,6 @@ registerCommands([
   { id: "file.open", label: "Open File", shortcut: "⌘O", category: "File", run: openFile },
   { id: "file.save", label: "Save File", shortcut: "⌘S", category: "File", run: saveFile },
   { id: "file.import", label: "Import Document", category: "File", run: importFile },
-  {
-    id: "file.exportPdf",
-    label: "Export PDF",
-    category: "Export",
-    run: () => window.print(),
-  },
   {
     id: "edit.bold",
     label: "Bold",

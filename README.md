@@ -44,16 +44,15 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 - **Git panel** — View changes, stage/unstage files, commit, push/pull with ahead/behind counts, fetch
 - **GitHub panel** — Fetch issue and PR bodies by reference (`owner/repo#123` or URL)
 
-### Export
+### Clipboard
 
-- **Export PDF** — Print/save the preview pane as PDF
 - **Copy Rich Text** — Copy rendered HTML to clipboard (preview pane)
 - **Copy Markdown** — Copy raw Markdown to clipboard (editor pane)
 
 ### Integration
 
 - **Claude Panel** — Chat with Claude directly from the editor, powered by Claude Code CLI `stream-json` mode. Supports image paste, session persistence, and auto-reconnection.
-- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (27 tools). See [docs/mcp-server.md](docs/mcp-server.md).
+- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (26 tools). See [docs/mcp-server.md](docs/mcp-server.md).
 
 ### Keyboard Shortcuts
 

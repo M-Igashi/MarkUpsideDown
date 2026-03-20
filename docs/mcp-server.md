@@ -18,7 +18,7 @@ Editor (CodeMirror)
 - **Editor tools** communicate with the running app via the local HTTP bridge
 - **Conversion tools** call the Cloudflare Worker directly (app not required if Worker URL is set)
 
-## Available Tools (27)
+## Available Tools (26)
 
 ### Editor Tools (require the app to be running)
 
@@ -32,7 +32,6 @@ Editor (CodeMirror)
 | `normalize_document` | Normalize headings, tables, list markers, whitespace | — |
 | `open_file` | Open a Markdown file in the editor | `path: string` |
 | `save_file` | Save content to a file | `path?: string` (uses current file if omitted) |
-| `export_pdf` | Export as PDF (opens print dialog) | — |
 
 ### Project Context Tools (require the app to be running)
 

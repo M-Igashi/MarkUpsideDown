@@ -137,10 +137,6 @@ export function initBridgeListeners() {
     }
   });
 
-  listen("bridge:export-pdf", () => {
-    window.print();
-  });
-
   listen("bridge:normalize", () => {
     const content = editor.state.doc.toString();
     const cleaned = normalizeMarkdown(content);

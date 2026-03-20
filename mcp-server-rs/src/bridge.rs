@@ -116,11 +116,6 @@ impl BridgeClient {
         Ok(())
     }
 
-    pub async fn export_pdf(&self) -> Result<(), String> {
-        self.request("POST", "/editor/export-pdf", None).await?;
-        Ok(())
-    }
-
     pub async fn normalize_document(&self) -> Result<(), String> {
         self.request("POST", "/editor/normalize", None).await?;
         Ok(())

@@ -41,7 +41,6 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorState>) {
         .route("/editor/state", get(get_state))
         .route("/editor/open-file", post(open_file))
         .route("/editor/save-file", post(save_file))
-        .route("/editor/export-pdf", post(export_pdf))
         .route("/editor/structure", get(get_structure))
         .route("/editor/normalize", post(normalize_document))
         .route("/editor/tabs", get(get_tabs))
@@ -164,11 +163,6 @@ async fn save_file(
     Json(body): Json<SaveFileRequest>,
 ) -> StatusCode {
     state.app.emit("bridge:save-file", &body.path).ok();
-    StatusCode::OK
-}
-
-async fn export_pdf(State(state): State<Arc<BridgeState>>) -> StatusCode {
-    state.app.emit("bridge:export-pdf", ()).ok();
     StatusCode::OK
 }
 

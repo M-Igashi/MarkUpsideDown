@@ -64,7 +64,7 @@ function featureRows(status: WorkerStatus | null) {
   const hasWorker = Boolean(status && status.reachable);
 
   return [
-    { name: "Open / Save / Export PDF", ok: true, hint: "Always available" },
+    { name: "Open / Save", ok: true, hint: "Always available" },
     { name: "Fetch URL (standard)", ok: true, hint: "Always available" },
     { name: "Table Editor / Copy Rich Text", ok: true, hint: "Always available" },
     {
@@ -482,7 +482,6 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
             <div class="settings-mcp-tool"><code>normalize_document</code> &mdash; Normalize headings, tables, list markers, whitespace</div>
             <div class="settings-mcp-tool"><code>open_file</code> &mdash; Open a Markdown file</div>
             <div class="settings-mcp-tool"><code>save_file</code> &mdash; Save content to a file</div>
-            <div class="settings-mcp-tool"><code>export_pdf</code> &mdash; Export as PDF</div>
             <div class="settings-mcp-tool"><code>fetch_markdown</code> &mdash; Fetch URL as Markdown</div>
             <div class="settings-mcp-tool"><code>render_markdown</code> &mdash; JS-render a page as Markdown</div>
             <div class="settings-mcp-tool"><code>convert_to_markdown</code> &mdash; Convert local file to Markdown</div>

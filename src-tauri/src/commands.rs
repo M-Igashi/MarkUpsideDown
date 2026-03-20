@@ -1564,7 +1564,6 @@ This workspace is configured for use with MarkUpsideDown's MCP server.
 | `get_document_structure` | Get document structure (headings, links, stats) as JSON |
 | `open_file` | Open a Markdown file |
 | `save_file` | Save content to a file |
-| `export_pdf` | Export as PDF |
 | `fetch_markdown` | Fetch URL as Markdown |
 | `render_markdown` | JS-render a page as Markdown |
 | `convert_to_markdown` | Convert local file to Markdown |

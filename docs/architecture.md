@@ -199,7 +199,6 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 | `/editor/state` | GET | Get editor state (file path, Worker URL, cursor) |
 | `/editor/open-file` | POST | Open a file in the editor |
 | `/editor/save-file` | POST | Save editor content to file |
-| `/editor/export-pdf` | POST | Trigger PDF export |
 | `/editor/structure` | GET | Get document structure as JSON |
 | `/editor/normalize` | POST | Normalize document |
 | `/editor/tabs` | GET | List open tabs |

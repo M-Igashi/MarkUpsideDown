@@ -385,14 +385,6 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "export_pdf", description = "Export the current editor content as PDF (opens print dialog in the app)", annotations(read_only_hint = false, open_world_hint = false))]
-    async fn export_pdf(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.export_pdf().await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text("PDF export triggered")])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
-    }
-
     #[tool(name = "normalize_document", description = "Normalize the current editor content: fix heading hierarchy, reformat tables, clean up whitespace, remove broken links, and standardize list markers", annotations(read_only_hint = false, open_world_hint = false))]
     async fn normalize_document(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.normalize_document().await {
