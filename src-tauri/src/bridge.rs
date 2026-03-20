@@ -130,7 +130,7 @@ async fn set_content(
 ) -> StatusCode {
     // Update focused window's state
     if let Some(label) = state.editor.get_focused_label() {
-        let mut map = state.editor.map.lock().unwrap();
+        let mut map = state.editor.map.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(s) = map.get_mut(&label) {
             s.content = body.content.clone();
         }

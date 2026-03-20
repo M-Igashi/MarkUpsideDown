@@ -45,8 +45,8 @@ impl Default for EditorStates {
 impl EditorStates {
     /// Get a clone of the focused window's state, or the first available window's state.
     pub fn get_focused_state(&self) -> Option<EditorStateInner> {
-        let map = self.map.lock().unwrap();
-        let focused = self.focused.lock().unwrap();
+        let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let focused = self.focused.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(label) = focused.as_ref() {
             if let Some(state) = map.get(label) {
                 return Some(state.clone());
@@ -58,17 +58,23 @@ impl EditorStates {
 
     /// Remove a window's state entry.
     pub fn remove_window(&self, label: &str) {
-        self.map.lock().unwrap().remove(label);
+        self.map
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(label);
     }
 
     /// Set the focused window label.
     pub fn set_focused(&self, label: String) {
-        *self.focused.lock().unwrap() = Some(label);
+        *self.focused.lock().unwrap_or_else(|e| e.into_inner()) = Some(label);
     }
 
     /// Get the focused window label.
     pub fn get_focused_label(&self) -> Option<String> {
-        self.focused.lock().unwrap().clone()
+        self.focused
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
@@ -103,7 +109,7 @@ pub fn sync_editor_state(
     state: tauri::State<'_, std::sync::Arc<EditorStates>>,
 ) -> Result<(), String> {
     let label = window.label().to_string();
-    let mut map = state.map.lock().unwrap();
+    let mut map = state.map.lock().unwrap_or_else(|e| e.into_inner());
     let s = map.entry(label).or_default();
     s.content = content;
     s.file_path = file_path;
