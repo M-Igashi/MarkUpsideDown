@@ -218,9 +218,24 @@ function render() {
   contextChipsEl.style.display = "none";
   inputArea.appendChild(contextChipsEl);
 
-  // Textarea row (+ button, textarea, send button)
+  // Textarea row (textarea, right column with + and send buttons)
   const inputRow = document.createElement("div");
   inputRow.className = "claude-input-row";
+
+  inputEl = document.createElement("textarea");
+  inputEl.className = "claude-input";
+  inputEl.placeholder = "Ask Claude… (@ to attach context)";
+  inputEl.rows = 3;
+  inputRow.appendChild(inputEl);
+
+  // Image preview area (between textarea and buttons)
+  imagePreviewEl = document.createElement("div");
+  imagePreviewEl.className = "claude-image-preview";
+  inputRow.appendChild(imagePreviewEl);
+
+  // Right column: + button on top, send button on bottom
+  const btnCol = document.createElement("div");
+  btnCol.className = "claude-input-btn-col";
 
   const addCtxBtn = document.createElement("button");
   addCtxBtn.className = "claude-add-context-btn";
@@ -230,24 +245,15 @@ function render() {
     e.stopPropagation();
     showContextMenu(addCtxBtn);
   });
-  inputRow.appendChild(addCtxBtn);
-
-  inputEl = document.createElement("textarea");
-  inputEl.className = "claude-input";
-  inputEl.placeholder = "Ask Claude… (@ to attach context)";
-  inputEl.rows = 3;
-  inputRow.appendChild(inputEl);
-
-  // Image preview area (between textarea and send button)
-  imagePreviewEl = document.createElement("div");
-  imagePreviewEl.className = "claude-image-preview";
-  inputRow.appendChild(imagePreviewEl);
+  btnCol.appendChild(addCtxBtn);
 
   sendBtn = document.createElement("button");
   sendBtn.className = "claude-send-btn";
   sendBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 13V3l11 5-11 5z" fill="currentColor"/></svg>`;
   sendBtn.title = "Send message (Enter / Shift+Enter for newline)";
-  inputRow.appendChild(sendBtn);
+  btnCol.appendChild(sendBtn);
+
+  inputRow.appendChild(btnCol);
 
   inputArea.appendChild(inputRow);
   panelEl.appendChild(inputArea);
