@@ -70,6 +70,8 @@ let rateLimitInterval: number | null = null;
 let pendingImages: PastedImage[] = [];
 let imagePreviewEl: HTMLElement | null = null;
 let onFileEditedCallback: ((filePath: string) => void) | null = null;
+// File paths pending reload after tool execution completes
+const pendingFileEditPaths: string[] = [];
 let attachedContexts: AttachedContext[] = [];
 let contextChipsEl: HTMLElement | null = null;
 let contextMenuEl: HTMLElement | null = null;
@@ -957,12 +959,23 @@ function handleSystemEvent(data: any) {
   addSystemMessage(`Connected (${model}, ${tools} tools)`);
 }
 
+const FILE_EDIT_TOOLS = ["Edit", "Write", "NotebookEdit"];
+
 function handleAssistantEvent(data: any) {
   const message = data.message;
   if (!message) return;
 
   const content = message.content;
   if (!Array.isArray(content)) return;
+
+  // Fire pending file edit callbacks — arrival of a new assistant event after
+  // a tool_use turn means tools have been executed by Claude CLI
+  if (pendingFileEditPaths.length > 0 && onFileEditedCallback) {
+    for (const filePath of pendingFileEditPaths) {
+      onFileEditedCallback(filePath);
+    }
+    pendingFileEditPaths.length = 0;
+  }
 
   // Create or reuse current assistant message
   if (!currentAssistantMsg) {
@@ -999,14 +1012,12 @@ function handleAssistantEvent(data: any) {
         });
       }
     } else if (block.type === "tool_result") {
-      // Mark tool as done
+      // Mark tool as done (fallback for formats that include tool_result in content)
       const tool = currentAssistantMsg.toolUses.find((t) => t.id === block.tool_use_id);
       if (tool) {
         tool.status = block.is_error ? "error" : "done";
-        // Notify when file-editing tools complete successfully
         if (!block.is_error && onFileEditedCallback) {
-          const FILE_TOOLS = ["Edit", "Write", "NotebookEdit"];
-          if (FILE_TOOLS.includes(tool.name)) {
+          if (FILE_EDIT_TOOLS.includes(tool.name)) {
             try {
               const input = JSON.parse(tool.input);
               if (input.file_path) onFileEditedCallback(input.file_path);
@@ -1022,9 +1033,20 @@ function handleAssistantEvent(data: any) {
   // Check if message is complete
   if (message.stop_reason) {
     currentAssistantMsg.status = "done";
-    // Mark all running tools as done
+    // Mark all running tools as done and queue file edit callbacks
     for (const tool of currentAssistantMsg.toolUses) {
-      if (tool.status === "running") tool.status = "done";
+      if (tool.status === "running") {
+        tool.status = "done";
+        // Queue file-editing tool callbacks for next event (tool just finished)
+        if (onFileEditedCallback && FILE_EDIT_TOOLS.includes(tool.name)) {
+          try {
+            const input = JSON.parse(tool.input);
+            if (input.file_path) pendingFileEditPaths.push(input.file_path);
+          } catch {
+            // input parse failure — ignore
+          }
+        }
+      }
     }
   }
 
@@ -1032,6 +1054,14 @@ function handleAssistantEvent(data: any) {
 }
 
 function handleResultEvent(data: any) {
+  // Flush any pending file edit callbacks (conversation ended, tools completed)
+  if (pendingFileEditPaths.length > 0 && onFileEditedCallback) {
+    for (const filePath of pendingFileEditPaths) {
+      onFileEditedCallback(filePath);
+    }
+    pendingFileEditPaths.length = 0;
+  }
+
   if (currentAssistantMsg) {
     currentAssistantMsg.status = "done";
     if (data.total_cost_usd) {
