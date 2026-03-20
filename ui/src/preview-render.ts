@@ -7,7 +7,7 @@ import {
   markProgrammaticScroll,
   syncPreviewToCursor,
 } from "./scroll-sync.ts";
-import { escapeHtml } from "./settings.ts";
+import { escapeHtml } from "./html-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 

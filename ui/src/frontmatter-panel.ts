@@ -3,7 +3,7 @@
 
 import type { EditorView } from "@codemirror/view";
 import { parseFrontmatter } from "./document-structure.ts";
-import { escapeHtml } from "./settings.ts";
+import { escapeHtml } from "./html-utils.ts";
 
 let panelEl: HTMLElement | null = null;
 let editor: EditorView;

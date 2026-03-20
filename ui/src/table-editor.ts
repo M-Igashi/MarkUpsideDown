@@ -1,6 +1,6 @@
 import type { Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-import { escapeHtml } from "./settings.ts";
+import { escapeHtml } from "./html-utils.ts";
 
 // --- Markdown Table Parser ---
 

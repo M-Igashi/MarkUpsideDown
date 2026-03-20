@@ -1,6 +1,6 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { escapeHtml } from "./settings.ts";
+import { escapeHtml } from "./html-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;

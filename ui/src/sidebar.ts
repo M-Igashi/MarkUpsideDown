@@ -1,7 +1,7 @@
 import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
 import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
 import { basename, dirname } from "./path-utils.ts";
-import { escapeHtml } from "./settings.ts";
+import { escapeHtml } from "./html-utils.ts";
 import { watch, type UnwatchFn } from "@tauri-apps/plugin-fs";
 import { KEY_SIDEBAR, KEY_SIDEBAR_SORT, KEY_SIDEBAR_PANEL } from "./storage-keys.ts";
 

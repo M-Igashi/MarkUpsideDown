@@ -577,36 +577,13 @@ function createSection(title: string, files: GitFile[], isStaged: boolean): HTML
     // Click row to toggle inline diff
     row.addEventListener("click", () => {
       const key = `${isStaged ? "s:" : "u:"}${file.path}`;
-      if (expandedDiffPath === key) {
-        // Collapse
-        expandedDiffPath = null;
-        const diffEl = wrapper.querySelector(".git-inline-diff");
-        if (diffEl) diffEl.remove();
-        row.classList.remove("expanded");
-      } else {
-        // Collapse any previously expanded
-        const prev = panelEl?.querySelector(".git-file-row.expanded");
-        if (prev) {
-          prev.classList.remove("expanded");
-          prev.closest(".git-file-wrapper")?.querySelector(".git-inline-diff")?.remove();
-        }
-        expandedDiffPath = key;
-        row.classList.add("expanded");
-        // Load diff
-        const diffContainer = document.createElement("div");
-        diffContainer.className = "git-inline-diff";
-        diffContainer.textContent = "Loading...";
-        wrapper.appendChild(diffContainer);
-        loadDiff(file.path, isStaged).then((diff) => {
-          if (expandedDiffPath !== key) return;
-          if (!diff.trim()) {
-            diffContainer.textContent = file.status === "?" ? "(new file)" : "(no diff available)";
-          } else {
-            diffContainer.textContent = "";
-            renderDiffLines(diffContainer, diff);
-          }
-        });
-      }
+      toggleInlineDiff(
+        key,
+        row,
+        wrapper,
+        () => loadDiff(file.path, isStaged),
+        file.status === "?" ? "(new file)" : "(no diff available)",
+      );
     });
 
     wrapper.appendChild(row);
@@ -615,6 +592,45 @@ function createSection(title: string, files: GitFile[], isStaged: boolean): HTML
 
   section.appendChild(list);
   return section;
+}
+
+function toggleInlineDiff(
+  key: string,
+  row: HTMLElement,
+  wrapper: HTMLElement,
+  loadFn: () => Promise<string>,
+  emptyLabel = "(no diff available)",
+) {
+  if (expandedDiffPath === key) {
+    expandedDiffPath = null;
+    wrapper.querySelector(".git-inline-diff")?.remove();
+    row.classList.remove("expanded");
+    return;
+  }
+  // Collapse any previously expanded
+  const prev = panelEl?.querySelector(".git-file-row.expanded, .git-log-row.expanded");
+  if (prev) {
+    prev.classList.remove("expanded");
+    prev
+      .closest(".git-file-wrapper, .git-log-wrapper")
+      ?.querySelector(".git-inline-diff")
+      ?.remove();
+  }
+  expandedDiffPath = key;
+  row.classList.add("expanded");
+  const diffContainer = document.createElement("div");
+  diffContainer.className = "git-inline-diff";
+  diffContainer.textContent = "Loading...";
+  wrapper.appendChild(diffContainer);
+  loadFn().then((diff) => {
+    if (expandedDiffPath !== key) return;
+    if (!diff.trim()) {
+      diffContainer.textContent = emptyLabel;
+    } else {
+      diffContainer.textContent = "";
+      renderDiffLines(diffContainer, diff);
+    }
+  });
 }
 
 function renderDiffLines(container: HTMLElement, diff: string) {
@@ -702,37 +718,7 @@ function createLogSection(): HTMLElement {
     // Click to toggle commit diff
     row.addEventListener("click", () => {
       const key = `commit:${entry.hash}`;
-      if (expandedDiffPath === key) {
-        expandedDiffPath = null;
-        const diffEl = wrapper.querySelector(".git-inline-diff");
-        if (diffEl) diffEl.remove();
-        row.classList.remove("expanded");
-      } else {
-        // Collapse any previously expanded diff
-        const prev = panelEl?.querySelector(".git-file-row.expanded, .git-log-row.expanded");
-        if (prev) {
-          prev.classList.remove("expanded");
-          prev
-            .closest(".git-file-wrapper, .git-log-wrapper")
-            ?.querySelector(".git-inline-diff")
-            ?.remove();
-        }
-        expandedDiffPath = key;
-        row.classList.add("expanded");
-        const diffContainer = document.createElement("div");
-        diffContainer.className = "git-inline-diff";
-        diffContainer.textContent = "Loading...";
-        wrapper.appendChild(diffContainer);
-        loadCommitDiff(entry.hash).then((diff) => {
-          if (expandedDiffPath !== key) return;
-          if (!diff.trim()) {
-            diffContainer.textContent = "(no diff available)";
-          } else {
-            diffContainer.textContent = "";
-            renderDiffLines(diffContainer, diff);
-          }
-        });
-      }
+      toggleInlineDiff(key, row, wrapper, () => loadCommitDiff(entry.hash));
     });
 
     wrapper.appendChild(row);

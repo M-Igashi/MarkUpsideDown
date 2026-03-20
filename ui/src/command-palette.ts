@@ -1,6 +1,6 @@
 // --- Command Palette (Cmd+K / Ctrl+K) ---
 
-import { escapeHtml } from "./settings.ts";
+import { escapeHtml } from "./html-utils.ts";
 
 export interface Command {
   id: string;

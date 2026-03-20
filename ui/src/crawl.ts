@@ -1,5 +1,6 @@
 import { normalizeMarkdown } from "./normalize.ts";
-import { ensureWorkerUrl, escapeHtml } from "./settings.ts";
+import { ensureWorkerUrl } from "./settings.ts";
+import { escapeHtml } from "./html-utils.ts";
 import { getRootPath } from "./sidebar.ts";
 
 const { invoke } = window.__TAURI__.core;
