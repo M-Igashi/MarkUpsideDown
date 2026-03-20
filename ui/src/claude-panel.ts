@@ -59,16 +59,22 @@ let rateLimitResetTime: number | null = null;
 let rateLimitInterval: number | null = null;
 let pendingImages: PastedImage[] = [];
 let imagePreviewEl: HTMLElement | null = null;
+let onFileEditedCallback: ((filePath: string) => void) | null = null;
 
 // --- Public API ---
 
 export function initClaudePanel(
   el: HTMLElement,
-  callbacks: { getCwd: () => string | null; getActiveFilePath: () => string | null },
+  callbacks: {
+    getCwd: () => string | null;
+    getActiveFilePath: () => string | null;
+    onFileEdited?: (filePath: string) => void;
+  },
 ) {
   panelEl = el;
   getCwd = callbacks.getCwd;
   getActiveFilePath = callbacks.getActiveFilePath;
+  onFileEditedCallback = callbacks.onFileEdited ?? null;
   messages = loadMessages();
   render();
   setupListeners();
@@ -666,6 +672,18 @@ function handleAssistantEvent(data: any) {
       const tool = currentAssistantMsg.toolUses.find((t) => t.id === block.tool_use_id);
       if (tool) {
         tool.status = block.is_error ? "error" : "done";
+        // Notify when file-editing tools complete successfully
+        if (!block.is_error && onFileEditedCallback) {
+          const FILE_TOOLS = ["Edit", "Write", "NotebookEdit"];
+          if (FILE_TOOLS.includes(tool.name)) {
+            try {
+              const input = JSON.parse(tool.input);
+              if (input.file_path) onFileEditedCallback(input.file_path);
+            } catch {
+              // input parse failure — ignore
+            }
+          }
+        }
       }
     }
   }

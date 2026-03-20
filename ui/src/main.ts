@@ -601,22 +601,23 @@ const tabBarEl = document.getElementById("tab-bar")!;
 
 const { confirm: confirmDialog } = window.__TAURI__.dialog;
 
+async function reloadTabFromDisk(path: string) {
+  const content = await invoke<string>("read_text_file", { path });
+  const tab = getTabByPath(path);
+  if (!tab) return;
+  tab.content = content;
+  tab.savedContent = content;
+  markTabSaved(tab.id);
+  if (tab.id === getActiveTab()?.id) {
+    loadContent(content, path);
+  }
+}
+
 initFileWatcher({
   getTabByPath,
   getActiveTab,
   isTabDirty,
-  reloadTab: async (path: string) => {
-    const content = await invoke<string>("read_text_file", { path });
-    const tab = getTabByPath(path);
-    if (!tab) return;
-    tab.content = content;
-    tab.savedContent = content;
-    markTabSaved(tab.id);
-    // If this is the active tab, update the editor view
-    if (tab.id === getActiveTab()?.id) {
-      loadContent(content, path);
-    }
-  },
+  reloadTab: reloadTabFromDisk,
   confirmReload: async (path: string) => {
     const fileName = basename(path);
     return confirmDialog(
@@ -669,6 +670,10 @@ const claudeDivider = document.getElementById("claude-divider")!;
 initClaudePanel(claudePanelEl, {
   getCwd: () => getRootPath(),
   getActiveFilePath: () => getCurrentFilePath(),
+  onFileEdited: (filePath: string) => {
+    const tab = getTabByPath(filePath);
+    if (tab) reloadTabFromDisk(filePath);
+  },
 });
 
 // Claude panel divider drag
