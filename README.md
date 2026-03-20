@@ -103,7 +103,7 @@ cargo tauri build      # production build
 | Document | Contents |
 |----------|----------|
 | [docs/architecture.md](docs/architecture.md) | Data flow, components, IPC/bridge API reference |
-| [docs/mcp-server.md](docs/mcp-server.md) | MCP setup guide and 27-tool reference |
+| [docs/mcp-server.md](docs/mcp-server.md) | MCP setup guide and 26-tool reference |
 | [docs/worker-deployment.md](docs/worker-deployment.md) | Worker deployment, API tokens, pricing |
 | [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md) | All keyboard shortcuts |
 
