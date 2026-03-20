@@ -28,6 +28,8 @@ let refreshGitAndSync: () => void;
 let syncTimeout: ReturnType<typeof setTimeout> | null = null;
 let lastSyncedContent: string | null = null;
 let lastSyncedFilePath: string | null = null;
+let cachedStructureContent: string | null = null;
+let cachedStructureJson: string | null = null;
 
 export function initMcpSync(deps: {
   editor: EditorView;
@@ -56,14 +58,17 @@ export function syncEditorState(cachedContent?: string) {
     lastSyncedContent = content;
     lastSyncedFilePath = currentFilePath;
     const cursorPos = editor.state.selection.main.head;
-    const structure = getDocumentStructure(content);
-    const structureJson = JSON.stringify({
-      headings: structure.headings,
-      links: structure.links,
-      tables: structure.tables,
-      frontmatter: structure.frontmatter,
-      stats: structure.stats,
-    });
+    if (content !== cachedStructureContent) {
+      const structure = getDocumentStructure(content);
+      cachedStructureJson = JSON.stringify({
+        headings: structure.headings,
+        links: structure.links,
+        tables: structure.tables,
+        frontmatter: structure.frontmatter,
+        stats: structure.stats,
+      });
+      cachedStructureContent = content;
+    }
     const tabInfos = getTabs().map((t) => ({
       id: t.id,
       path: t.path,
@@ -75,7 +80,7 @@ export function syncEditorState(cachedContent?: string) {
       filePath: currentFilePath,
       cursorPos,
       workerUrl: getWorkerUrl() || null,
-      documentStructure: structureJson,
+      documentStructure: cachedStructureJson,
       rootPath: getRootPath() || null,
       tabs: tabInfos,
     }).catch(() => {});

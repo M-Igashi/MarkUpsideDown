@@ -348,23 +348,47 @@ export async function renderPreview(source: string) {
     },
   });
 
-  for (const img of previewPane.querySelectorAll(
-    ".preview-page img:not([loading])",
-  ) as NodeListOf<HTMLImageElement>) {
+  // Single DOM pass: collect all elements needing post-render processing
+  const postRenderEls = previewPane.querySelectorAll(
+    ".preview-page img:not([loading]), code[data-hljs-lang]:not([data-hljs-rendered]), pre:not([data-copy-btn]), .mermaid-container:not(.mermaid-rendered), [data-math-source]:not([data-math-rendered])",
+  );
+  const imgs: HTMLImageElement[] = [];
+  const codeEls: HTMLElement[] = [];
+  const preEls: HTMLElement[] = [];
+  const mermaidEls: HTMLElement[] = [];
+  const mathEls: HTMLElement[] = [];
+  for (const el of postRenderEls) {
+    const he = el as HTMLElement;
+    if (el.tagName === "IMG" && !el.hasAttribute("loading")) {
+      imgs.push(el as HTMLImageElement);
+    } else if (el.tagName === "CODE" && he.dataset.hljsLang && !he.dataset.hljsRendered) {
+      codeEls.push(he);
+    } else if (el.tagName === "PRE" && !he.dataset.copyBtn) {
+      preEls.push(he);
+    } else if (
+      he.classList.contains("mermaid-container") &&
+      !he.classList.contains("mermaid-rendered")
+    ) {
+      mermaidEls.push(he);
+    } else if (he.dataset.mathSource && !he.dataset.mathRendered) {
+      mathEls.push(he);
+    }
+  }
+
+  for (const img of imgs) {
     img.loading = "lazy";
     img.decoding = "async";
   }
 
-  const codeEls = previewPane.querySelectorAll("code[data-hljs-lang]:not([data-hljs-rendered])");
   if (codeEls.length > 0) {
     try {
       const hljs = await getHljs();
       for (const el of codeEls) {
-        const lang = (el as HTMLElement).dataset.hljsLang!;
+        const lang = el.dataset.hljsLang!;
         if (hljs.getLanguage(lang)) {
           el.innerHTML = hljs.highlight(el.textContent!, { language: lang }).value;
           el.classList.add(`language-${lang}`);
-          (el as HTMLElement).dataset.hljsRendered = "true";
+          el.dataset.hljsRendered = "true";
         }
       }
     } catch (err) {
@@ -373,8 +397,8 @@ export async function renderPreview(source: string) {
   }
 
   // Add copy buttons to code blocks
-  for (const pre of previewPane.querySelectorAll("pre:not([data-copy-btn])")) {
-    (pre as HTMLElement).dataset.copyBtn = "true";
+  for (const pre of preEls) {
+    pre.dataset.copyBtn = "true";
     const btn = document.createElement("button");
     btn.className = "code-copy-btn";
     btn.textContent = "Copy";
@@ -391,24 +415,21 @@ export async function renderPreview(source: string) {
     pre.appendChild(btn);
   }
 
-  if (hasMermaid) {
+  if (hasMermaid && mermaidEls.length > 0) {
     try {
       const mermaid = await getMermaid();
-      // Only render containers that haven't been rendered yet
-      const containers = previewPane.querySelectorAll(".mermaid-container:not(.mermaid-rendered)");
       await Promise.all(
-        Array.from(containers).map(async (el) => {
-          const src = decodeURIComponent((el as HTMLElement).dataset.mermaidSource!);
+        mermaidEls.map(async (el) => {
+          const src = decodeURIComponent(el.dataset.mermaidSource!);
           const id = `mmd-${mermaidRenderCount++}`;
           try {
             const { svg } = await mermaid.render(id, src);
             el.innerHTML = svg;
             el.classList.add("mermaid-rendered");
-            // Add copy-as-PNG button
             const copyBtn = document.createElement("button");
             copyBtn.className = "mermaid-copy-btn";
             copyBtn.textContent = "Copy as PNG";
-            copyBtn.addEventListener("click", () => copyMermaidAsPng(el as HTMLElement, copyBtn));
+            copyBtn.addEventListener("click", () => copyMermaidAsPng(el, copyBtn));
             el.appendChild(copyBtn);
           } catch (err) {
             const pre = document.createElement("pre");
@@ -424,20 +445,18 @@ export async function renderPreview(source: string) {
     }
   }
 
-  // Only render math elements that haven't been rendered yet
-  const mathEls = previewPane.querySelectorAll("[data-math-source]:not([data-math-rendered])");
   if (mathEls.length > 0) {
     try {
       const katex = await getKaTeX();
       for (const el of mathEls) {
-        const src = decodeURIComponent((el as HTMLElement).dataset.mathSource!);
-        const display = (el as HTMLElement).dataset.mathDisplay === "true";
+        const src = decodeURIComponent(el.dataset.mathSource!);
+        const display = el.dataset.mathDisplay === "true";
         try {
           el.innerHTML = katex.renderToString(src, { displayMode: display, throwOnError: false });
-          (el as HTMLElement).dataset.mathRendered = "true";
+          el.dataset.mathRendered = "true";
         } catch {
           el.innerHTML = `<code class="math-error">${src}</code>`;
-          (el as HTMLElement).dataset.mathRendered = "true";
+          el.dataset.mathRendered = "true";
         }
       }
     } catch (err) {
