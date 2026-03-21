@@ -24,7 +24,7 @@
     "highlight.js": "^11.11.1",
     "idiomorph": "^0.7.4",
     "katex": "^0.16.40",
-    "marked": "^17.0.4",
+    "marked": "^17.0.5",
     "mermaid": "^11.13.0"
   },
   "devDependencies": {
