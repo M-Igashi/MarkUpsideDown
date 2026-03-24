@@ -25,10 +25,9 @@ All commands are also accessible via the **Command Palette** (<kbd>Cmd</kbd>+<kb
 | Shortcut | Action |
 |----------|--------|
 | <kbd>Cmd</kbd>+<kbd>K</kbd> | Command palette |
-| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Toggle sidebar |
-| <kbd>Cmd</kbd>+<kbd>E</kbd> | Toggle editor pane |
-| <kbd>Cmd</kbd>+<kbd>\\</kbd> | Toggle preview pane |
-| <kbd>Cmd</kbd>+<kbd>J</kbd> | Toggle Claude panel |
+| <kbd>Cmd</kbd>+<kbd>1</kbd> | Toggle sidebar |
+| <kbd>Cmd</kbd>+<kbd>2</kbd> | Toggle editor pane |
+| <kbd>Cmd</kbd>+<kbd>3</kbd> | Toggle preview pane |
 
 ## Copy (<kbd>Cmd</kbd>+<kbd>C</kbd>)
 

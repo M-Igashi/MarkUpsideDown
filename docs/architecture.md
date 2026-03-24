@@ -20,7 +20,6 @@ MCP Server (mcp-server-rs/)
 │  │  Tauri Backend (Rust)                             │    │
 │  │  ├─ commands.rs   (IPC: fetch, convert, file, git)│    │
 │  │  ├─ bridge.rs     (axum HTTP server for MCP)      │    │
-│  │  ├─ claude.rs     (Claude Code CLI process mgmt)  │    │
 │  │  └─ cloudflare.rs (wrangler CLI, auto-setup)      │    │
 │  └───────┬──────────────────────────────────────────┘    │
 └──────────┼───────────────────────────────────────────────┘
@@ -53,7 +52,6 @@ MCP Server (mcp-server-rs/)
 | Tabs | Multi-tab editing with state persistence, drag reorder | `ui/src/tabs.ts` |
 | Git panel | Status, stage/unstage, commit, push/pull with ahead/behind, fetch | `ui/src/git-panel.ts` |
 | Clone panel | Repository clone UI (HTTPS/SSH) | `ui/src/clone-panel.ts` |
-| Claude panel | Chat UI via Claude Code CLI stream-json mode | `ui/src/claude-panel.ts` |
 | Table editor | Spreadsheet grid with undo/redo, paste TSV/CSV | `ui/src/table-editor.ts` |
 | Formatting | Markdown shortcuts (bold, italic, link, strikethrough, code) | `ui/src/markdown-commands.ts` |
 | Crawl | Website crawl UI (options dialog, polling, file saving) | `ui/src/crawl.ts` |
@@ -67,7 +65,6 @@ MCP Server (mcp-server-rs/)
 | Command palette | Fuzzy search over all commands (Cmd+K) | `ui/src/command-palette.ts` |
 | Theme | CodeMirror editor theme (warm paper palette) | `ui/src/theme.ts` |
 | Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands.rs` |
-| Claude process | Claude Code CLI stream-json lifecycle | `src-tauri/src/claude.rs` |
 | Auto-setup | Wrangler CLI (login, deploy, secrets) | `src-tauri/src/cloudflare.rs` |
 | MCP bridge | Rust (axum HTTP server) | `src-tauri/src/bridge.rs` |
 | Utilities | Home directory helper | `src-tauri/src/util.rs` |
@@ -96,7 +93,7 @@ Security: SSRF prevention validates URLs and blocks private/reserved IP ranges v
 | Component | Role |
 |-----------|------|
 | `main.rs` | Entry point, stdio transport |
-| `tools.rs` | 27 MCP tools (editor, project context, file ops, conversion, crawl, diagnostics) |
+| `tools.rs` | 41 MCP tools (editor, project context, file ops, conversion, crawl, git) |
 | `bridge.rs` | HTTP client to Tauri bridge (auto-discovers port) |
 
 Communication: MCP server (Rust sidecar binary) reads the bridge port from `~/.markupsidedown-bridge-port` and sends HTTP requests to the Tauri backend's axum server.
@@ -173,15 +170,6 @@ See [mcp-server.md](mcp-server.md) for the full tool list.
 | `setup_worker_secrets` | Auto-configure Worker secrets | `cloudflare.rs` |
 | `setup_worker_secrets_with_token` | Configure secrets with user-provided token | `cloudflare.rs` |
 
-### Claude
-
-| Command | Description | Module |
-|---------|-------------|--------|
-| `claude_start` | Start Claude Code CLI process (stream-json mode) | `claude.rs` |
-| `claude_stop` | Stop Claude Code CLI process | `claude.rs` |
-| `claude_send` | Send message (text + optional images) to Claude | `claude.rs` |
-| `claude_is_running` | Check if Claude process is running | `claude.rs` |
-
 ## MCP Bridge Endpoints
 
 The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416–31420).
@@ -242,6 +230,11 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 | `/git/push` | POST | Push to remote |
 | `/git/pull` | POST | Pull from remote |
 | `/git/fetch` | POST | Fetch from remote |
+| `/git/diff` | GET | Get diff for a file (staged or unstaged) |
+| `/git/discard` | POST | Discard changes for a file |
+| `/git/discard-all` | POST | Discard all uncommitted changes |
+| `/git/log` | GET | Get recent commit history |
+| `/git/revert` | POST | Revert a commit |
 
 ## Scroll Sync
 
@@ -277,7 +270,6 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | Git operations | `git` CLI subprocess (via `spawn_blocking`) |
 | Git clone | `git` CLI subprocess |
 | MCP agent access | MCP Server → HTTP → axum bridge → Tauri events → Frontend |
-| Claude chat | Claude Code CLI (stream-json) → stdout → Tauri events → Frontend |
 | Auto-setup | Rust → wrangler CLI → Cloudflare API |
 | File watcher | Tauri FS plugin → watch events → prompt reload |
 | Settings (Worker URL) | Browser localStorage |
@@ -292,7 +284,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 |-------|---------|
 | `tauri` + plugins | Desktop app framework (dialog, fs, shell, store) |
 | `reqwest` | HTTP client for Worker API and SVG fetch |
-| `axum` + `tokio` | MCP bridge HTTP server, Claude process management |
+| `axum` + `tokio` | MCP bridge HTTP server |
 | `serde` + `serde_json` | JSON serialization |
 | `urlencoding` | URL encoding for Worker API calls |
 | `log` | Logging |
@@ -304,7 +296,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | `@codemirror/*` | Editor (markdown, search, state, view) |
 | `@tauri-apps/*` | Tauri IPC (api, plugin-dialog, plugin-fs) |
 | `marked` | Markdown → HTML |
-| `dompurify` | HTML sanitization for preview and Claude panel |
+| `dompurify` | HTML sanitization for preview |
 | `mermaid` | Diagram rendering (lazy-loaded) |
 | `highlight.js` | Code syntax highlighting (lazy-loaded) |
 | `katex` | Math rendering (lazy-loaded) |
