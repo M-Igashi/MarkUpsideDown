@@ -730,7 +730,6 @@ function renderClaudeDesktopCodeTab(container: HTMLElement, binaryPath: string, 
       <strong>Claude Desktop — Code Tab</strong>
       <span class="mcp-badge-recommended">Recommended</span><br>
       The Code tab runs full Claude Code with access to the filesystem and all MCP tools.
-      This is the recommended replacement for the built-in Claude panel.
     </div>
     <div class="settings-mcp-steps">
       <div class="settings-mcp-step"><strong>1.</strong> Open Claude Desktop &rarr; Code tab</div>
