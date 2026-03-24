@@ -1737,8 +1737,32 @@ pub async fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitLog
 #[tauri::command]
 pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        run_git(&repo_path, &["revert", "--no-edit", &commit_hash])
-            .map(|s| s.trim().to_string())
+        // Check for uncommitted changes
+        let status = run_git(&repo_path, &["status", "--porcelain"])?;
+        let needs_stash = !status.trim().is_empty();
+
+        if needs_stash {
+            run_git(&repo_path, &["stash", "push", "-m", "auto-stash before revert"])?;
+        }
+
+        let result = run_git(&repo_path, &["revert", "--no-edit", &commit_hash]);
+
+        if needs_stash {
+            if result.is_ok() {
+                // Revert succeeded — try to restore stashed changes
+                if let Err(e) = run_git(&repo_path, &["stash", "pop"]) {
+                    // Pop failed (conflict with reverted changes) — leave in stash
+                    return Err(format!(
+                        "Revert succeeded but stash pop had conflicts. Your changes are saved in git stash. Run 'git stash pop' manually to resolve: {e}"
+                    ));
+                }
+            } else {
+                // Revert failed — restore stashed changes
+                let _ = run_git(&repo_path, &["stash", "pop"]);
+            }
+        }
+
+        result.map(|s| s.trim().to_string())
     })
     .await
     .map_err(|e| format!("Task error: {e}"))?
