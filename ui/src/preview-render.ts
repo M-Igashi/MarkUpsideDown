@@ -184,6 +184,44 @@ previewRenderer.paragraph = function (this: any, { tokens, _sourceLine }: any) {
   return `<p${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</p>\n`;
 };
 previewRenderer.blockquote = function (this: any, { tokens, _sourceLine }: any) {
+  const alertTypes: Record<string, { icon: string; label: string }> = {
+    NOTE: { icon: "ℹ", label: "Note" },
+    TIP: { icon: "💡", label: "Tip" },
+    IMPORTANT: { icon: "❗", label: "Important" },
+    WARNING: { icon: "⚠", label: "Warning" },
+    CAUTION: { icon: "🔴", label: "Caution" },
+  };
+  const first = tokens[0];
+  if (first?.type === "paragraph" && first.tokens?.length > 0) {
+    const text = first.tokens[0]?.text as string | undefined;
+    if (text) {
+      const m = text.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/);
+      if (m) {
+        const type = m[1] as string;
+        const alert = alertTypes[type]!;
+        const clone = structuredClone(tokens);
+        const firstClone = clone[0];
+        firstClone.tokens[0] = {
+          ...firstClone.tokens[0],
+          raw: firstClone.tokens[0].raw.slice(m[0].length),
+          text: firstClone.tokens[0].text.slice(m[0].length),
+        };
+        if (!firstClone.tokens[0].text && firstClone.tokens.length > 1) {
+          const next = firstClone.tokens[1];
+          if (next?.type === "br" || (next?.type === "text" && next.text === "\n")) {
+            firstClone.tokens.splice(0, 2);
+          } else {
+            firstClone.tokens.splice(0, 1);
+          }
+        }
+        firstClone.raw = firstClone.tokens.map((t: any) => t.raw).join("");
+        firstClone.text = firstClone.tokens.map((t: any) => t.text ?? t.raw).join("");
+        const body = this.parser.parse(clone);
+        const typeLower = type.toLowerCase();
+        return `<blockquote class="gfm-alert gfm-alert-${typeLower}"${slAttr(_sourceLine)}>\n<p class="gfm-alert-title"><span class="gfm-alert-icon">${alert.icon}</span> ${alert.label}</p>\n${body}</blockquote>\n`;
+      }
+    }
+  }
   return `<blockquote${slAttr(_sourceLine)}>\n${this.parser.parse(tokens)}</blockquote>\n`;
 };
 previewRenderer.list = function (this: any, { items, ordered, start, _sourceLine }: any) {

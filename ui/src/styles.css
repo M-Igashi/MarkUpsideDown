@@ -1920,6 +1920,69 @@ body {
   font-size: 0.95em;
 }
 
+/* GitHub-style alerts */
+#preview-pane .gfm-alert {
+  font-style: normal;
+  color: var(--text);
+  padding: 12px 16px;
+  border-radius: 6px;
+}
+
+#preview-pane .gfm-alert-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  margin: 0 0 4px;
+}
+
+#preview-pane .gfm-alert-icon {
+  margin-right: 4px;
+}
+
+#preview-pane .gfm-alert-note {
+  border-left-color: #4a90d9;
+  background: rgba(74, 144, 217, 0.08);
+}
+
+#preview-pane .gfm-alert-note .gfm-alert-title {
+  color: #4a90d9;
+}
+
+#preview-pane .gfm-alert-tip {
+  border-left-color: #3b8a58;
+  background: rgba(59, 138, 88, 0.08);
+}
+
+#preview-pane .gfm-alert-tip .gfm-alert-title {
+  color: #3b8a58;
+}
+
+#preview-pane .gfm-alert-important {
+  border-left-color: #8957b3;
+  background: rgba(137, 87, 179, 0.08);
+}
+
+#preview-pane .gfm-alert-important .gfm-alert-title {
+  color: #8957b3;
+}
+
+#preview-pane .gfm-alert-warning {
+  border-left-color: #bf8a2e;
+  background: rgba(191, 138, 46, 0.08);
+}
+
+#preview-pane .gfm-alert-warning .gfm-alert-title {
+  color: #bf8a2e;
+}
+
+#preview-pane .gfm-alert-caution {
+  border-left-color: #c9453a;
+  background: rgba(201, 69, 58, 0.08);
+}
+
+#preview-pane .gfm-alert-caution .gfm-alert-title {
+  color: #c9453a;
+}
+
 #preview-pane ul,
 #preview-pane ol {
   padding-left: 28px;
