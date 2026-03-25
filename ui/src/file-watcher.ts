@@ -2,12 +2,20 @@ import { watch } from "@tauri-apps/plugin-fs";
 import type { WatchEvent, UnwatchFn } from "@tauri-apps/plugin-fs";
 import type { Tab } from "./tabs.ts";
 
+const { invoke } = window.__TAURI__.core;
+
 // Active watchers: filePath -> unwatch function
 const watchers = new Map<string, UnwatchFn>();
 
 // Suppress mechanism: ignore change events triggered by our own saves
 const suppressUntil = new Map<string, number>();
 const SUPPRESS_WINDOW_MS = 1000;
+
+// Poll fallback: macOS FSEvents can miss events for individual file watches,
+// especially with atomic writes (write temp → rename). Periodic content polling
+// catches changes the watcher misses.
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+const POLL_INTERVAL_MS = 1000;
 
 // Dependencies injected via init
 let deps: {
@@ -21,6 +29,7 @@ let deps: {
 
 export function initFileWatcher(d: typeof deps) {
   deps = d;
+  startPolling();
 }
 
 export function suppressNext(filePath: string) {
@@ -34,19 +43,22 @@ function isRecentlySuppressed(filePath: string): boolean {
   return false;
 }
 
+async function reloadPath(path: string) {
+  const tab = deps.getTabByPath(path);
+  if (!tab) return;
+
+  if (deps.isTabDirty(tab)) {
+    const shouldReload = await deps.confirmReload(path);
+    if (!shouldReload) return;
+  }
+
+  await deps.reloadTab(path);
+}
+
 async function handleReload(event: WatchEvent) {
   for (const path of event.paths) {
     if (!path || isRecentlySuppressed(path)) continue;
-
-    const tab = deps.getTabByPath(path);
-    if (!tab) continue;
-
-    if (deps.isTabDirty(tab)) {
-      const shouldReload = await deps.confirmReload(path);
-      if (!shouldReload) continue;
-    }
-
-    await deps.reloadTab(path);
+    await reloadPath(path);
   }
 }
 
@@ -79,6 +91,28 @@ async function onFileChanged(event: WatchEvent) {
   }
 }
 
+// Poll active tab's file by reading content and comparing with savedContent.
+// Uses read_text_file (Tauri command) which has proper fs permissions,
+// unlike stat() which may lack fs:allow-stat permission.
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    const activeTab = deps.getActiveTab();
+    const path = activeTab?.path;
+    if (!path) return;
+    if (isRecentlySuppressed(path)) return;
+
+    try {
+      const diskContent = await invoke<string>("read_text_file", { path });
+      if (activeTab.savedContent !== null && diskContent !== activeTab.savedContent) {
+        await reloadPath(path);
+      }
+    } catch {
+      // File may have been deleted — watcher handles removal
+    }
+  }, POLL_INTERVAL_MS);
+}
+
 export async function startWatching(filePath: string) {
   if (watchers.has(filePath)) return;
   try {
@@ -100,4 +134,8 @@ export function stopWatching(filePath: string) {
 export function stopAll() {
   for (const unwatch of watchers.values()) unwatch();
   watchers.clear();
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
