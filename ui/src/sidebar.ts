@@ -68,6 +68,8 @@ let onFileOpen: ((content: string, filePath: string) => void) | null = null;
 let onFolderChange: ((rootPath: string) => void) | null = null;
 let onSidebarFold: (() => void) | null = null;
 let onExternalChange: (() => void) | null = null;
+let onEntryRename: ((oldPath: string, newPath: string) => void) | null = null;
+let onEntryDelete: ((paths: string[], hadDir: boolean) => void) | null = null;
 let gitStatusMap: Map<string, GitStatus> = new Map();
 let refreshGeneration = 0; // guards against concurrent refreshTree() races
 let filterQuery = "";
@@ -152,11 +154,15 @@ export function initSidebar(
     onFolder,
     onFold,
     onDirChange,
+    onRename,
+    onDelete,
   }: {
     onOpen: (content: string, filePath: string) => void;
     onFolder: (rootPath: string) => void;
     onFold?: () => void;
     onDirChange?: () => void;
+    onRename?: (oldPath: string, newPath: string) => void;
+    onDelete?: (paths: string[], hadDir: boolean) => void;
   },
 ) {
   sidebarEl = el;
@@ -164,6 +170,8 @@ export function initSidebar(
   onFolderChange = onFolder;
   onSidebarFold = onFold ?? null;
   onExternalChange = onDirChange ?? null;
+  onEntryRename = onRename ?? null;
+  onEntryDelete = onDelete ?? null;
 
   // Restore state
   const saved = localStorage.getItem(KEY_SIDEBAR);
@@ -1001,6 +1009,7 @@ async function moveEntries(sourcePaths: Set<string>, targetDirPath: string) {
         selectedPaths.delete(sourcePath);
         selectedPaths.add(newPath);
       }
+      onEntryRename?.(sourcePath, newPath);
       anyMoved = true;
     } catch (e) {
       message(`Failed to move "${fileName}": ${e}`, { kind: "error" });
@@ -1369,6 +1378,7 @@ function promptRename(entry: DirEntry) {
       }
       saveState();
       await refreshTree();
+      onEntryRename?.(entry.path, newPath);
     } catch (e) {
       message(`Failed to rename: ${e}`, { kind: "error" });
       // Restore original name on error
@@ -1409,6 +1419,7 @@ async function promptDelete(entry: DirEntry) {
     expandedDirs.delete(entry.path);
     saveState();
     await refreshTree();
+    onEntryDelete?.([entry.path], entry.is_dir);
   } catch (e) {
     message(`Failed to delete: ${e}`, { kind: "error" });
   }
@@ -1424,6 +1435,8 @@ async function promptDeleteSelected() {
     kind: "warning",
   });
   if (!ok) return;
+  let hadDir = false;
+  const deleted: string[] = [];
   for (const path of paths) {
     try {
       const el = treeEl?.querySelector(
@@ -1432,6 +1445,8 @@ async function promptDeleteSelected() {
       const isDir = el?.dataset.isDir === "true";
       await invoke("delete_entry", { path, isDir });
       expandedDirs.delete(path);
+      deleted.push(path);
+      if (isDir) hadDir = true;
     } catch (e) {
       message(`Failed to delete: ${e}`, { kind: "error" });
     }
@@ -1440,6 +1455,7 @@ async function promptDeleteSelected() {
   anchorPath = null;
   saveState();
   await refreshTree();
+  if (deleted.length > 0) onEntryDelete?.(deleted, hadDir);
 }
 
 // --- Keyboard Navigation ---

@@ -245,6 +245,47 @@ export function getDirtyFileTabs(): Tab[] {
   return tabs.filter(isTabDirty);
 }
 
+/** Update the path (and name) of a tab after a rename on disk. */
+export function updateTabPath(oldPath: string, newPath: string): void {
+  for (const tab of tabs) {
+    if (!tab.path) continue;
+    if (tab.path === oldPath) {
+      tab.path = newPath;
+      tab.name = newPath.split("/").pop() || tab.name;
+      renderTabs();
+      saveState();
+    } else if (tab.path.startsWith(oldPath + "/")) {
+      // Directory rename — update child paths
+      tab.path = newPath + tab.path.substring(oldPath.length);
+      tab.name = tab.path.split("/").pop() || tab.name;
+      renderTabs();
+      saveState();
+    }
+  }
+}
+
+/** Close any tab whose file was deleted. Returns closed paths. */
+export function closeTabsByPath(paths: string[]): string[] {
+  const closed: string[] = [];
+  for (const p of paths) {
+    const tab = tabs.find((t) => t.path === p);
+    if (tab) {
+      closed.push(p);
+      closeTab(tab.id);
+    }
+  }
+  return closed;
+}
+
+/** Close tabs whose paths are under a deleted directory. */
+export function closeTabsUnderDir(dirPath: string): void {
+  const prefix = dirPath + "/";
+  const toClose = tabs.filter((t) => t.path && (t.path === dirPath || t.path.startsWith(prefix)));
+  for (const tab of toClose) {
+    closeTab(tab.id);
+  }
+}
+
 // --- Drag-and-drop reorder ---
 
 let dragTabId: string | null = null;

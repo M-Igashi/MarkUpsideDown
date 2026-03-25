@@ -34,6 +34,7 @@ let gitData: GitData | null = null;
 let logEntries: GitLogEntry[] = [];
 let onFileClick: ((path: string) => void) | null = null;
 let onRefreshCb: (() => void) | null = null;
+let onFilesChangedCb: (() => void) | null = null;
 let commitMessage = generateDefaultMessage();
 
 // Track which file's diff is currently expanded (by path or commit hash)
@@ -49,11 +50,16 @@ function generateDefaultMessage(): string {
 
 export function initGitPanel(
   el: HTMLElement,
-  { onOpen, onRefresh }: { onOpen: (path: string) => void; onRefresh?: () => void },
+  {
+    onOpen,
+    onRefresh,
+    onFilesChanged,
+  }: { onOpen: (path: string) => void; onRefresh?: () => void; onFilesChanged?: () => void },
 ) {
   panelEl = el;
   onFileClick = onOpen;
   onRefreshCb = onRefresh ?? null;
+  onFilesChangedCb = onFilesChanged ?? null;
   render();
 }
 
@@ -149,6 +155,7 @@ async function discardFile(filePath: string) {
     await invoke("git_discard", { repoPath, filePath });
     expandedDiffPath = null;
     await refresh();
+    onFilesChangedCb?.();
   } catch (e) {
     showStatus(`Discard failed: ${e}`, true);
   }
@@ -160,6 +167,7 @@ async function discardAll() {
     await invoke("git_discard_all", { repoPath });
     expandedDiffPath = null;
     await refresh();
+    onFilesChangedCb?.();
   } catch (e) {
     showStatus(`Discard all failed: ${e}`, true);
   }
@@ -187,6 +195,7 @@ async function revertCommit(commitHash: string) {
     await invoke("git_revert", { repoPath, commitHash });
     showStatus("Revert completed", false);
     await refresh();
+    onFilesChangedCb?.();
   } catch (e) {
     showStatus(`Revert failed: ${e}`, true);
   }
@@ -203,6 +212,7 @@ async function gitRemoteAction(command: string, label: string, btn: HTMLButtonEl
     btn.disabled = false;
     showStatus(`${label} completed`, false);
     await refresh();
+    onFilesChangedCb?.();
   } catch (e) {
     btn.innerHTML = original;
     btn.disabled = false;

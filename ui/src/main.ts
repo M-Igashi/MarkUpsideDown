@@ -51,6 +51,9 @@ import {
   getTabs,
   isTabDirty,
   markTabSaved,
+  updateTabPath,
+  closeTabsByPath,
+  closeTabsUnderDir,
 } from "./tabs.ts";
 import {
   initFileWatcher,
@@ -259,6 +262,25 @@ async function refreshGitAndSyncNow() {
   await doGitRefresh();
 }
 
+/** Reload all open file-backed tabs from disk (after git ops that modify files). */
+async function reloadAllOpenTabs() {
+  for (const tab of getTabs()) {
+    if (!tab.path) continue;
+    try {
+      const content = await invoke<string>("read_text_file", { path: tab.path });
+      tab.content = content;
+      tab.savedContent = content;
+      markTabSaved(tab.id);
+      if (tab.id === getActiveTab()?.id) {
+        loadContent(content, tab.path);
+      }
+    } catch {
+      // File may have been deleted — ignore
+    }
+  }
+  refreshTree();
+}
+
 // --- Initialize file-ops and MCP sync (need orchestration functions) ---
 
 initFileOps({
@@ -287,6 +309,7 @@ initMcpSync({
   renderPreview,
   updateStatus: () => updateStatus(editor.state),
   refreshGitAndSync,
+  refreshTree,
 });
 
 // --- Initial render ---
@@ -538,6 +561,28 @@ initSidebar(sidebarEl, {
   onDirChange: () => {
     refreshGitAndSync();
   },
+  onRename: (oldPath, newPath) => {
+    updateTabPath(oldPath, newPath);
+    // Update file watcher: stop watching old path, start watching new
+    stopWatching(oldPath);
+    const tab = getTabByPath(newPath);
+    if (tab) startWatching(newPath);
+    // Reload active tab if it was renamed (path changed, content may differ)
+    const active = getActiveTab();
+    if (active?.path === newPath) {
+      updateStatus(editor.state);
+    }
+  },
+  onDelete: (paths, hadDir) => {
+    for (const p of paths) {
+      stopWatching(p);
+      if (hadDir) {
+        closeTabsUnderDir(p);
+      } else {
+        closeTabsByPath([p]);
+      }
+    }
+  },
 });
 
 const gitPanelEl = getGitPanelEl();
@@ -555,6 +600,7 @@ if (gitPanelEl) {
       setGitStatus(getStatusMap());
       updateGitChangeCount(getChangeCount());
     },
+    onFilesChanged: () => reloadAllOpenTabs(),
   });
 }
 
@@ -705,12 +751,34 @@ initFileWatcher({
       { title: "File Changed", kind: "warning" },
     );
   },
+  onFileDeleted: (path: string) => {
+    stopWatching(path);
+    closeTabsByPath([path]);
+  },
 });
 
 initTabs(tabBarEl, {
-  onSwitch: (tab: { content: string; path: string | null }) => {
+  onSwitch: (tab: {
+    content: string;
+    path: string | null;
+    id: string;
+    savedContent: string | null;
+  }) => {
     autoSave();
     loadContent(tab.content, tab.path);
+    // Check if file changed on disk since last load (catches missed watcher events)
+    if (tab.path && tab.savedContent !== null) {
+      invoke<string>("read_text_file", { path: tab.path })
+        .then((diskContent) => {
+          if (diskContent !== tab.savedContent && tab.id === getActiveTab()?.id) {
+            tab.content = diskContent;
+            tab.savedContent = diskContent;
+            markTabSaved(tab.id);
+            loadContent(diskContent, tab.path);
+          }
+        })
+        .catch(() => {});
+    }
   },
   onEmpty: () => {
     loadContent("# Welcome to MarkUpsideDown\n\nStart typing your Markdown here…\n");

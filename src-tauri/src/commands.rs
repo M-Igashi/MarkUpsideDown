@@ -1397,6 +1397,11 @@ static GIT_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
     let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    run_git_unlocked(repo_path, args)
+}
+
+/// Run git without acquiring GIT_LOCK — caller must hold the lock.
+fn run_git_unlocked(repo_path: &str, args: &[&str]) -> Result<String, String> {
     let mut full_args = vec!["-C", repo_path];
     full_args.extend_from_slice(args);
     run_cli("git", &full_args)
@@ -1424,18 +1429,12 @@ pub struct GitStatus {
 pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
     let rp = repo_path;
     tokio::task::spawn_blocking(move || {
-        // Run all three git commands in parallel
-        // thread::scope guarantees threads finish before scope exits, so shared borrows are safe
-        let (status_result, unstaged_raw, staged_raw) = std::thread::scope(|s| {
-            let h0 = s.spawn(|| run_git(&rp, &["status", "-b", "--porcelain=v1"]));
-            let h1 = s.spawn(|| run_git(&rp, &["diff", "--numstat"]));
-            let h2 = s.spawn(|| run_git(&rp, &["diff", "--cached", "--numstat"]));
-            (
-                h0.join().ok().and_then(|r| r.ok()),
-                h1.join().ok().and_then(|r| r.ok()),
-                h2.join().ok().and_then(|r| r.ok()),
-            )
-        });
+        // Hold lock for all three commands to avoid racing with multi-step
+        // operations like git_revert (stash → revert → pop).
+        let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let status_result = run_git_unlocked(&rp, &["status", "-b", "--porcelain=v1"]).ok();
+        let unstaged_raw = run_git_unlocked(&rp, &["diff", "--numstat"]).ok();
+        let staged_raw = run_git_unlocked(&rp, &["diff", "--cached", "--numstat"]).ok();
 
         let output = match status_result {
             Some(o) => o,
@@ -1742,32 +1741,28 @@ pub async fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitLog
 #[tauri::command]
 pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        // Check for uncommitted changes
-        let status = run_git(&repo_path, &["status", "--porcelain"])?;
-        let needs_stash = !status.trim().is_empty();
+        let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-        if needs_stash {
-            run_git(&repo_path, &["stash", "push", "-m", "auto-stash before revert"])?;
+        // Require clean working tree
+        let status = run_git_unlocked(&repo_path, &["status", "--porcelain"])?;
+        if !status.trim().is_empty() {
+            return Err("Commit or discard changes before reverting.".to_string());
         }
 
-        let result = run_git(&repo_path, &["revert", "--no-edit", &commit_hash]);
+        let short = if commit_hash.len() >= 7 { &commit_hash[..7] } else { &commit_hash };
 
-        if needs_stash {
-            if result.is_ok() {
-                // Revert succeeded — try to restore stashed changes
-                if let Err(e) = run_git(&repo_path, &["stash", "pop"]) {
-                    // Pop failed (conflict with reverted changes) — leave in stash
-                    return Err(format!(
-                        "Revert succeeded but stash pop had conflicts. Your changes are saved in git stash. Run 'git stash pop' manually to resolve: {e}"
-                    ));
-                }
-            } else {
-                // Revert failed — restore stashed changes
-                let _ = run_git(&repo_path, &["stash", "pop"]);
-            }
-        }
+        // Restore entire working tree to the target commit's state:
+        // 1. Remove all tracked files from index and working tree
+        let _ = run_git_unlocked(&repo_path, &["rm", "-rf", "--quiet", "."]);
+        // 2. Restore all files from the target commit
+        run_git_unlocked(&repo_path, &["checkout", &commit_hash, "--", "."])?;
+        // 3. Commit the result as a new commit
+        let commit_result = run_git_unlocked(
+            &repo_path,
+            &["commit", "--allow-empty", "-m", &format!("Revert to {short}")],
+        )?;
 
-        result.map(|s| s.trim().to_string())
+        Ok(commit_result.trim().to_string())
     })
     .await
     .map_err(|e| format!("Task error: {e}"))?

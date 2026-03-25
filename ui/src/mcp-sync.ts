@@ -31,6 +31,8 @@ let lastSyncedFilePath: string | null = null;
 let cachedStructureContent: string | null = null;
 let cachedStructureJson: string | null = null;
 
+let refreshTree: () => void;
+
 export function initMcpSync(deps: {
   editor: EditorView;
   statusEl: HTMLElement;
@@ -39,6 +41,7 @@ export function initMcpSync(deps: {
   renderPreview: (source: string) => Promise<void>;
   updateStatus: () => void;
   refreshGitAndSync: () => void;
+  refreshTree: () => void;
 }) {
   editor = deps.editor;
   statusEl = deps.statusEl;
@@ -47,6 +50,7 @@ export function initMcpSync(deps: {
   renderPreview = deps.renderPreview;
   updateStatus = deps.updateStatus;
   refreshGitAndSync = deps.refreshGitAndSync;
+  refreshTree = deps.refreshTree;
 }
 
 export function syncEditorState(cachedContent?: string) {
@@ -141,7 +145,10 @@ export function initBridgeListeners() {
       }
       const tab = getActiveTab();
       if (tab) markTabSaved(tab.id);
-      if (getRootPath()) refreshGitAndSync();
+      if (getRootPath()) {
+        refreshGitAndSync();
+        refreshTree();
+      }
     } catch (e) {
       statusEl.textContent = `Save failed: ${e}`;
     }

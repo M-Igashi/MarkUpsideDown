@@ -16,6 +16,7 @@ let deps: {
   isTabDirty: (tab: Tab) => boolean;
   reloadTab: (path: string) => Promise<void>;
   confirmReload: (path: string) => Promise<boolean>;
+  onFileDeleted?: (path: string) => void;
 };
 
 export function initFileWatcher(d: typeof deps) {
@@ -39,6 +40,17 @@ async function onFileChanged(event: WatchEvent) {
   // used by most editors (Vim, Zed, sed -i) and tools (Claude Code Edit)
   const kind = event.type;
   if (typeof kind !== "object") return;
+
+  // Handle file removal — close the tab for deleted files
+  if ("remove" in kind) {
+    for (const path of event.paths) {
+      if (!path) continue;
+      const tab = deps.getTabByPath(path);
+      if (tab) deps.onFileDeleted?.(path);
+    }
+    return;
+  }
+
   if (!("modify" in kind) && !("create" in kind)) return;
 
   for (const path of event.paths) {
