@@ -51,10 +51,12 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 - **Git panel** — View changes, stage/unstage files, commit, push/pull with ahead/behind counts, fetch
 - **Clone repository** — Clone Git repositories (HTTPS/SSH) and open them in the editor
 
-### Clipboard
+### Clipboard & Copy
 
 - **Copy Rich Text** — Copy rendered HTML to clipboard (preview pane)
 - **Copy Markdown** — Copy raw Markdown to clipboard (editor pane)
+- **Copy Mermaid as PNG** — One-click PNG export from Mermaid diagrams (2x Retina)
+- **Copy code blocks** — Hover any code block in the preview for a Copy button
 
 ### AI Agent Integration
 
