@@ -108,6 +108,12 @@ import { smartTypography } from "./smart-typography.ts";
 import { initDownloadImages, downloadExternalImages } from "./download-images.ts";
 import { initNoteRefactor, extractToNewNote } from "./note-refactor.ts";
 import { initFrontmatterPanel, updateFrontmatterPanel } from "./frontmatter-panel.ts";
+import {
+  initTocPanel,
+  updateTocPanel,
+  updateTocActiveHeading,
+  toggleTocPanel,
+} from "./toc-panel.ts";
 import { startPresentation } from "./presentation.ts";
 // --- Tauri APIs ---
 
@@ -131,6 +137,7 @@ const updatePreviewListener = EditorView.updateListener.of((update) => {
     previewTimeout = setTimeout(() => {
       renderPreview(content);
       updateFrontmatterPanel(content);
+      updateTocPanel(content);
       updateStatus(update.state);
     }, 100);
     updateActiveTab({ content });
@@ -205,6 +212,7 @@ function loadContent(content: string, filePath?: string | null) {
   }
   renderPreview(content);
   updateFrontmatterPanel(content);
+  updateTocPanel(content);
   if (previewTimeout) {
     clearTimeout(previewTimeout);
     previewTimeout = null;
@@ -470,6 +478,10 @@ previewPane.addEventListener("mouseout", (e) => {
 
 const divider = document.getElementById("divider")!;
 const previewWrapper = document.getElementById("preview-wrapper")!;
+
+// --- TOC panel (above preview) ---
+initTocPanel(editor, previewWrapper);
+cmScroller.addEventListener("scroll", () => updateTocActiveHeading(), { passive: true });
 
 function makeDraggable(handle: HTMLElement, onDrag: (clientX: number) => void, onEnd?: () => void) {
   let active = false;
@@ -753,6 +765,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "3") {
     e.preventDefault();
     togglePreview();
+  } else if (e.key === "4") {
+    e.preventDefault();
+    toggleTocPanel();
   } else if (e.key === "c") {
     // Cmd+C with no selection: copy entire content from focused pane
     const previewEl = document.getElementById("preview-pane")!;
@@ -902,6 +917,13 @@ registerCommands([
     shortcut: "⌘3",
     category: "View",
     run: togglePreview,
+  },
+  {
+    id: "view.toc",
+    label: "Toggle Table of Contents",
+    shortcut: "⌘4",
+    category: "View",
+    run: toggleTocPanel,
   },
   {
     id: "app.settings",

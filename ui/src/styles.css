@@ -750,6 +750,83 @@ body {
   cursor: default;
 }
 
+/* TOC Panel */
+.toc-panel {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.toc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.toc-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
+.toc-toggle:hover {
+  color: var(--text);
+}
+
+.toc-count {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.toc-body {
+  padding: 2px 8px 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.toc-item {
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.toc-item:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.toc-item.toc-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.toc-level-0 {
+  padding-left: 4px;
+}
+.toc-level-1 {
+  padding-left: 16px;
+}
+.toc-level-2 {
+  padding-left: 28px;
+}
+.toc-level-3 {
+  padding-left: 40px;
+}
+.toc-level-4 {
+  padding-left: 52px;
+}
+.toc-level-5 {
+  padding-left: 64px;
+}
+
 /* Frontmatter Panel */
 .frontmatter-panel {
   border-bottom: 1px solid var(--border);
