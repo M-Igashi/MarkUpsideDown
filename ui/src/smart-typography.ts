@@ -53,7 +53,10 @@ export const smartTypography = ViewPlugin.fromClass(
             const replacement =
               typeof rule.replace === "function" ? rule.replace(match) : rule.replace;
 
-            requestAnimationFrame(() => {
+            // Use queueMicrotask instead of requestAnimationFrame to minimize
+            // the window where a click can race with the pending selection change.
+            // RAF (~16ms) was causing range selections when clicking right after typing.
+            queueMicrotask(() => {
               const current = update.view.state.doc.sliceString(matchStart, matchEnd);
               if (current === match[0]) {
                 update.view.dispatch({
