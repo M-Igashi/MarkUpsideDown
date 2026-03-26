@@ -402,6 +402,17 @@ cmScroller.addEventListener("drop", (e) => {
 initBridgeListeners();
 syncEditorState();
 
+// CLI file open event
+window.__TAURI__.event.listen<string>("cli:open-file", async (event) => {
+  const path = event.payload;
+  try {
+    const content = await invoke<string>("read_text_file", { path });
+    loadContentAsTab(content, path);
+  } catch (e) {
+    statusEl.textContent = `Failed to open: ${e}`;
+  }
+});
+
 // Open Recent menu event
 window.__TAURI__.event.listen<string>("menu:open-recent", async (event) => {
   const path = event.payload;

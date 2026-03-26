@@ -25,6 +25,20 @@
       "csp": null
     }
   },
+  "plugins": {
+    "cli": {
+      "description": "AI-era Markdown editor with live preview",
+      "args": [
+        {
+          "name": "file",
+          "index": 1,
+          "takesValue": true,
+          "required": false,
+          "description": "File to open"
+        }
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["dmg"],

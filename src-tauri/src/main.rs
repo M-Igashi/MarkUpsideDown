@@ -7,8 +7,10 @@ mod commands;
 mod menu;
 mod util;
 
+use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_cli::CliExt;
 
 fn main() {
     let editor_states = Arc::new(commands::EditorStates::default());
@@ -22,6 +24,7 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_cli::init())
         .manage(editor_states_managed)
         .manage(http_client)
 
@@ -29,6 +32,30 @@ fn main() {
             let m = menu::build(app.handle())?;
             app.set_menu(m)?;
             bridge::start(app.handle().clone(), editor_states.clone());
+
+            // Handle CLI file argument
+            if let Ok(matches) = app.cli().matches() {
+                if let Some(file_arg) = matches.args.get("file") {
+                    if let Some(path_str) = file_arg.value.as_str().filter(|s| !s.is_empty()) {
+                        let path = if PathBuf::from(path_str).is_absolute() {
+                            PathBuf::from(path_str)
+                        } else {
+                            std::env::current_dir()
+                                .unwrap_or_default()
+                                .join(path_str)
+                        };
+                        if path.exists() {
+                            let path_string = path.to_string_lossy().to_string();
+                            let handle = app.handle().clone();
+                            tauri::async_runtime::spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                let _ = handle.emit("cli:open-file", path_string);
+                            });
+                        }
+                    }
+                }
+            }
+
             Ok(())
         })
         .on_menu_event(|handle, event| {
