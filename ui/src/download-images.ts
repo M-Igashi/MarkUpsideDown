@@ -92,16 +92,27 @@ export async function downloadExternalImages() {
   // Deduplicate by URL
   const uniqueUrls = [...new Set(matches.map((m) => m.url))];
 
-  for (const url of uniqueUrls) {
-    const filename = makeUnique(urlToFilename(url), usedNames);
-    const destPath = `${assetsDir}/${filename}`;
+  // Pre-assign filenames (must be sequential for uniqueness)
+  const urlFilenames = uniqueUrls.map((url) => ({
+    url,
+    filename: makeUnique(urlToFilename(url), usedNames),
+  }));
 
-    try {
-      await invoke<string>("download_image", { url, destPath });
-      urlToLocal.set(url, `./assets/${filename}`);
+  // Download in parallel
+  const results = await Promise.allSettled(
+    urlFilenames.map(({ url, filename }) =>
+      invoke<string>("download_image", { url, destPath: `${assetsDir}/${filename}` }).then(() => ({
+        url,
+        localPath: `./assets/${filename}`,
+      })),
+    ),
+  );
+
+  for (const r of results) {
+    if (r.status === "fulfilled") {
+      urlToLocal.set(r.value.url, r.value.localPath);
       downloaded++;
-      deps.statusEl.textContent = `Downloaded ${downloaded}/${uniqueUrls.length} images…`;
-    } catch {
+    } else {
       failed++;
     }
   }

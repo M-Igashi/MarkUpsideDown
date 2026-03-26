@@ -264,18 +264,20 @@ async function refreshGitAndSyncNow() {
 
 /** Reload all open file-backed tabs from disk (after git ops that modify files). */
 async function reloadAllOpenTabs() {
-  for (const tab of getTabs()) {
-    if (!tab.path) continue;
-    try {
-      const content = await invoke<string>("read_text_file", { path: tab.path });
-      tab.content = content;
-      tab.savedContent = content;
-      markTabSaved(tab.id);
-      if (tab.id === getActiveTab()?.id) {
-        loadContent(content, tab.path);
-      }
-    } catch {
-      // File may have been deleted — ignore
+  const fileTabs = getTabs().filter((t) => t.path);
+  const results = await Promise.allSettled(
+    fileTabs.map((tab) => invoke<string>("read_text_file", { path: tab.path! })),
+  );
+  const activeId = getActiveTab()?.id;
+  for (let i = 0; i < fileTabs.length; i++) {
+    const r = results[i];
+    if (r.status !== "fulfilled") continue;
+    const tab = fileTabs[i];
+    tab.content = r.value;
+    tab.savedContent = r.value;
+    markTabSaved(tab.id);
+    if (tab.id === activeId) {
+      loadContent(r.value, tab.path);
     }
   }
   refreshTree();
@@ -402,27 +404,17 @@ cmScroller.addEventListener("drop", (e) => {
 initBridgeListeners();
 syncEditorState();
 
-// CLI file open event
-window.__TAURI__.event.listen<string>("cli:open-file", async (event) => {
-  const path = event.payload;
+// CLI file open + Open Recent menu (same handler)
+async function openFileByPath(path: string) {
   try {
     const content = await invoke<string>("read_text_file", { path });
     loadContentAsTab(content, path);
   } catch (e) {
     statusEl.textContent = `Failed to open: ${e}`;
   }
-});
-
-// Open Recent menu event
-window.__TAURI__.event.listen<string>("menu:open-recent", async (event) => {
-  const path = event.payload;
-  try {
-    const content = await invoke<string>("read_text_file", { path });
-    loadContentAsTab(content, path);
-  } catch (e) {
-    statusEl.textContent = `Failed to open: ${e}`;
-  }
-});
+}
+window.__TAURI__.event.listen<string>("cli:open-file", (e) => openFileByPath(e.payload));
+window.__TAURI__.event.listen<string>("menu:open-recent", (e) => openFileByPath(e.payload));
 
 // --- Scroll Sync Event Listeners ---
 
