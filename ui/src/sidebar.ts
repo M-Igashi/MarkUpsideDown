@@ -85,6 +85,10 @@ let clipboardPaths = new Set<string>();
 let clipboardMode: "cut" | "copy" | null = null;
 let dirWatcherUnwatch: UnwatchFn | null = null;
 let dirWatchDebounce: ReturnType<typeof setTimeout> | null = null;
+// Poll fallback interval — mirrors file-watcher.ts design.
+// Catches new file creation events that macOS FSEvents may drop.
+let dirPollTimer: ReturnType<typeof setInterval> | null = null;
+const DIR_POLL_INTERVAL_MS = 3000;
 
 // --- Selection helpers ---
 
@@ -552,6 +556,10 @@ export function openFolderByPath(path: string) {
   onFolderChange?.(rootPath);
 }
 
+// Snapshot of the last-known top-level directory listing.
+// Used by the poll fallback to detect changes cheaply.
+let lastDirSnapshot = "";
+
 async function startDirWatcher() {
   stopDirWatcher();
   if (!rootPath) return;
@@ -559,17 +567,51 @@ async function startDirWatcher() {
     dirWatcherUnwatch = await watch(
       rootPath,
       () => {
-        // Debounce to avoid rapid-fire refreshes
+        // Single debounce layer (300ms) — no Tauri-side delayMs to avoid
+        // double-debouncing that previously stacked up to 700ms total.
         if (dirWatchDebounce) clearTimeout(dirWatchDebounce);
         dirWatchDebounce = setTimeout(() => {
           refreshTree();
           onExternalChange?.();
-        }, 500);
+        }, 300);
       },
-      { recursive: true, delayMs: 200 },
+      { recursive: true },
     );
   } catch {
     // Watch may not be supported for some paths
+  }
+
+  // Poll fallback: macOS FSEvents can miss new-file-creation events from
+  // external processes. Compare a lightweight snapshot of the root directory
+  // to detect changes the watcher missed (mirrors file-watcher.ts design).
+  const watchRoot = rootPath;
+  dirPollTimer = setInterval(async () => {
+    if (!rootPath || rootPath !== watchRoot) return;
+    try {
+      const entries = await invoke<DirEntry[]>("list_directory", {
+        path: rootPath,
+        repoRoot: rootPath,
+      });
+      const snapshot = entries.map((e) => `${e.name}:${e.is_dir}`).join("|");
+      if (lastDirSnapshot && snapshot !== lastDirSnapshot) {
+        refreshTree();
+        onExternalChange?.();
+      }
+      lastDirSnapshot = snapshot;
+    } catch {
+      // Folder may have been removed
+    }
+  }, DIR_POLL_INTERVAL_MS);
+
+  // Capture initial snapshot
+  try {
+    const entries = await invoke<DirEntry[]>("list_directory", {
+      path: rootPath,
+      repoRoot: rootPath,
+    });
+    lastDirSnapshot = entries.map((e) => `${e.name}:${e.is_dir}`).join("|");
+  } catch {
+    // ignore
   }
 }
 
@@ -582,6 +624,11 @@ export function stopDirWatcher() {
     clearTimeout(dirWatchDebounce);
     dirWatchDebounce = null;
   }
+  if (dirPollTimer) {
+    clearInterval(dirPollTimer);
+    dirPollTimer = null;
+  }
+  lastDirSnapshot = "";
 }
 
 export async function refreshTree() {

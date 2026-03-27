@@ -361,6 +361,14 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) autoSave();
 });
 
+// Refresh sidebar tree and git status when window regains focus.
+// Catches file changes made by external tools (Cowork, Finder, terminal, etc.)
+// that macOS FSEvents may have missed.
+window.addEventListener("focus", () => {
+  refreshTree();
+  refreshGitAndSync();
+});
+
 // --- URL Bar ---
 
 const urlBar = document.getElementById("url-bar")!;
