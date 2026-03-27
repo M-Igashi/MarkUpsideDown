@@ -46,7 +46,7 @@ MarkUpsideDown App ←→ Editor (CodeMirror)
 ```
 
 - **Editor/file/git tools** need the app running (communicate via local HTTP bridge)
-- **Conversion/crawl tools** call the Worker directly — app not required (see [Standalone Mode](mcp-server.md#standalone-mode-no-app-required))
+- **Conversion/crawl tools** call the Worker directly — app not required for starting and polling crawls, but saving results to disk needs the app (see [Standalone Mode](mcp-server.md#standalone-mode-no-app-required))
 - File changes by Claude Code are **auto-detected** by MarkUpsideDown's file-watcher — no manual reload
 
 ## Recommended Workflow

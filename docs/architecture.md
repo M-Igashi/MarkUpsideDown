@@ -110,7 +110,7 @@ Security: SSRF prevention validates URLs and blocks private/reserved IP ranges v
 
 Communication: MCP server (Rust sidecar binary) reads the bridge port from `~/.markupsidedown-bridge-port` and sends HTTP requests to the Tauri backend's axum server.
 
-See [mcp-server.md](mcp-server.md) for the full tool list.
+See [ai-integration.md](ai-integration.md) for setup and [mcp-server.md](mcp-server.md) for the full tool list.
 
 ## Tauri IPC Commands
 
