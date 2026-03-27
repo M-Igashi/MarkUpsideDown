@@ -193,6 +193,7 @@ const editor = new EditorView({
 // --- DOM references ---
 
 const previewPane = document.getElementById("preview-pane")!;
+const editorPane = document.getElementById("editor-pane")!;
 const cmScroller = editor.dom.querySelector(".cm-scroller")! as HTMLElement;
 const statusEl = document.getElementById("status")!;
 
@@ -508,7 +509,19 @@ const previewWrapper = document.getElementById("preview-wrapper")!;
 
 // --- TOC panel (above preview) ---
 initTocPanel(editor, previewWrapper);
-cmScroller.addEventListener("scroll", () => updateTocActiveHeading(), { passive: true });
+let tocRafPending = false;
+cmScroller.addEventListener(
+  "scroll",
+  () => {
+    if (tocRafPending) return;
+    tocRafPending = true;
+    requestAnimationFrame(() => {
+      tocRafPending = false;
+      updateTocActiveHeading();
+    });
+  },
+  { passive: true },
+);
 
 function makeDraggable(handle: HTMLElement, onDrag: (clientX: number) => void, onEnd?: () => void) {
   let active = false;
@@ -842,17 +855,15 @@ document.addEventListener("keydown", (e) => {
     toggleTocPanel();
   } else if (e.key === "c") {
     // Cmd+C with no selection: copy entire content from focused pane
-    const previewEl = document.getElementById("preview-pane")!;
-    const editorEl = document.getElementById("editor-pane")!;
     const active = document.activeElement;
 
-    if (previewEl.contains(active) || active === previewEl) {
+    if (previewPane.contains(active) || active === previewPane) {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed) {
         e.preventDefault();
         copyRichText();
       }
-    } else if (editorEl.contains(active) || active === editorEl) {
+    } else if (editorPane.contains(active) || active === editorPane) {
       const sel = editor.state.selection.main;
       if (sel.empty) {
         e.preventDefault();

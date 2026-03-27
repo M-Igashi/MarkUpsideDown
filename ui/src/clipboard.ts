@@ -24,7 +24,7 @@ export async function copyRichText() {
     text = sel.toString();
   } else {
     html = previewPane.innerHTML;
-    text = (previewPane as HTMLElement).innerText;
+    text = previewPane.innerText;
   }
 
   try {

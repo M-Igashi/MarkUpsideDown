@@ -1,6 +1,3 @@
-// Download external images referenced in the document to a local folder,
-// rewriting URLs to relative paths.
-
 import type { EditorView } from "@codemirror/view";
 import { basename, dirname } from "./path-utils.ts";
 

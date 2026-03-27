@@ -1,4 +1,5 @@
 import { KEY_TABS } from "./storage-keys.ts";
+import { basename } from "./path-utils.ts";
 
 // --- Types ---
 
@@ -251,7 +252,7 @@ export function updateTabPath(oldPath: string, newPath: string): void {
     if (!tab.path) continue;
     if (tab.path === oldPath) {
       tab.path = newPath;
-      tab.name = newPath.split("/").pop() || tab.name;
+      tab.name = basename(newPath);
       renderTabs();
       saveState();
     } else if (tab.path.startsWith(oldPath + "/")) {

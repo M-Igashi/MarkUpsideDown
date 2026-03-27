@@ -1,9 +1,7 @@
-// Smart Typography: auto-convert ASCII quotes, dashes, and ellipsis
-// as the user types. Respects code blocks and inline code.
-
 import { ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import { KEY_SMART_TYPOGRAPHY } from "./storage-keys.ts";
+import { isPositionInCode } from "./document-structure.ts";
 
 export function isSmartTypographyEnabled(): boolean {
   return getStorageBool(KEY_SMART_TYPOGRAPHY);
@@ -46,9 +44,8 @@ export const smartTypography = ViewPlugin.fromClass(
             const matchStart = start + match.index!;
             const matchEnd = matchStart + match[0].length;
 
-            // Localized code check: only read enough context to detect fences
             const before = update.state.doc.sliceString(0, matchStart);
-            if (before.split("```").length % 2 === 0) continue;
+            if (isPositionInCode(before, before.length)) continue;
 
             const replacement =
               typeof rule.replace === "function" ? rule.replace(match) : rule.replace;

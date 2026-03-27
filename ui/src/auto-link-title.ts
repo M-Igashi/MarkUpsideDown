@@ -1,6 +1,3 @@
-// Auto Link Title: when a bare URL is pasted, fetch the page title
-// and replace it with [Title](url) format.
-
 import { ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { isPositionInCode } from "./document-structure.ts";
 

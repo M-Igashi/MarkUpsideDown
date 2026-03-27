@@ -1,6 +1,3 @@
-// Note Refactor: extract selected text into a new Markdown file,
-// replacing the selection with a link to the new file.
-
 import type { EditorView } from "@codemirror/view";
 import { basename, dirname, buildRelativePath } from "./path-utils.ts";
 
