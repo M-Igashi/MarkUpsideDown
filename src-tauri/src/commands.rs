@@ -323,6 +323,60 @@ pub async fn fetch_url_via_worker(
     })
 }
 
+// --- JSON Extraction via Browser Rendering /json API ---
+
+#[derive(Deserialize)]
+struct JsonWorkerResponse {
+    data: Option<serde_json::Value>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct JsonExtractResult {
+    pub data: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn fetch_json_via_worker(
+    url: String,
+    worker_url: String,
+    prompt: Option<String>,
+    response_format: Option<serde_json::Value>,
+    client: tauri::State<'_, reqwest::Client>,
+) -> Result<JsonExtractResult, String> {
+    let json_url = format!("{}/json", worker_url.trim_end_matches('/'));
+
+    let mut body = serde_json::json!({ "url": url });
+    if let Some(ref p) = prompt {
+        body["prompt"] = serde_json::json!(p);
+    }
+    if let Some(ref rf) = response_format {
+        body["response_format"] = rf.clone();
+    }
+
+    let response = client
+        .post(&json_url)
+        .timeout(Duration::from_secs(60))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {e}"))?;
+
+    let status = response.status();
+    let resp: JsonWorkerResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    if !status.is_success() {
+        return Err(resp.error.unwrap_or_else(|| format!("Worker returned {status}")));
+    }
+
+    Ok(JsonExtractResult {
+        data: resp.data.ok_or_else(|| "No data in response".to_string())?,
+    })
+}
+
 // --- Website Crawl via Browser Rendering /crawl API ---
 
 #[derive(Deserialize)]
@@ -345,6 +399,8 @@ pub async fn crawl_website(
     render: bool,
     include_patterns: Option<Vec<String>>,
     exclude_patterns: Option<Vec<String>>,
+    formats: Option<Vec<String>>,
+    response_format: Option<serde_json::Value>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<CrawlStartResult, String> {
     let crawl_url = format!("{}/crawl", worker_url.trim_end_matches('/'));
@@ -355,6 +411,12 @@ pub async fn crawl_website(
         "limit": limit,
         "render": render,
     });
+    if let Some(ref f) = formats {
+        body["formats"] = serde_json::json!(f);
+    }
+    if let Some(ref rf) = response_format {
+        body["response_format"] = rf.clone();
+    }
 
     if let Some(ref patterns) = include_patterns {
         if !patterns.is_empty() {
@@ -396,6 +458,7 @@ struct CrawlRecord {
     url: Option<String>,
     status: Option<String>,
     markdown: Option<String>,
+    json: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -419,6 +482,8 @@ struct CrawlStatusWorkerResponse {
 pub struct CrawlPage {
     pub url: String,
     pub markdown: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -473,6 +538,7 @@ pub async fn crawl_status(
             Some(CrawlPage {
                 url: r.url?,
                 markdown: r.markdown.unwrap_or_default(),
+                json: r.json,
             })
         })
         .collect();

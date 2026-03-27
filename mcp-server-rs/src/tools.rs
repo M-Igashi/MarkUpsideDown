@@ -90,6 +90,20 @@ pub struct CrawlWebsiteParams {
     pub include_patterns: Option<Vec<String>>,
     #[schemars(description = "URL patterns to exclude (glob syntax)")]
     pub exclude_patterns: Option<Vec<String>>,
+    #[schemars(description = "Output formats: [\"markdown\"], [\"json\"], or [\"markdown\", \"json\"] (default: [\"markdown\"])")]
+    pub formats: Option<Vec<String>>,
+    #[schemars(description = "JSON Schema defining the output structure when formats includes \"json\" (passed as a JSON string)")]
+    pub response_format: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ExtractJsonParams {
+    #[schemars(description = "URL of the web page to extract structured data from")]
+    pub url: String,
+    #[schemars(description = "Natural language description of what to extract (e.g., \"Extract all product names and prices\")")]
+    pub prompt: Option<String>,
+    #[schemars(description = "JSON Schema defining the expected output structure (passed as a JSON string)")]
+    pub response_format: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -733,7 +747,60 @@ impl McpTools {
 
     // --- Crawl Tools (use Worker, no app needed) ---
 
-    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Rendering. Returns a job_id to poll with crawl_status.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "extract_json", description = "Extract structured JSON data from a web page using AI (Workers AI LLM). Requires at least one of prompt or response_format. Note: uses LLM inference per call.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn extract_json(
+        &self,
+        Parameters(params): Parameters<ExtractJsonParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            if params.prompt.is_none() && params.response_format.is_none() {
+                return Err("At least one of 'prompt' or 'response_format' is required".to_string());
+            }
+
+            let worker_url = self.resolve_worker_url().await?;
+            let json_url = format!("{}/json", worker_url.trim_end_matches('/'));
+
+            let mut body = serde_json::json!({ "url": params.url });
+            if let Some(ref p) = params.prompt {
+                body["prompt"] = serde_json::json!(p);
+            }
+            if let Some(ref rf) = params.response_format {
+                let schema: serde_json::Value = serde_json::from_str(rf)
+                    .map_err(|e| format!("Invalid response_format JSON: {e}"))?;
+                body["response_format"] = schema;
+            }
+
+            let response = self
+                .http
+                .post(&json_url)
+                .timeout(std::time::Duration::from_secs(60))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            #[derive(Deserialize)]
+            struct Resp {
+                data: Option<serde_json::Value>,
+                error: Option<String>,
+            }
+            let status = response.status();
+            let data: Resp = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
+            if !status.is_success() {
+                return Err(data.error.unwrap_or_else(|| format!("Worker returned {status}")));
+            }
+            let result = data.data.ok_or("No data in response")?;
+            Ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()))
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Rendering. Returns a job_id to poll with crawl_status. Supports markdown and/or json output formats.", annotations(read_only_hint = true, open_world_hint = true))]
     async fn crawl_website(
         &self,
         Parameters(params): Parameters<CrawlWebsiteParams>,
@@ -748,6 +815,15 @@ impl McpTools {
                 "limit": params.limit.unwrap_or(10),
                 "render": params.render.unwrap_or(false),
             });
+
+            if let Some(ref formats) = params.formats {
+                body["formats"] = serde_json::json!(formats);
+            }
+            if let Some(ref rf) = params.response_format {
+                let schema: serde_json::Value = serde_json::from_str(rf)
+                    .map_err(|e| format!("Invalid response_format JSON: {e}"))?;
+                body["response_format"] = schema;
+            }
 
             if let Some(ref patterns) = params.include_patterns {
                 if !patterns.is_empty() {
@@ -790,7 +866,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "crawl_status", description = "Poll a crawl job's status and retrieve completed pages as Markdown. Returns status, progress, pages, and a cursor for pagination.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "crawl_status", description = "Poll a crawl job's status and retrieve completed pages. Returns status, progress, pages (with markdown and/or json depending on crawl formats), and a cursor for pagination.", annotations(read_only_hint = true, open_world_hint = true))]
     async fn crawl_status(
         &self,
         Parameters(params): Parameters<CrawlStatusParams>,
@@ -824,6 +900,7 @@ impl McpTools {
             struct Record {
                 url: Option<String>,
                 markdown: Option<String>,
+                json: Option<serde_json::Value>,
             }
             #[derive(Deserialize)]
             struct ResultInner {
@@ -858,11 +935,22 @@ impl McpTools {
                 output.push_str(&format!("\n\n--- {} pages ---", records.len()));
                 for r in &records {
                     if let Some(ref url) = r.url {
-                        let md = r.markdown.as_deref().unwrap_or("");
-                        let preview_len = md.len().min(200);
-                        output.push_str(&format!("\n\n## {url}\n{}", &md[..preview_len]));
-                        if md.len() > 200 {
-                            output.push_str("...");
+                        output.push_str(&format!("\n\n## {url}"));
+                        if let Some(ref md) = r.markdown {
+                            let preview_len = md.len().min(200);
+                            output.push_str(&format!("\n{}", &md[..preview_len]));
+                            if md.len() > 200 {
+                                output.push_str("...");
+                            }
+                        }
+                        if let Some(ref json) = r.json {
+                            let json_str = serde_json::to_string_pretty(json).unwrap_or_else(|_| json.to_string());
+                            let preview_len = json_str.len().min(500);
+                            output.push_str(&format!("\n```json\n{}", &json_str[..preview_len]));
+                            if json_str.len() > 500 {
+                                output.push_str("...");
+                            }
+                            output.push_str("\n```");
                         }
                     }
                 }

@@ -107,6 +107,7 @@ fn main() {
             commands::fetch_url_as_markdown,
             commands::fetch_rendered_url_as_markdown,
             commands::fetch_url_via_worker,
+            commands::fetch_json_via_worker,
             commands::crawl_website,
             commands::crawl_status,
             commands::crawl_save,

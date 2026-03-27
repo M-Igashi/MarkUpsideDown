@@ -51,6 +51,10 @@ export default {
       return handleConvert(request, env);
     }
 
+    if (request.method === "POST" && url.pathname === "/json") {
+      return handleJson(request, env);
+    }
+
     if (request.method === "POST" && url.pathname === "/crawl") {
       return handleCrawlStart(request, env);
     }
@@ -60,7 +64,7 @@ export default {
       return handleCrawlStatus(crawlMatch[1], url, env);
     }
 
-    return jsonResponse({ error: "GET /health, POST /fetch, POST /convert, GET /render?url=, POST /crawl, or GET /crawl/:job_id" }, 404);
+    return jsonResponse({ error: "GET /health, POST /fetch, POST /convert, GET /render?url=, POST /json, POST /crawl, or GET /crawl/:job_id" }, 404);
   },
 } satisfies ExportedHandler<Env>;
 
@@ -71,6 +75,7 @@ function handleHealth(env: Env): Response {
       fetch: true,
       convert: true,
       render: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
+      json: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
       crawl: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
     },
   });
@@ -236,6 +241,72 @@ async function handleRender(url: URL, env: Env, ctx: ExecutionContext): Promise<
   }
 }
 
+// --- JSON Extraction (Browser Rendering /json API proxy) ---
+
+async function handleJson(request: Request, env: Env): Promise<Response> {
+  if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) {
+    return jsonResponse({ error: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required for JSON extraction" }, 500);
+  }
+
+  let body: {
+    url: string;
+    prompt?: string;
+    response_format?: unknown;
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (!body.url) {
+    return jsonResponse({ error: "Missing 'url' field" }, 400);
+  }
+
+  if (!body.prompt && !body.response_format) {
+    return jsonResponse({ error: "At least one of 'prompt' or 'response_format' is required" }, 400);
+  }
+
+  const ssrfError = await validateUrlForSsrf(body.url);
+  if (ssrfError) {
+    return jsonResponse({ error: ssrfError }, 400);
+  }
+
+  const jsonUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering/json`;
+  const jsonBody: Record<string, unknown> = {
+    url: body.url,
+    gotoOptions: { waitUntil: "networkidle0" },
+    rejectResourceTypes: ["image", "media", "font"],
+  };
+  if (body.prompt) jsonBody.prompt = body.prompt;
+  if (body.response_format) jsonBody.response_format = body.response_format;
+
+  try {
+    const response = await fetch(jsonUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(jsonBody),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      return jsonResponse({ error: `Browser Rendering JSON API error (${response.status}): ${errorBody}` }, response.status);
+    }
+
+    const data = await response.json<{ success: boolean; result: unknown; errors?: unknown[] }>();
+    if (!data.success) {
+      return jsonResponse({ error: "Browser Rendering JSON API returned failure", details: data.errors }, 500);
+    }
+
+    return jsonResponse({ data: data.result });
+  } catch (e) {
+    return jsonResponse({ error: `JSON extraction failed: ${e instanceof Error ? e.message : "Unknown error"}` }, 500);
+  }
+}
+
 // --- Crawl (Browser Rendering /crawl API proxy) ---
 
 async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
@@ -250,6 +321,8 @@ async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
     render?: boolean;
     includePatterns?: string[];
     excludePatterns?: string[];
+    formats?: string[];
+    response_format?: unknown;
   };
   try {
     body = await request.json();
@@ -267,14 +340,18 @@ async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
   }
 
   const crawlUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering/crawl`;
+  const formats = body.formats ?? ["markdown"];
   const crawlBody: Record<string, unknown> = {
     url: body.url,
     limit: Math.min(body.limit ?? 50, 100000),
     depth: body.depth ?? 3,
-    formats: ["markdown"],
+    formats,
     render: body.render ?? true,
     rejectResourceTypes: ["image", "media", "font", "stylesheet"],
   };
+  if (formats.includes("json") && body.response_format) {
+    crawlBody.response_format = body.response_format;
+  }
 
   const options: Record<string, unknown> = {};
   if (body.includePatterns?.length) options.includePatterns = body.includePatterns;
@@ -451,12 +528,22 @@ function detectSpa(html: string): boolean {
   if (noscript && /javascript|enable|activate/i.test(noscript[1])) return true;
 
   // Low text content ratio: strip tags, check visible text length
-  const textContent = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  let stripped = html;
+  // Loop to handle nested/malformed tags (e.g. <scr<script>ipt>)
+  let prev: string;
+  do {
+    prev = stripped;
+    stripped = stripped.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script\s*>/gi, "");
+  } while (stripped !== prev);
+  do {
+    prev = stripped;
+    stripped = stripped.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style\s*>/gi, "");
+  } while (stripped !== prev);
+  do {
+    prev = stripped;
+    stripped = stripped.replace(/<[^>]+>/g, "");
+  } while (stripped !== prev);
+  const textContent = stripped.replace(/\s+/g, " ").trim();
   if (html.length > 5000 && textContent.length < 200) return true;
 
   return false;
