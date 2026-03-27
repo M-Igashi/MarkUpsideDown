@@ -533,11 +533,11 @@ function detectSpa(html: string): boolean {
   let prev: string;
   do {
     prev = stripped;
-    stripped = stripped.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script\s*>/gi, "");
+    stripped = stripped.replace(/<script\b[^<]*(?:(?!<\/script[\s>])<[^<]*)*<\/script\b[^>]*>/gi, "");
   } while (stripped !== prev);
   do {
     prev = stripped;
-    stripped = stripped.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style\s*>/gi, "");
+    stripped = stripped.replace(/<style\b[^<]*(?:(?!<\/style[\s>])<[^<]*)*<\/style\b[^>]*>/gi, "");
   } while (stripped !== prev);
   do {
     prev = stripped;
