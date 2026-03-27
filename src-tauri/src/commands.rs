@@ -1334,6 +1334,32 @@ pub async fn reveal_in_finder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn open_with_default_app(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {e}"))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn open_in_terminal(path: String) -> Result<(), String> {
     let dir = if std::path::Path::new(&path).is_dir() {
         path
@@ -1870,6 +1896,15 @@ pub async fn git_show(repo_path: String, commit_hash: String) -> Result<String, 
 pub async fn git_clone(url: String, dest: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         run_cli("git", &["clone", &url, &dest]).map(|s| s.trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn git_init(repo_path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        run_cli("git", &["init", &repo_path]).map(|s| s.trim().to_string())
     })
     .await
     .map_err(|e| format!("Task error: {e}"))?

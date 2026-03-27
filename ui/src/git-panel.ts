@@ -412,7 +412,25 @@ function render() {
     commitBtnEl = null;
     const msg = document.createElement("div");
     msg.className = "git-panel-clean";
-    msg.textContent = repoPath ? "Not a git repository" : "Open a folder to see git status";
+    if (repoPath) {
+      msg.textContent = "Not a git repository";
+      const initBtn = document.createElement("button");
+      initBtn.className = "git-init-btn";
+      initBtn.textContent = "Initialize Repository";
+      initBtn.addEventListener("click", async () => {
+        initBtn.disabled = true;
+        try {
+          await invoke("git_init", { repoPath });
+          await refresh();
+        } catch (e) {
+          console.error("git init failed:", e);
+          initBtn.disabled = false;
+        }
+      });
+      msg.appendChild(initBtn);
+    } else {
+      msg.textContent = "Open a folder to see git status";
+    }
     panelEl.appendChild(msg);
     return;
   }

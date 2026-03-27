@@ -1,6 +1,13 @@
 import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
 import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
-import { basename, dirname, getExtension, IMAGE_EXTENSIONS, MD_EXTENSIONS } from "./path-utils.ts";
+import {
+  basename,
+  dirname,
+  getExtension,
+  IMAGE_EXTENSIONS,
+  MD_EXTENSIONS,
+  SYSTEM_OPEN_EXTENSIONS,
+} from "./path-utils.ts";
 import { escapeHtml } from "./html-utils.ts";
 import { watch, type UnwatchFn } from "@tauri-apps/plugin-fs";
 import { KEY_SIDEBAR, KEY_SIDEBAR_SORT, KEY_SIDEBAR_PANEL } from "./storage-keys.ts";
@@ -976,6 +983,11 @@ async function toggleDirectory(dirPath: string) {
 
 async function selectAndOpenFile(entry: DirEntry) {
   selectSingle(entry.path);
+  const ext = getExtension(entry.name);
+  if (SYSTEM_OPEN_EXTENSIONS.has(ext)) {
+    await invoke("open_with_default_app", { path: entry.path });
+    return;
+  }
   if (onFileOpen) {
     try {
       const content = await invoke<string>("read_text_file", { path: entry.path });

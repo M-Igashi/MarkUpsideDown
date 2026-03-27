@@ -17,6 +17,27 @@ export const IMAGE_EXTENSIONS = new Set([
 
 export const MD_EXTENSIONS = new Set(["md", "markdown", "mdx"]);
 
+/** File extensions that should be opened with the system default app instead of the editor. */
+export const SYSTEM_OPEN_EXTENSIONS = new Set([
+  "pdf",
+  "docx",
+  "xlsx",
+  "pptx",
+  "doc",
+  "xls",
+  "ppt",
+  "zip",
+  "tar",
+  "gz",
+  "dmg",
+  "mp3",
+  "mp4",
+  "mov",
+  "avi",
+  "wav",
+  ...IMAGE_EXTENSIONS,
+]);
+
 /** Extract the filename from a path (everything after the last `/`). */
 export function basename(path: string): string {
   return path.split("/").pop() || path;
