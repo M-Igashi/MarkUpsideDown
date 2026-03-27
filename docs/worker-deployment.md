@@ -1,5 +1,7 @@
 # Worker Deployment Guide
 
+> For a high-level overview of AI integration, see the [AI Integration Guide](ai-integration.md).
+
 MarkUpsideDown uses a Cloudflare Worker for three features:
 
 1. **Document Import** — Convert PDF, Office docs, images, etc. to Markdown via [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/)
