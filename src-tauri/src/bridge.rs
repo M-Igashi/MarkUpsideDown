@@ -328,7 +328,7 @@ async fn list_files(
             Err(e) => Json(serde_json::json!({ "error": e })),
         }
     } else {
-        match commands::list_directory(path.clone(), root_path_for_gitignore(&path)).await {
+        match commands::list_directory(path.clone()).await {
             Ok(entries) => Json(serde_json::json!({ "entries": entries })),
             Err(e) => Json(serde_json::json!({ "error": e })),
         }
@@ -339,10 +339,9 @@ async fn list_files(
 async fn list_recursive(root: &str) -> Result<Vec<commands::FileEntry>, String> {
     let mut result = Vec::new();
     let mut stack = vec![root.to_string()];
-    let repo_root = root_path_for_gitignore(root);
 
     while let Some(dir) = stack.pop() {
-        let entries = commands::list_directory(dir, repo_root.clone()).await?;
+        let entries = commands::list_directory(dir).await?;
         for entry in entries {
             if entry.is_dir {
                 stack.push(entry.path.clone());
@@ -351,20 +350,6 @@ async fn list_recursive(root: &str) -> Result<Vec<commands::FileEntry>, String> 
         }
     }
     Ok(result)
-}
-
-/// Detect git repo root for gitignore filtering.
-fn root_path_for_gitignore(path: &str) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(path)
-        .output()
-        .ok()?;
-    if output.status.success() {
-        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        None
-    }
 }
 
 #[derive(Deserialize)]

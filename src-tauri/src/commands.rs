@@ -1061,10 +1061,7 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn list_directory(
-    path: String,
-    repo_root: Option<String>,
-) -> Result<Vec<FileEntry>, String> {
+pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
     let path = validate_path(&path)?;
     let mut entries = Vec::new();
     let mut read_dir = tokio::fs::read_dir(&path)
@@ -1101,20 +1098,10 @@ pub async fn list_directory(
         });
     }
 
-    // Filter out git-ignored entries when inside a git repo
-    if let Some(ref root) = repo_root {
-        let paths: Vec<String> = entries.iter().map(|e| e.path.clone()).collect();
-        if !paths.is_empty() {
-            let root = root.clone();
-            let ignored = tokio::task::spawn_blocking(move || {
-                let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
-                git_check_ignore(&root, &path_refs)
-            })
-            .await
-            .unwrap_or_default();
-            entries.retain(|e| !ignored.contains(&e.path));
-        }
-    }
+    // Filter out well-known build artifact and dependency directories.
+    // Hidden files (dot-prefixed) are already skipped above.
+    const HIDDEN_DIRS: &[&str] = &["node_modules", "target", "dist", "build"];
+    entries.retain(|e| !(e.is_dir && HIDDEN_DIRS.contains(&e.name.as_str())));
 
     // Sort: directories first, then alphabetically (case-insensitive)
     entries.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
@@ -1122,24 +1109,6 @@ pub async fn list_directory(
     Ok(entries)
 }
 
-fn git_check_ignore(repo_path: &str, paths: &[&str]) -> std::collections::HashSet<String> {
-    let mut ignored = std::collections::HashSet::new();
-    let output = Command::new("git")
-        .args(["-C", repo_path, "check-ignore"])
-        .args(paths)
-        .output();
-    if let Ok(output) = output {
-        // git check-ignore outputs one ignored path per line (exit 0 = some ignored, 1 = none)
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                ignored.insert(trimmed.to_string());
-            }
-        }
-    }
-    ignored
-}
 
 #[tauri::command]
 pub async fn create_file(path: String) -> Result<(), String> {

@@ -590,7 +590,6 @@ async function startDirWatcher() {
     try {
       const entries = await invoke<DirEntry[]>("list_directory", {
         path: rootPath,
-        repoRoot: rootPath,
       });
       const snapshot = entries.map((e) => `${e.name}:${e.is_dir}`).join("|");
       if (lastDirSnapshot && snapshot !== lastDirSnapshot) {
@@ -607,7 +606,6 @@ async function startDirWatcher() {
   try {
     const entries = await invoke<DirEntry[]>("list_directory", {
       path: rootPath,
-      repoRoot: rootPath,
     });
     lastDirSnapshot = entries.map((e) => `${e.name}:${e.is_dir}`).join("|");
   } catch {
@@ -690,7 +688,6 @@ async function renderDirectory(
 ): Promise<boolean> {
   const entries = await invoke<DirEntry[]>("list_directory", {
     path: dirPath,
-    repoRoot: rootPath,
   });
   if (gen !== refreshGeneration) return false;
 
@@ -735,7 +732,6 @@ async function renderDirectory(
         while (folding) {
           const subEntries = await invoke<DirEntry[]>("list_directory", {
             path: foldedEntry.path,
-            repoRoot: rootPath,
           });
           if (gen !== refreshGeneration) return false;
           const subDirs = subEntries.filter((e) => e.is_dir);
