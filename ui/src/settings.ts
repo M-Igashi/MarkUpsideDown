@@ -2,6 +2,7 @@ import { isLintEnabled, setLintEnabled } from "./markdown-lint.ts";
 import { isSmartTypographyEnabled, setSmartTypographyEnabled } from "./smart-typography.ts";
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import { KEY_WORKER_URL, KEY_SETUP_DONE, KEY_ALLOW_IMAGE, KEY_AUTOSAVE } from "./storage-keys.ts";
+import { escapeHtml } from "./html-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -891,8 +892,42 @@ async function initMcpSection() {
   bridgeStatus.textContent = "Active (app is running)";
   bridgeStatus.classList.add("mcp-status-ok");
 
-  // Resolve MCP binary path
+  // State that gets populated after async resolve
   let mcpBinaryPath = "";
+  let workerUrl = getWorkerUrl();
+
+  function showTab(target: string) {
+    tabContent.innerHTML = "";
+    const renderers: Record<string, (container: HTMLElement) => void> = {
+      "claude-desktop-chat": (c) => renderClaudeDesktopChatTab(c, mcpBinaryPath, workerUrl),
+      "claude-desktop-code": (c) => renderClaudeDesktopCodeTab(c, mcpBinaryPath, workerUrl),
+      "claude-code-terminal": (c) => renderClaudeCodeTerminalTab(c, mcpBinaryPath, workerUrl),
+      cowork: (c) => renderCoworkTab(c, mcpBinaryPath, workerUrl),
+    };
+    const renderer = renderers[target];
+    if (renderer) renderer(tabContent);
+  }
+
+  function getActiveTarget(): string {
+    for (const t of tabs) {
+      if (t.classList.contains("active")) return t.dataset.mcpTarget || "claude-desktop-chat";
+    }
+    return "claude-desktop-chat";
+  }
+
+  // Tab switching — attach immediately (synchronous)
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => {
+      for (const t of tabs) t.classList.remove("active");
+      tab.classList.add("active");
+      showTab(tab.dataset.mcpTarget || "claude-desktop-chat");
+    });
+  }
+
+  // Show default tab immediately (with empty binaryPath for now)
+  showTab("claude-desktop-chat");
+
+  // Resolve MCP binary path asynchronously, then re-render active tab
   try {
     mcpBinaryPath = await invoke<string>("get_mcp_binary_path");
     binaryPathEl.textContent = mcpBinaryPath;
@@ -902,32 +937,8 @@ async function initMcpSection() {
     binaryPathEl.classList.add("mcp-status-error");
   }
 
-  const workerUrl = getWorkerUrl();
-
-  const renderers: Record<string, (container: HTMLElement) => void> = {
-    "claude-desktop-chat": (c) => renderClaudeDesktopChatTab(c, mcpBinaryPath, workerUrl),
-    "claude-desktop-code": (c) => renderClaudeDesktopCodeTab(c, mcpBinaryPath, workerUrl),
-    "claude-code-terminal": (c) => renderClaudeCodeTerminalTab(c, mcpBinaryPath, workerUrl),
-    cowork: (c) => renderCoworkTab(c, mcpBinaryPath, workerUrl),
-  };
-
-  function showTab(target: string) {
-    tabContent.innerHTML = "";
-    const renderer = renderers[target];
-    if (renderer) renderer(tabContent);
-  }
-
-  // Show default tab
-  showTab("claude-desktop-chat");
-
-  // Tab switching
-  for (const tab of tabs) {
-    tab.addEventListener("click", () => {
-      for (const t of tabs) t.classList.remove("active");
-      tab.classList.add("active");
-      showTab(tab.dataset.mcpTarget || "claude-desktop-chat");
-    });
-  }
+  // Re-render active tab with resolved binary path
+  showTab(getActiveTarget());
 }
 
 // Returns the worker URL, or shows settings panel if not configured.

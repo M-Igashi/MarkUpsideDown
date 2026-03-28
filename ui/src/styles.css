@@ -2287,6 +2287,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* Force compositing layer — fixes WebKit hit-test bug where clicks
+     inside a scrolled overflow:auto container under position:fixed
+     are dispatched to the wrong coordinates. */
+  transform: translateZ(0);
 }
 
 .settings-header {
