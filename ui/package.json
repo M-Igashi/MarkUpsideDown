@@ -11,7 +11,7 @@
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-markdown": "^6.3.2",
-    "@codemirror/language": "^6.12.2",
+    "@codemirror/language": "^6.12.3",
     "@codemirror/lint": "^6.9.5",
     "@codemirror/search": "^6.6.0",
     "@codemirror/state": "^6.5.2",
