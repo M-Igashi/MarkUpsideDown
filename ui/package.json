@@ -23,7 +23,7 @@
     "dompurify": "^3.3.3",
     "highlight.js": "^11.11.1",
     "idiomorph": "^0.7.4",
-    "katex": "^0.16.40",
+    "katex": "^0.16.44",
     "marked": "^17.0.5",
     "mermaid": "^11.13.0"
   },
