@@ -20,6 +20,7 @@ export const KEY_SMART_TYPOGRAPHY = "markupsidedown:smartTypography";
 export const KEY_SIDEBAR = "markupsidedown:sidebar";
 export const KEY_SIDEBAR_SORT = "markupsidedown:sidebar-sort";
 export const KEY_SIDEBAR_PANEL = "markupsidedown:sidebarPanel";
+export const KEY_SIDEBAR_SHOW_DOTFILES = "markupsidedown:sidebar-show-dotfiles";
 
 // --- Tabs ---
 export const KEY_TABS = "markupsidedown:tabs";

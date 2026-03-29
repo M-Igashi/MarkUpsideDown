@@ -459,6 +459,10 @@ body {
   background: var(--bg);
 }
 
+.sidebar-header-actions .dotfile-toggle:not(.active) {
+  opacity: 0.4;
+}
+
 /* Sidebar search */
 .sidebar-search {
   padding: 4px 6px;

@@ -1070,10 +1070,6 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 
     while let Some(entry) = read_dir.next_entry().await.map_err(|e| e.to_string())? {
         let name = entry.file_name().to_string_lossy().to_string();
-        // Skip hidden files/directories
-        if name.starts_with('.') {
-            continue;
-        }
         let file_type = entry.file_type().await.map_err(|e| e.to_string())?;
         let entry_path = entry.path();
         let extension = entry_path
@@ -1099,7 +1095,6 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
     }
 
     // Filter out well-known build artifact and dependency directories.
-    // Hidden files (dot-prefixed) are already skipped above.
     const HIDDEN_DIRS: &[&str] = &["node_modules", "target", "dist", "build"];
     entries.retain(|e| !(e.is_dir && HIDDEN_DIRS.contains(&e.name.as_str())));
 

@@ -10,7 +10,12 @@ import {
 } from "./path-utils.ts";
 import { escapeHtml } from "./html-utils.ts";
 import { watch, type UnwatchFn } from "@tauri-apps/plugin-fs";
-import { KEY_SIDEBAR, KEY_SIDEBAR_SORT, KEY_SIDEBAR_PANEL } from "./storage-keys.ts";
+import {
+  KEY_SIDEBAR,
+  KEY_SIDEBAR_SORT,
+  KEY_SIDEBAR_PANEL,
+  KEY_SIDEBAR_SHOW_DOTFILES,
+} from "./storage-keys.ts";
 import { loadTags, getFileTags, getTagDef, showTagPopover, removeTagPopover } from "./tags.ts";
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
@@ -145,6 +150,7 @@ function updateSelectionDOM() {
 type SortBy = "name" | "date" | "type" | "tag";
 let sortBy: SortBy = (localStorage.getItem(KEY_SIDEBAR_SORT) as SortBy) || "name";
 let tagFilter: string | null = null; // null = no filter, string = filter by tag name
+let showDotfiles = localStorage.getItem(KEY_SIDEBAR_SHOW_DOTFILES) !== "0"; // default: show
 
 export type SidebarPanel = "files" | "git" | "clone";
 let activePanel: SidebarPanel = "files";
@@ -242,6 +248,20 @@ export async function openFolder() {
 
 function populateHeaderActions(container: Element) {
   if (activePanel === "files") {
+    const dotBtn = document.createElement("button");
+    dotBtn.title = showDotfiles ? "Hide dotfiles" : "Show dotfiles";
+    dotBtn.className = showDotfiles ? "dotfile-toggle active" : "dotfile-toggle";
+    dotBtn.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/></svg>';
+    dotBtn.addEventListener("click", () => {
+      showDotfiles = !showDotfiles;
+      localStorage.setItem(KEY_SIDEBAR_SHOW_DOTFILES, showDotfiles ? "1" : "0");
+      dotBtn.title = showDotfiles ? "Hide dotfiles" : "Show dotfiles";
+      dotBtn.className = showDotfiles ? "dotfile-toggle active" : "dotfile-toggle";
+      refreshTree();
+    });
+    container.appendChild(dotBtn);
+
     const openBtn = document.createElement("button");
     openBtn.title = "Open Folder";
     openBtn.innerHTML =
@@ -762,6 +782,7 @@ async function renderDirectory(
   for (const entry of entries) {
     if (seen.has(entry.path)) continue;
     seen.add(entry.path);
+    if (!showDotfiles && entry.name.startsWith(".")) continue;
 
     if (entry.is_dir) {
       // Auto-fold: detect chain of single-child directories
