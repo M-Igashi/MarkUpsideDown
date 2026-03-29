@@ -1246,6 +1246,10 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Force compositing layer — fixes WebKit hit-test bug where clicks
+     inside a scrolled overflow:auto container are dispatched to the
+     wrong coordinates. */
+  transform: translateZ(0);
 }
 
 /* Sidebar bottom nav bar */
