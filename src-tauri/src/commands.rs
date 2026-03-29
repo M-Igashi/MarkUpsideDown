@@ -1382,25 +1382,28 @@ pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String, String> {
     use tauri::Manager;
     let triple = tauri::utils::platform::target_triple()
         .map_err(|e| format!("Failed to get target triple: {e}"))?;
-    let bin_name = format!("markupsidedown-mcp-{triple}");
+    let bin_name_with_triple = format!("markupsidedown-mcp-{triple}");
 
-    // Production: resource_dir/binaries/
+    // Production (.app bundle): Contents/MacOS/markupsidedown-mcp (no triple suffix)
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let resource_path = resource_dir.join("binaries").join(&bin_name);
-        if resource_path.exists() {
-            return Ok(resource_path.to_string_lossy().to_string());
+        // Tauri places sidecar binaries in Contents/MacOS/ (sibling of Contents/Resources/)
+        if let Some(contents_dir) = resource_dir.parent() {
+            let macos_path = contents_dir.join("MacOS").join("markupsidedown-mcp");
+            if macos_path.exists() {
+                return Ok(macos_path.to_string_lossy().to_string());
+            }
         }
     }
 
-    // Dev mode fallback: src-tauri/binaries/
+    // Dev mode: src-tauri/binaries/ (with triple suffix)
     let dev_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("binaries")
-        .join(&bin_name);
+        .join(&bin_name_with_triple);
     if dev_path.exists() {
         return Ok(dev_path.to_string_lossy().to_string());
     }
 
-    Err(format!("MCP binary '{bin_name}' not found"))
+    Err(format!("MCP binary 'markupsidedown-mcp' not found"))
 }
 
 // --- CLI Command Runner ---
