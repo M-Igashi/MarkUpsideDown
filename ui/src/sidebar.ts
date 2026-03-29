@@ -11,6 +11,7 @@ import {
 import { escapeHtml } from "./html-utils.ts";
 import { watch, type UnwatchFn } from "@tauri-apps/plugin-fs";
 import { KEY_SIDEBAR, KEY_SIDEBAR_SORT, KEY_SIDEBAR_PANEL } from "./storage-keys.ts";
+import { loadTags, getFileTags, getTagDef, showTagPopover, removeTagPopover } from "./tags.ts";
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { open: openDialog, confirm, message } = window.__TAURI__.dialog;
@@ -141,8 +142,9 @@ function updateSelectionDOM() {
   }
 }
 
-type SortBy = "name" | "date" | "type";
+type SortBy = "name" | "date" | "type" | "tag";
 let sortBy: SortBy = (localStorage.getItem(KEY_SIDEBAR_SORT) as SortBy) || "name";
+let tagFilter: string | null = null; // null = no filter, string = filter by tag name
 
 export type SidebarPanel = "files" | "git" | "clone";
 let activePanel: SidebarPanel = "files";
@@ -204,7 +206,9 @@ export function initSidebar(
   render();
 
   if (rootPath) {
-    refreshTree();
+    loadTags(rootPath).then(() => {
+      refreshTree();
+    });
     startDirWatcher();
   }
 }
@@ -225,7 +229,9 @@ export async function openFolder() {
   rootPath = path;
   expandedDirs.clear();
   expandedDirs.add(rootPath);
+  tagFilter = null;
   saveState();
+  await loadTags(rootPath);
   render();
   refreshTree();
   startDirWatcher();
@@ -266,6 +272,36 @@ function updateFilterScopeBadge() {
   clearBtn.addEventListener("click", () => {
     filterScope = null;
     updateFilterScopeBadge();
+    refreshTree();
+  });
+  badge.appendChild(clearBtn);
+}
+
+function updateTagFilterBadge() {
+  const badge = document.getElementById("sidebar-tag-filter");
+  if (!badge) return;
+  if (!tagFilter) {
+    badge.style.display = "none";
+    badge.innerHTML = "";
+    return;
+  }
+  const def = getTagDef(tagFilter);
+  badge.style.display = "flex";
+  badge.innerHTML = "";
+  const dot = document.createElement("span");
+  dot.className = "tag-dot";
+  dot.style.background = def?.color ?? "#888";
+  badge.appendChild(dot);
+  const label = document.createElement("span");
+  label.textContent = `tag: ${tagFilter}`;
+  badge.appendChild(label);
+  const clearBtn = document.createElement("button");
+  clearBtn.className = "sidebar-filter-scope-clear";
+  clearBtn.textContent = "✕";
+  clearBtn.title = "Clear tag filter";
+  clearBtn.addEventListener("click", () => {
+    tagFilter = null;
+    updateTagFilterBadge();
     refreshTree();
   });
   badge.appendChild(clearBtn);
@@ -349,6 +385,7 @@ function render() {
     ["name", "Name"],
     ["date", "Date"],
     ["type", "Type"],
+    ["tag", "Tag"],
   ] as const) {
     const opt = document.createElement("option");
     opt.value = value;
@@ -371,6 +408,13 @@ function render() {
   scopeBadge.id = "sidebar-filter-scope";
   filesContainer.appendChild(scopeBadge);
   updateFilterScopeBadge();
+
+  // Tag filter badge (shown when filtering by tag)
+  const tagBadge = document.createElement("div");
+  tagBadge.className = "sidebar-filter-scope";
+  tagBadge.id = "sidebar-tag-filter";
+  filesContainer.appendChild(tagBadge);
+  updateTagFilterBadge();
 
   treeEl = document.createElement("div");
   treeEl.className = "sidebar-tree";
@@ -545,11 +589,13 @@ export function getClonePanelEl() {
   return clonePanelSlot;
 }
 
-export function openFolderByPath(path: string) {
+export async function openFolderByPath(path: string) {
   rootPath = path;
   expandedDirs.clear();
   expandedDirs.add(rootPath);
+  tagFilter = null;
   saveState();
+  await loadTags(rootPath);
   render();
   refreshTree();
   startDirWatcher();
@@ -705,6 +751,20 @@ async function renderDirectory(
       if (extA !== extB) return extA.localeCompare(extB);
       return a.name.localeCompare(b.name);
     });
+  } else if (sortBy === "tag") {
+    entries.sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      const tagsA = getFileTags(a.path);
+      const tagsB = getFileTags(b.path);
+      // Tagged files come first, then by first tag name, then by file name
+      if (tagsA.length > 0 && tagsB.length === 0) return -1;
+      if (tagsA.length === 0 && tagsB.length > 0) return 1;
+      if (tagsA.length > 0 && tagsB.length > 0) {
+        const cmp = tagsA[0].localeCompare(tagsB[0]);
+        if (cmp !== 0) return cmp;
+      }
+      return a.name.localeCompare(b.name);
+    });
   }
   // "name" sort is already done by the Rust backend
 
@@ -713,6 +773,7 @@ async function renderDirectory(
   // When scoped, only filter within the target directory (and its children)
   const inScope = !filterScope || dirPath === filterScope || dirPath.startsWith(filterScope + "/");
   const isFiltering = filterQuery.length > 0 && (!filterScope || inScope);
+  const isTagFiltering = tagFilter !== null;
 
   // When filtering, we need to recurse into all directories to find matches
   // Collect items and expanded children
@@ -727,7 +788,7 @@ async function renderDirectory(
       let foldedEntry = entry;
       let displayName = entry.name;
 
-      if (!isFiltering) {
+      if (!isFiltering && !isTagFiltering) {
         let folding = true;
         while (folding) {
           const subEntries = await invoke<DirEntry[]>("list_directory", {
@@ -756,6 +817,7 @@ async function renderDirectory(
       pendingItems.push({ entry: foldedEntry, item, childContainer });
     } else {
       if (isFiltering && !entry.name.toLowerCase().includes(filterQuery)) continue;
+      if (isTagFiltering && !getFileTags(entry.path).includes(tagFilter!)) continue;
       const item = createTreeItem(entry, depth);
       pendingItems.push({ entry, item });
     }
@@ -767,7 +829,7 @@ async function renderDirectory(
   if (dirItems.length > 0) {
     const results = await Promise.all(
       dirItems.map(async ({ entry, childContainer }) => {
-        const shouldExpand = isFiltering || expandedDirs.has(entry.path);
+        const shouldExpand = isFiltering || isTagFiltering || expandedDirs.has(entry.path);
         if (!shouldExpand) return false;
         return renderDirectory(entry.path, childContainer!, depth + 1, gen);
       }),
@@ -781,13 +843,17 @@ async function renderDirectory(
   // Append items to container, skipping filtered-out directories
   let hasAnyMatch = false;
   for (const { entry, item, childContainer } of pendingItems) {
-    if (entry.is_dir && isFiltering) {
-      const nameMatch = entry.name.toLowerCase().includes(filterQuery);
+    if (entry.is_dir && (isFiltering || isTagFiltering)) {
+      const nameMatch = isFiltering && entry.name.toLowerCase().includes(filterQuery);
       const childMatch = dirHasMatch.get(entry.path) ?? false;
       if (!nameMatch && !childMatch) continue;
     }
     container.appendChild(item);
-    if (entry.is_dir && childContainer && (isFiltering || expandedDirs.has(entry.path))) {
+    if (
+      entry.is_dir &&
+      childContainer &&
+      (isFiltering || isTagFiltering || expandedDirs.has(entry.path))
+    ) {
       container.appendChild(childContainer);
     }
     hasAnyMatch = true;
@@ -835,6 +901,24 @@ function createTreeItem(entry: DirEntry, depth: number, displayName?: string) {
   if (entry.is_dir) name.classList.add("is-dir");
   name.textContent = displayName ?? entry.name;
   item.appendChild(name);
+
+  // Tag badges
+  const fileTags = getFileTags(entry.path);
+  if (fileTags.length > 0) {
+    const tagWrap = document.createElement("span");
+    tagWrap.className = "sidebar-tag-badges";
+    for (const t of fileTags) {
+      const def = getTagDef(t);
+      if (!def) continue;
+      const badge = document.createElement("span");
+      badge.className = "sidebar-tag-badge";
+      badge.style.background = def.color;
+      badge.textContent = t;
+      badge.title = t;
+      tagWrap.appendChild(badge);
+    }
+    item.appendChild(tagWrap);
+  }
 
   // Git status indicator
   const relPath = rootPath ? entry.path.replace(rootPath + "/", "") : entry.name;
@@ -1131,6 +1215,7 @@ function removeContextMenu() {
 function showEmptyAreaContextMenu(event: MouseEvent) {
   if (!rootPath) return;
   removeContextMenu();
+  removeTagPopover();
 
   const menu = document.createElement("div");
   menu.className = "sidebar-context-menu";
@@ -1198,6 +1283,7 @@ function buildContextMenuDOM(
 
 function showContextMenu(event: MouseEvent, entry: DirEntry) {
   removeContextMenu();
+  removeTagPopover();
 
   const menu = document.createElement("div");
   menu.className = "sidebar-context-menu";
@@ -1230,6 +1316,29 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
       ? entry.path.substring(rootPath.length + 1)
       : entry.name;
     items.push({ label: "Copy Relative Path", action: () => copyToClipboard(relPath) });
+  }
+  items.push(null);
+
+  // Tags
+  items.push({
+    label: "Manage Tags…",
+    action: () => {
+      removeContextMenu();
+      showTagPopover(event.clientX, event.clientY, [entry.path], () => refreshTree());
+    },
+  });
+  const entryTags = getFileTags(entry.path);
+  if (entryTags.length > 0) {
+    for (const t of entryTags) {
+      items.push({
+        label: `Filter by "${t}"`,
+        action: () => {
+          tagFilter = t;
+          updateTagFilterBadge();
+          refreshTree();
+        },
+      });
+    }
   }
   items.push(null);
 
@@ -1266,6 +1375,7 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
 
 function showMultiContextMenu(event: MouseEvent) {
   removeContextMenu();
+  removeTagPopover();
 
   const menu = document.createElement("div");
   menu.className = "sidebar-context-menu";
@@ -1295,6 +1405,14 @@ function showMultiContextMenu(event: MouseEvent) {
   if (clipboardPaths.size > 0 && clipboardMode) {
     items.push({ label: "Paste", action: () => pasteEntry() });
   }
+  items.push(null);
+  items.push({
+    label: `Tag ${count} Items…`,
+    action: () => {
+      removeContextMenu();
+      showTagPopover(event.clientX, event.clientY, [...selectedPaths], () => refreshTree());
+    },
+  });
   items.push(null);
   items.push({
     label: `Move ${count} Items to Trash`,

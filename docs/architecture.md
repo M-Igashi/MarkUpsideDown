@@ -48,7 +48,8 @@ MCP Server (mcp-server-rs/)
 | Preview | marked.js + KaTeX + Mermaid + highlight.js + idiomorph DOM-diffing | `ui/src/preview-render.ts` |
 | Scroll sync | Viewport-based bidirectional sync with cooldown | `ui/src/scroll-sync.ts` |
 | Settings | Worker setup (auto + manual), feature status, MCP config | `ui/src/settings.ts` |
-| Sidebar | File tree browser with context menu, search, drag & drop | `ui/src/sidebar.ts` |
+| Sidebar | File tree browser with context menu, search, drag & drop, file tagging | `ui/src/sidebar.ts` |
+| Tags | File tagging system (CRUD, badges, filter, sort by tag) | `ui/src/tags.ts` |
 | Tabs | Multi-tab editing with state persistence, drag reorder | `ui/src/tabs.ts` |
 | Git panel | Status, stage/unstage, commit, push/pull with ahead/behind, fetch | `ui/src/git-panel.ts` |
 | Clone panel | Repository clone UI (HTTPS/SSH) | `ui/src/clone-panel.ts` |

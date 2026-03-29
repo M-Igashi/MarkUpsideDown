@@ -47,7 +47,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 
 ### File Browser & Git
 
-- **File tree sidebar** — Browse, create, rename, duplicate, delete files and folders; drag & drop, search
+- **File tree sidebar** — Browse, create, rename, duplicate, delete files and folders; drag & drop, search, file tagging
 - **Git panel** — View changes, stage/unstage files, commit, push/pull with ahead/behind counts, fetch
 - **Clone repository** — Clone Git repositories (HTTPS/SSH) and open them in the editor
 
