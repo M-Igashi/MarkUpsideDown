@@ -244,6 +244,34 @@ pub struct DownloadImageParams {
     pub dest_path: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetFileTagsParams {
+    #[schemars(description = "Absolute path to the file or directory")]
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetFileTagsParams {
+    #[schemars(description = "Absolute path to the file or directory")]
+    pub path: String,
+    #[schemars(description = "Tag names to assign (replaces existing tags for this file)")]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateTagParams {
+    #[schemars(description = "Tag name (max 24 characters)")]
+    pub name: String,
+    #[schemars(description = "Tag color as hex string (e.g., \"#d94545\"). Defaults to red if omitted.")]
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteTagParams {
+    #[schemars(description = "Tag name to delete (also removes from all files)")]
+    pub name: String,
+}
+
 // --- Server ---
 
 pub struct McpTools {
@@ -1168,6 +1196,174 @@ impl McpTools {
                 let msg = if output.is_empty() { "Revert completed".to_string() } else { output };
                 Ok(CallToolResult::success(vec![Content::text(msg)]))
             }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Tag Tools (require running app) ---
+
+    #[tool(name = "list_tags", description = "List all tag definitions and file-tag assignments in the project", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn list_tags(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.get_tags().await {
+            Ok(data) => {
+                let text = serde_json::to_string_pretty(&data).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(text)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "get_file_tags", description = "Get the tags assigned to a specific file or directory", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn get_file_tags(
+        &self,
+        Parameters(params): Parameters<GetFileTagsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.get_tags().await {
+            Ok(data) => {
+                // Resolve relative path from project root
+                let root = self.bridge.get_project_root().await.ok().flatten().unwrap_or_default();
+                let rel_path = if !root.is_empty() && params.path.starts_with(&root) {
+                    params.path[root.len()..].trim_start_matches('/').to_string()
+                } else {
+                    params.path.clone()
+                };
+                let tags = data.get("files")
+                    .and_then(|f| f.get(&rel_path))
+                    .cloned()
+                    .unwrap_or(serde_json::json!([]));
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string(&tags).unwrap_or_default(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "set_file_tags", description = "Set the tags for a specific file or directory (replaces existing tags)", annotations(read_only_hint = false, open_world_hint = false))]
+    async fn set_file_tags(
+        &self,
+        Parameters(params): Parameters<SetFileTagsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let tags_result = self.bridge.get_tags().await;
+        let mut data = match tags_result {
+            Ok(d) => d,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
+        };
+
+        let root = self.bridge.get_project_root().await.ok().flatten().unwrap_or_default();
+        let rel_path = if !root.is_empty() && params.path.starts_with(&root) {
+            params.path[root.len()..].trim_start_matches('/').to_string()
+        } else {
+            params.path.clone()
+        };
+
+        // Validate that all tags exist
+        if let Some(tag_defs) = data.get("tags").and_then(|t| t.as_object()) {
+            for tag in &params.tags {
+                if !tag_defs.contains_key(tag) {
+                    return Ok(CallToolResult::error(vec![Content::text(
+                        format!("Tag '{}' does not exist. Create it first with create_tag.", tag),
+                    )]));
+                }
+            }
+        }
+
+        if let Some(files) = data.get_mut("files").and_then(|f| f.as_object_mut()) {
+            if params.tags.is_empty() {
+                files.remove(&rel_path);
+            } else {
+                files.insert(rel_path.clone(), serde_json::json!(params.tags));
+            }
+        }
+
+        match self.bridge.set_tags(&data).await {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(
+                format!("Tags for '{}' updated to {:?}", rel_path, params.tags),
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "create_tag", description = "Create a new tag definition with a color", annotations(read_only_hint = false, open_world_hint = false))]
+    async fn create_tag(
+        &self,
+        Parameters(params): Parameters<CreateTagParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        if params.name.is_empty() || params.name.len() > 24 {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Tag name must be 1-24 characters",
+            )]));
+        }
+
+        let tags_result = self.bridge.get_tags().await;
+        let mut data = match tags_result {
+            Ok(d) => d,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
+        };
+
+        let color = params.color.unwrap_or_else(|| "#d94545".to_string());
+
+        if let Some(tags) = data.get_mut("tags").and_then(|t| t.as_object_mut()) {
+            if tags.contains_key(&params.name) {
+                return Ok(CallToolResult::error(vec![Content::text(
+                    format!("Tag '{}' already exists", params.name),
+                )]));
+            }
+            tags.insert(params.name.clone(), serde_json::json!({ "color": color }));
+        }
+
+        match self.bridge.set_tags(&data).await {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(
+                format!("Tag '{}' created with color {}", params.name, color),
+            )])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "delete_tag", description = "Delete a tag definition and remove it from all files", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
+    async fn delete_tag(
+        &self,
+        Parameters(params): Parameters<DeleteTagParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let tags_result = self.bridge.get_tags().await;
+        let mut data = match tags_result {
+            Ok(d) => d,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
+        };
+
+        // Remove tag definition
+        let removed = if let Some(tags) = data.get_mut("tags").and_then(|t| t.as_object_mut()) {
+            tags.remove(&params.name).is_some()
+        } else {
+            false
+        };
+
+        if !removed {
+            return Ok(CallToolResult::error(vec![Content::text(
+                format!("Tag '{}' not found", params.name),
+            )]));
+        }
+
+        // Remove tag from all file assignments
+        if let Some(files) = data.get_mut("files").and_then(|f| f.as_object_mut()) {
+            let mut empty_paths = Vec::new();
+            for (path, tags) in files.iter_mut() {
+                if let Some(arr) = tags.as_array_mut() {
+                    arr.retain(|t| t.as_str() != Some(&params.name));
+                    if arr.is_empty() {
+                        empty_paths.push(path.clone());
+                    }
+                }
+            }
+            for path in empty_paths {
+                files.remove(&path);
+            }
+        }
+
+        match self.bridge.set_tags(&data).await {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(
+                format!("Tag '{}' deleted", params.name),
+            )])),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }

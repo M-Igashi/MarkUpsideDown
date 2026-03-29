@@ -67,7 +67,7 @@ The MCP server resolves the Worker URL in this order:
 
 The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit.
 
-## Available Tools (43)
+## Available Tools (48)
 
 <details>
 <summary><strong>Editor Tools</strong> — 8 tools (require the app to be running)</summary>
@@ -169,6 +169,21 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 | `git_discard_all` | Discard all uncommitted changes | — |
 | `git_log` | Get recent commit history | `limit?: number` |
 | `git_revert` | Revert a commit by creating a new revert commit | `hash: string` |
+
+</details>
+
+<details>
+<summary><strong>Tag Tools</strong> — 5 tools (require the app to be running)</summary>
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `list_tags` | List all tag definitions and file-tag assignments | — |
+| `get_file_tags` | Get tags assigned to a specific file or directory | `path: string` |
+| `set_file_tags` | Set tags for a file or directory (replaces existing) | `path: string`, `tags: string[]` |
+| `create_tag` | Create a new tag definition with a color | `name: string`, `color?: string` (hex, default: `#d94545`) |
+| `delete_tag` | Delete a tag and remove it from all files | `name: string` |
+
+Tags are stored in `.markupsidedown/tags.json` per project. Changes made via MCP are automatically synced to the frontend UI.
 
 </details>
 

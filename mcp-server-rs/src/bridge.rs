@@ -378,6 +378,26 @@ impl BridgeClient {
         Ok(json.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string())
     }
 
+    // --- Tags ---
+
+    pub async fn get_tags(&self) -> Result<serde_json::Value, String> {
+        let val = self.request("GET", "/tags/list", None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json)
+    }
+
+    pub async fn set_tags(&self, data: &serde_json::Value) -> Result<(), String> {
+        let val = self.request("POST", "/tags/set", Some(serde_json::json!({ "tags": data }))).await?;
+        if let Some(json) = val {
+            if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+                return Err(err.to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize, serde::Serialize)]

@@ -1947,7 +1947,7 @@ pub fn create_cowork_workspace(
 This workspace is configured for use with MarkUpsideDown's MCP server.
 MarkUpsideDown must be running for editor/file/git tools to work.
 
-## Available MCP Tools (43)
+## Available MCP Tools (48)
 
 ### Editor
 | Tool | Description |
@@ -2015,6 +2015,15 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 | `git_discard_all` | Discard all uncommitted changes |
 | `git_log` | Get recent commit history |
 | `git_revert` | Revert a commit |
+
+### Tags
+| Tool | Description |
+|------|-------------|
+| `list_tags` | List all tag definitions and file-tag assignments |
+| `get_file_tags` | Get tags assigned to a specific file |
+| `set_file_tags` | Set tags for a file (replaces existing) |
+| `create_tag` | Create a new tag definition with a color |
+| `delete_tag` | Delete a tag and remove from all files |
 
 ## Tips
 

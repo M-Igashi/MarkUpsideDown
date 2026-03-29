@@ -52,6 +52,10 @@ export function clearTags(): void {
   data = { tags: {}, files: {} };
 }
 
+export async function reloadTags(): Promise<void> {
+  if (currentRootPath) await loadTags(currentRootPath);
+}
+
 async function save(): Promise<void> {
   const fp = tagsFilePath();
   if (!fp) return;

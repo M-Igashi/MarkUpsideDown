@@ -14,6 +14,7 @@ import { getRootPath } from "./sidebar.ts";
 import { suppressNext } from "./file-watcher.ts";
 import { getDocumentStructure } from "./document-structure.ts";
 import { normalizeMarkdown } from "./normalize.ts";
+import { reloadTags } from "./tags.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -173,5 +174,10 @@ export function initBridgeListeners() {
       if (tab) switchTab(tab.id);
     }
     syncEditorState();
+  });
+
+  listen("bridge:tags-changed", async () => {
+    await reloadTags();
+    refreshTree();
   });
 }

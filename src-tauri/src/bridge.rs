@@ -88,6 +88,8 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/crawl/save", post(crawl_save))
         .route("/content/download-image", post(download_image))
         .route("/content/fetch-title", post(fetch_page_title))
+        .route("/tags/list", get(tags_list))
+        .route("/tags/set", post(tags_set))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
@@ -762,6 +764,61 @@ async fn fetch_page_title(
 
     match result {
         Ok(title) => Json(serde_json::json!({ "title": title })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+// --- Tag handlers ---
+
+fn tags_file_path(root: &str) -> String {
+    format!("{root}/.markupsidedown/tags.json")
+}
+
+async fn read_tags(root: &str) -> serde_json::Value {
+    let path = tags_file_path(root);
+    match tokio::fs::read_to_string(&path).await {
+        Ok(content) => serde_json::from_str(&content).unwrap_or(serde_json::json!({ "tags": {}, "files": {} })),
+        Err(_) => serde_json::json!({ "tags": {}, "files": {} }),
+    }
+}
+
+async fn write_tags(root: &str, data: &serde_json::Value) -> Result<(), String> {
+    let dir = format!("{root}/.markupsidedown");
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| format!("Failed to create directory: {e}"))?;
+    let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
+    tokio::fs::write(tags_file_path(root), json)
+        .await
+        .map_err(|e| format!("Failed to write tags: {e}"))
+}
+
+async fn tags_list(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
+    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
+    let Some(root) = root_path else {
+        return Json(serde_json::json!({ "error": "No project root available" }));
+    };
+    Json(read_tags(&root).await)
+}
+
+#[derive(Deserialize)]
+struct TagsSetRequest {
+    tags: serde_json::Value,
+}
+
+async fn tags_set(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<TagsSetRequest>,
+) -> Json<serde_json::Value> {
+    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
+    let Some(root) = root_path else {
+        return Json(serde_json::json!({ "error": "No project root available" }));
+    };
+    match write_tags(&root, &body.tags).await {
+        Ok(()) => {
+            state.emit_to_focused("bridge:tags-changed", ());
+            Json(serde_json::json!({ "ok": true }))
+        }
         Err(e) => Json(serde_json::json!({ "error": e })),
     }
 }

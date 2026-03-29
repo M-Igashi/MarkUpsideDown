@@ -488,7 +488,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
           <div id="settings-mcp-tab-content" class="settings-mcp-tab-content"></div>
         </div>
         <details class="settings-mcp-tools-details">
-          <summary>Available tools (43)</summary>
+          <summary>Available tools (48)</summary>
           <div class="settings-mcp-tools-list">
             <div class="settings-mcp-tool"><code>get_editor_content</code> &mdash; Get current Markdown from the editor</div>
             <div class="settings-mcp-tool"><code>set_editor_content</code> &mdash; Replace editor content</div>
@@ -533,6 +533,11 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
             <div class="settings-mcp-tool"><code>git_discard_all</code> &mdash; Discard all uncommitted changes</div>
             <div class="settings-mcp-tool"><code>git_log</code> &mdash; Get recent commit history</div>
             <div class="settings-mcp-tool"><code>git_revert</code> &mdash; Revert a commit by creating a new revert commit</div>
+            <div class="settings-mcp-tool"><code>list_tags</code> &mdash; List all tag definitions and file-tag assignments</div>
+            <div class="settings-mcp-tool"><code>get_file_tags</code> &mdash; Get tags assigned to a specific file</div>
+            <div class="settings-mcp-tool"><code>set_file_tags</code> &mdash; Set tags for a file (replaces existing)</div>
+            <div class="settings-mcp-tool"><code>create_tag</code> &mdash; Create a new tag definition with a color</div>
+            <div class="settings-mcp-tool"><code>delete_tag</code> &mdash; Delete a tag and remove from all files</div>
           </div>
         </details>
       </div>
