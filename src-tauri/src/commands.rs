@@ -1385,17 +1385,14 @@ pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String, String> {
     let bin_name = format!("markupsidedown-mcp-{triple}");
 
     // Production: resource_dir/binaries/
-    let resource_path = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("Failed to resolve resource dir: {e}"))?
-        .join("binaries")
-        .join(&bin_name);
-    if resource_path.exists() {
-        return Ok(resource_path.to_string_lossy().to_string());
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let resource_path = resource_dir.join("binaries").join(&bin_name);
+        if resource_path.exists() {
+            return Ok(resource_path.to_string_lossy().to_string());
+        }
     }
 
-    // Dev mode fallback: src-tauri/binaries/ (resource_dir points to target/debug)
+    // Dev mode fallback: src-tauri/binaries/
     let dev_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("binaries")
         .join(&bin_name);
@@ -1403,7 +1400,7 @@ pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String, String> {
         return Ok(dev_path.to_string_lossy().to_string());
     }
 
-    Err(format!("MCP binary not found at {}", resource_path.display()))
+    Err(format!("MCP binary '{bin_name}' not found"))
 }
 
 // --- CLI Command Runner ---
