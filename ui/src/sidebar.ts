@@ -418,50 +418,7 @@ function render() {
 
   treeEl = document.createElement("div");
   treeEl.className = "sidebar-tree";
-  treeEl.addEventListener("keydown", handleTreeKeydown);
-  treeEl.addEventListener("contextmenu", (e) => {
-    // Only handle clicks on the tree background, not on items
-    const target = e.target as HTMLElement;
-    if (target.closest(".sidebar-tree-item")) return;
-    if (!rootPath) return;
-    e.preventDefault();
-    showEmptyAreaContextMenu(e);
-  });
-
-  // File drop on tree background (drops into root — both external and internal)
-  treeEl.addEventListener("dragover", (e) => {
-    if (!rootPath) return;
-    const isExternal = e.dataTransfer?.types.includes("Files");
-    const isInternal = dragSourcePaths.size > 0;
-    if (!isExternal && !isInternal) return;
-    // Don't highlight tree root when hovering over a folder/file item
-    if ((e.target as HTMLElement).closest(".sidebar-tree-item")) return;
-    e.preventDefault();
-    e.dataTransfer!.dropEffect = isExternal ? "copy" : "move";
-    treeEl!.classList.add("drop-target-root");
-  });
-  treeEl.addEventListener("dragleave", (e) => {
-    if (!e.relatedTarget || !treeEl!.contains(e.relatedTarget as Node)) {
-      treeEl!.classList.remove("drop-target-root");
-    }
-  });
-  treeEl.addEventListener("drop", (e) => {
-    treeEl!.classList.remove("drop-target-root");
-    if (!rootPath) return;
-    // Don't handle here if a folder item already handled it
-    if ((e.target as HTMLElement).closest(".sidebar-tree-item[data-is-dir='true']")) return;
-    e.preventDefault();
-    // External file drop (from Finder)
-    if (e.dataTransfer?.types.includes("Files") && e.dataTransfer.files.length > 0) {
-      handleExternalFileDrop(e.dataTransfer.files, rootPath);
-      return;
-    }
-    // Internal file/folder move to root
-    if (dragSourcePaths.size > 0) {
-      moveEntries(dragSourcePaths, rootPath);
-      dragSourcePaths.clear();
-    }
-  });
+  attachTreeListeners(treeEl);
 
   if (!rootPath) {
     const empty = document.createElement("div");
@@ -675,6 +632,52 @@ export function stopDirWatcher() {
   lastDirSnapshot = "";
 }
 
+function attachTreeListeners(el: HTMLElement) {
+  el.addEventListener("keydown", handleTreeKeydown);
+
+  // Context menu on tree background (empty area)
+  el.addEventListener("contextmenu", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(".sidebar-tree-item")) return;
+    if (!rootPath) return;
+    e.preventDefault();
+    showEmptyAreaContextMenu(e);
+  });
+
+  // File drop on tree background (drops into root — both external and internal)
+  el.addEventListener("dragover", (e) => {
+    if (!rootPath) return;
+    const isExternal = e.dataTransfer?.types.includes("Files");
+    const isInternal = dragSourcePaths.size > 0;
+    if (!isExternal && !isInternal) return;
+    if ((e.target as HTMLElement).closest(".sidebar-tree-item")) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = isExternal ? "copy" : "move";
+    el.classList.add("drop-target-root");
+  });
+  el.addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget || !el.contains(e.relatedTarget as Node)) {
+      el.classList.remove("drop-target-root");
+    }
+  });
+  el.addEventListener("drop", (e) => {
+    el.classList.remove("drop-target-root");
+    if (!rootPath) return;
+    if ((e.target as HTMLElement).closest(".sidebar-tree-item[data-is-dir='true']")) return;
+    e.preventDefault();
+    // External file drop (from Finder)
+    if (e.dataTransfer?.types.includes("Files") && e.dataTransfer.files.length > 0) {
+      handleExternalFileDrop(e.dataTransfer.files, rootPath);
+      return;
+    }
+    // Internal file/folder move to root
+    if (dragSourcePaths.size > 0) {
+      moveEntries(dragSourcePaths, rootPath);
+      dragSourcePaths.clear();
+    }
+  });
+}
+
 export async function refreshTree() {
   if (!rootPath || !treeEl) return;
 
@@ -698,30 +701,7 @@ export async function refreshTree() {
   if (gen !== refreshGeneration) return;
 
   // Atomic swap: replace old tree element with new one.
-  // Re-attach listeners lost by replaceWith.
-  const suppressNativeDrag = (e: DragEvent) => {
-    if (dragSourcePaths.size > 0) e.preventDefault();
-  };
-  newTree.addEventListener("dragenter", suppressNativeDrag);
-  newTree.addEventListener("dragover", suppressNativeDrag);
-  newTree.addEventListener("drop", (e) => {
-    if (dragSourcePaths.size === 0) return;
-    e.preventDefault();
-    // Resolve target folder: if dropped inside an expanded folder's children area,
-    // find the parent folder item (the sibling before .sidebar-tree-children).
-    const target = e.target as HTMLElement;
-    const childrenContainer = target.closest(".sidebar-tree-children");
-    let targetDir = rootPath;
-    if (childrenContainer) {
-      const folderItem = childrenContainer.previousElementSibling as HTMLElement | null;
-      if (folderItem?.dataset.path) targetDir = folderItem.dataset.path;
-    }
-    if (targetDir) {
-      moveEntries(dragSourcePaths, targetDir);
-      dragSourcePaths.clear();
-    }
-  });
-  newTree.addEventListener("keydown", handleTreeKeydown);
+  attachTreeListeners(newTree);
   treeEl.replaceWith(newTree);
   treeEl = newTree;
 }
