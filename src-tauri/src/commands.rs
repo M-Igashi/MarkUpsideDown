@@ -1950,27 +1950,84 @@ pub fn create_cowork_workspace(
     let claude_md = r#"# MarkUpsideDown Workspace
 
 This workspace is configured for use with MarkUpsideDown's MCP server.
+MarkUpsideDown must be running for editor/file/git tools to work.
 
-## Available MCP Tools
+## Available MCP Tools (43)
 
+### Editor
 | Tool | Description |
 |------|-------------|
 | `get_editor_content` | Get current Markdown from the editor |
 | `set_editor_content` | Replace editor content |
 | `insert_text` | Insert text at cursor, start, or end |
+| `get_editor_state` | Get editor state (file path, cursor, Worker URL) |
+| `switch_tab` | Switch the active editor tab |
+
+### Document
+| Tool | Description |
+|------|-------------|
 | `get_document_structure` | Get document structure (headings, links, stats) as JSON |
+| `normalize_document` | Normalize headings, tables, list markers, whitespace |
+
+### File Operations
+| Tool | Description |
+|------|-------------|
 | `open_file` | Open a Markdown file |
 | `save_file` | Save content to a file |
-| `fetch_markdown` | Fetch URL as Markdown |
-| `render_markdown` | JS-render a page as Markdown |
-| `convert_to_markdown` | Convert local file to Markdown |
+| `read_file` | Read a text file from the project |
+| `list_directory` | List files and directories (respects .gitignore) |
+| `search_files` | Search file names in the project |
+| `create_file` | Create a new empty file |
+| `create_directory` | Create a new directory |
+| `rename_entry` | Rename or move a file or directory |
+| `delete_entry` | Delete a file or directory (moved to trash) |
+| `copy_entry` | Copy a file or directory |
+| `duplicate_entry` | Duplicate a file or directory |
+| `get_open_tabs` | List all open editor tabs |
+| `get_project_root` | Get the current project root path |
+| `get_dirty_files` | List files with unsaved changes |
+
+### Web Fetching & Conversion
+| Tool | Description |
+|------|-------------|
+| `get_markdown` | Fetch URL as Markdown (auto-detects JS-rendered pages) |
+| `fetch_markdown` | Fetch URL as Markdown (static only) |
+| `render_markdown` | JS-render a page as Markdown via Browser Rendering |
+| `convert_to_markdown` | Convert local file (PDF, DOCX, images, etc.) to Markdown |
+| `extract_json` | Extract structured JSON from a web page using AI |
+| `download_image` | Download an image from a URL to local path |
+| `fetch_page_title` | Extract page title for Markdown links |
+
+### Website Crawling
+| Tool | Description |
+|------|-------------|
+| `crawl_website` | Start a website crawl job (markdown and/or json output) |
+| `crawl_status` | Poll crawl job status and retrieve pages |
+| `crawl_save` | Save crawled pages as local Markdown files |
+
+### Git
+| Tool | Description |
+|------|-------------|
+| `git_status` | Get git status (branch, changes, ahead/behind) |
+| `git_stage` | Stage a file for commit |
+| `git_unstage` | Unstage a file |
+| `git_commit` | Commit staged changes |
+| `git_push` | Push commits to remote |
+| `git_pull` | Pull changes from remote |
+| `git_fetch` | Fetch updates from remote |
+| `git_diff` | Get the diff for a specific file |
+| `git_discard` | Discard changes for a specific file |
+| `git_discard_all` | Discard all uncommitted changes |
+| `git_log` | Get recent commit history |
+| `git_revert` | Revert a commit |
 
 ## Tips
 
-- MarkUpsideDown must be running for editor tools to work
-- Place your Markdown files in this folder for easy access
-- Use `fetch_markdown` to import web pages directly into the editor
-- Use `convert_to_markdown` to import PDFs, DOCX, images, and more
+- Use `get_markdown` (recommended) instead of `fetch_markdown`/`render_markdown` for most URL fetching
+- Use `convert_to_markdown` to import PDFs, DOCX, XLSX, PPTX, HTML, CSV, XML, images
+- Use `crawl_website` + `crawl_status` for multi-page site crawls with markdown and/or json output
+- Use `extract_json` to extract structured data from web pages via AI
+- Use `get_document_structure` instead of parsing raw Markdown for structural analysis
 "#;
     let claude_md_path = expanded.join("CLAUDE.md");
     if !claude_md_path.exists() {
