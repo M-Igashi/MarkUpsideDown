@@ -2954,6 +2954,11 @@ body {
   align-items: center;
 }
 
+.settings-mcp-cowork-path-row button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .settings-mcp-cowork-path {
   flex: 1;
   padding: 4px 8px;

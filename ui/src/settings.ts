@@ -819,6 +819,7 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
     <div class="settings-mcp-cowork-actions">
       <div class="settings-mcp-cowork-path-row">
         <input type="text" id="settings-cowork-path" class="settings-mcp-cowork-path" placeholder="~/Claude-Workspace" value="~/Claude-Workspace" />
+        <button id="settings-cowork-browse">Browse</button>
         <button id="settings-cowork-create" class="primary">Create workspace</button>
       </div>
       <div id="settings-cowork-result" class="settings-test-result"></div>
@@ -833,8 +834,15 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
   `;
 
   const createBtn = container.querySelector("#settings-cowork-create") as HTMLButtonElement;
+  const browseBtn = container.querySelector("#settings-cowork-browse") as HTMLButtonElement;
   const pathInput = container.querySelector("#settings-cowork-path") as HTMLInputElement;
   const resultEl = container.querySelector("#settings-cowork-result")!;
+
+  browseBtn.addEventListener("click", async () => {
+    const { open: openDialog } = window.__TAURI__.dialog;
+    const dir = await openDialog({ directory: true });
+    if (dir) pathInput.value = dir;
+  });
 
   createBtn.addEventListener("click", async () => {
     const folderPath = pathInput.value.trim();
