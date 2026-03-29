@@ -27,6 +27,10 @@ const SUPPORTED_TYPES = new Set([
 
 const RENDER_CACHE_TTL = 3600; // 1 hour
 
+function hasSecrets(env: Env): boolean {
+  return Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === "OPTIONS") {
@@ -74,9 +78,9 @@ function handleHealth(env: Env): Response {
     capabilities: {
       fetch: true,
       convert: true,
-      render: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
-      json: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
-      crawl: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
+      render: hasSecrets(env),
+      json: hasSecrets(env),
+      crawl: hasSecrets(env),
     },
   });
 }
@@ -171,7 +175,7 @@ async function handleRender(url: URL, env: Env, ctx: ExecutionContext): Promise<
     return jsonResponse({ error: "Missing ?url= parameter" }, 400);
   }
 
-  if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) {
+  if (!hasSecrets(env)) {
     return jsonResponse({ error: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required for rendering" }, 500);
   }
 
@@ -244,7 +248,7 @@ async function handleRender(url: URL, env: Env, ctx: ExecutionContext): Promise<
 // --- JSON Extraction (Browser Rendering /json API proxy) ---
 
 async function handleJson(request: Request, env: Env): Promise<Response> {
-  if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) {
+  if (!hasSecrets(env)) {
     return jsonResponse({ error: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required for JSON extraction" }, 500);
   }
 
@@ -310,7 +314,7 @@ async function handleJson(request: Request, env: Env): Promise<Response> {
 // --- Crawl (Browser Rendering /crawl API proxy) ---
 
 async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
-  if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) {
+  if (!hasSecrets(env)) {
     return jsonResponse({ error: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required for crawling" }, 500);
   }
 
@@ -385,7 +389,7 @@ async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleCrawlStatus(jobId: string, url: URL, env: Env): Promise<Response> {
-  if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) {
+  if (!hasSecrets(env)) {
     return jsonResponse({ error: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required" }, 500);
   }
 

@@ -58,9 +58,8 @@ async function save(): Promise<void> {
   const dir = `${currentRootPath}/.markupsidedown`;
   try {
     await invoke("create_directory", { path: dir });
-  } catch {
-    // directory may already exist
-  }
+  } catch {}
+
   // Remove empty file entries before saving
   for (const [path, tags] of Object.entries(data.files)) {
     if (tags.length === 0) delete data.files[path];

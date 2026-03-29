@@ -96,6 +96,7 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
 async function pollCrawl(jobId: string, workerUrl: string): Promise<CrawlPage[]> {
   const allPages: CrawlPage[] = [];
   const maxAttempts = 300; // 5 minutes at 1s interval
+  let lastStatus = "";
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     let cursor: string | null = null;
@@ -114,7 +115,11 @@ async function pollCrawl(jobId: string, workerUrl: string): Promise<CrawlPage[]>
         }
       }
 
-      statusEl.textContent = `Crawling... ${result.finished}/${result.total} pages (${allPages.length} saved)`;
+      const newStatus = `Crawling... ${result.finished}/${result.total} pages (${allPages.length} saved)`;
+      if (newStatus !== lastStatus) {
+        statusEl.textContent = newStatus;
+        lastStatus = newStatus;
+      }
 
       cursor = result.cursor;
 

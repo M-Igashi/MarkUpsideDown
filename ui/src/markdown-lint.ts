@@ -37,8 +37,6 @@ export const markdownLinter = linter(
   { delay: 500 },
 );
 
-// --- Heading checks ---
-
 function checkHeadings(
   structure: DocumentStructure,
   doc: { line: (n: number) => { from: number; to: number } },
@@ -76,8 +74,6 @@ function checkHeadings(
     }
   }
 }
-
-// --- Link checks ---
 
 const LINK_PATTERN = /\[([^\]]*)\]\(([^)]*)\)/g;
 
@@ -119,8 +115,6 @@ function checkLinks(
   }
 }
 
-// --- Table checks ---
-
 function checkTables(
   structure: DocumentStructure,
   doc: { line: (n: number) => { from: number; to: number } },
@@ -150,8 +144,6 @@ function checkTables(
   }
 }
 
-// --- Frontmatter checks ---
-
 function checkFrontmatter(
   structure: DocumentStructure,
   doc: { line: (n: number) => { from: number; to: number } },
@@ -169,8 +161,6 @@ function checkFrontmatter(
     });
   }
 }
-
-// --- List checks ---
 
 function checkLists(
   structure: DocumentStructure,
