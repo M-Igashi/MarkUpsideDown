@@ -3,6 +3,7 @@
 
 // --- Settings ---
 export const KEY_WORKER_URL = "markupsidedown:workerUrl";
+export const KEY_ACCOUNT_ID = "markupsidedown:accountId";
 export const KEY_SETUP_DONE = "markupsidedown:setupDone";
 export const KEY_ALLOW_IMAGE = "markupsidedown:allowImageConversion";
 export const KEY_AUTOSAVE = "markupsidedown:autosave";

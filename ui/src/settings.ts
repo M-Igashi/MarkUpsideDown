@@ -1,7 +1,13 @@
 import { isLintEnabled, setLintEnabled } from "./markdown-lint.ts";
 import { isSmartTypographyEnabled, setSmartTypographyEnabled } from "./smart-typography.ts";
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
-import { KEY_WORKER_URL, KEY_SETUP_DONE, KEY_ALLOW_IMAGE, KEY_AUTOSAVE } from "./storage-keys.ts";
+import {
+  KEY_WORKER_URL,
+  KEY_ACCOUNT_ID,
+  KEY_SETUP_DONE,
+  KEY_ALLOW_IMAGE,
+  KEY_AUTOSAVE,
+} from "./storage-keys.ts";
 import { escapeHtml } from "./html-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
@@ -214,6 +220,9 @@ async function startAutoSetup(
   if (!accountId) {
     return fail("login", "No Cloudflare accounts found.");
   }
+
+  // Persist account ID for future Worker updates
+  localStorage.setItem(KEY_ACCOUNT_ID, accountId);
 
   // Step 3: Deploy
   update("deploy", "running");
@@ -639,6 +648,32 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
 
   // Update Worker (re-deploy only, no login/secrets)
   updateWorkerBtn.addEventListener("click", async () => {
+    // Resolve account ID: saved from initial setup, or auto-detect for single-account users
+    let resolvedAccountId = localStorage.getItem(KEY_ACCOUNT_ID);
+    if (!resolvedAccountId) {
+      try {
+        const wStatus = await invoke<WranglerStatus>("check_wrangler_status");
+        if (wStatus.accounts.length === 1) {
+          resolvedAccountId = wStatus.accounts[0].id;
+          localStorage.setItem(KEY_ACCOUNT_ID, resolvedAccountId);
+        } else if (wStatus.accounts.length > 1) {
+          // Show account picker inline
+          updateResult.style.display = "";
+          updateResult.className = "settings-test-result test-warn";
+          updateResult.textContent = "Multiple accounts detected. Selecting account\u2026";
+          resolvedAccountId = await showAccountPicker(
+            updateResult.parentElement!,
+            wStatus.accounts,
+          );
+          if (resolvedAccountId) {
+            localStorage.setItem(KEY_ACCOUNT_ID, resolvedAccountId);
+          }
+        }
+      } catch {
+        // Fall through — deploy_worker will try without account_id
+      }
+    }
+
     updateWorkerBtn.disabled = true;
     updateWorkerBtn.textContent = "Updating\u2026";
     updateResult.style.display = "";
@@ -646,7 +681,9 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
     updateResult.textContent = "Re-deploying Worker\u2026";
 
     try {
-      const newUrl = await invoke<string>("deploy_worker", { accountId: null });
+      const newUrl = await invoke<string>("deploy_worker", {
+        accountId: resolvedAccountId,
+      });
       updateResult.className = "settings-test-result test-ok";
       updateResult.textContent = `Worker updated successfully: ${newUrl}`;
       urlInput.value = newUrl;
