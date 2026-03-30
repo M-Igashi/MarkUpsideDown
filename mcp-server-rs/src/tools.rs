@@ -803,7 +803,7 @@ impl McpTools {
             let response = self
                 .http
                 .post(&json_url)
-                .timeout(std::time::Duration::from_secs(60))
+                .timeout(std::time::Duration::from_secs(120))
                 .json(&body)
                 .send()
                 .await
