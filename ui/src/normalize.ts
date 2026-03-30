@@ -12,6 +12,7 @@ export function normalizeMarkdown(input: string): string {
   text = removeEmptyLinks(text);
   text = normalizeListMarkers(text);
   text = reformatTables(text);
+  text = fixCjkEmphasis(text);
   text = collapseWhitespace(text);
   return text;
 }
@@ -311,6 +312,41 @@ function reformatTables(text: string): string {
   }
 
   return result.join("\n");
+}
+
+// --- CJK emphasis fix ---
+// CommonMark delimiter-flanking rules treat CJK characters as "letters",
+// so **bold** adjacent to CJK text fails to render. Insert spaces at the
+// outer boundaries of **...** and *...* spans to fix flanking checks.
+// This produces portable Markdown that renders correctly everywhere.
+
+const CJK_EMPHASIS_RE = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
+
+function fixCjkEmphasis(text: string): string {
+  let inFence = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (/^(`{3,}|~{3,})/.test(line.trimStart())) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+
+      // Fix **...** spans — match complete pairs and add spaces at CJK boundaries
+      const orig = line;
+      line = line.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, (m, content, offset) => {
+        const before = offset > 0 ? orig[offset - 1] : "";
+        const afterPos = offset + m.length;
+        const after = afterPos < orig.length ? orig[afterPos] : "";
+        const pre = before && CJK_EMPHASIS_RE.test(before) ? " " : "";
+        const post = after && CJK_EMPHASIS_RE.test(after) ? " " : "";
+        return `${pre}**${content}**${post}`;
+      });
+
+      return line;
+    })
+    .join("\n");
 }
 
 // --- Whitespace collapse ---
