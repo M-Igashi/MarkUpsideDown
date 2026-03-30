@@ -316,17 +316,29 @@ async function handleJson(request: Request, env: Env): Promise<Response> {
       body: JSON.stringify(jsonBody),
     });
 
+    const data = await response.json<{ success: boolean; result: unknown; errors?: unknown[]; rawAiResponse?: string }>();
+
+    // If the API returned structured result, use it directly
+    if (data.success && data.result) {
+      return jsonResponse({ data: data.result });
+    }
+
+    // Fallback: if rawAiResponse exists, try to parse it as JSON
+    if (data.rawAiResponse) {
+      try {
+        const parsed = JSON.parse(data.rawAiResponse);
+        return jsonResponse({ data: parsed });
+      } catch {
+        // Return the raw text as-is if it's not valid JSON
+        return jsonResponse({ data: data.rawAiResponse });
+      }
+    }
+
     if (!response.ok) {
-      const errorBody = await response.text();
-      return jsonResponse({ error: `Browser Rendering JSON API error (${response.status}): ${errorBody}` }, response.status);
+      return jsonResponse({ error: `Browser Rendering JSON API error (${response.status})`, details: data.errors }, response.status);
     }
 
-    const data = await response.json<{ success: boolean; result: unknown; errors?: unknown[] }>();
-    if (!data.success) {
-      return jsonResponse({ error: "Browser Rendering JSON API returned failure", details: data.errors }, 500);
-    }
-
-    return jsonResponse({ data: data.result });
+    return jsonResponse({ error: "No data in response", details: data.errors }, 500);
   } catch (e) {
     return jsonResponse({ error: `JSON extraction failed: ${e instanceof Error ? e.message : "Unknown error"}` }, 500);
   }
