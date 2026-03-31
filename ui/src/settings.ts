@@ -470,7 +470,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
         </label>
         <label class="settings-toggle-row">
           <input type="checkbox" id="settings-lint" />
-          <span class="settings-toggle-label">Markdown structure linting (heading hierarchy, links, tables)</span>
+          <span class="settings-toggle-label">Markdown linting (headings, links, tables, emphasis flanking)</span>
         </label>
         <label class="settings-toggle-row">
           <input type="checkbox" id="settings-smart-typography" />

@@ -316,11 +316,30 @@ function reformatTables(text: string): string {
 
 // --- CJK emphasis fix ---
 // CommonMark delimiter-flanking rules treat CJK characters as "letters",
-// so **bold** adjacent to CJK text fails to render. Insert spaces at the
-// outer boundaries of **...** and *...* spans to fix flanking checks.
-// This produces portable Markdown that renders correctly everywhere.
+// causing emphasis markers adjacent to CJK text to fail parsing.
+// Reference: https://zenn.dev/miyabitti/articles/594fdb7373a3a8
+//
+// Two failure modes:
+//   1. Inner spaces: "** text **" — never parsed as emphasis
+//   2. CJK adjacency: "は**「重要」**です" — flanking delimiter check fails
+//      when letter precedes opening ** + content starts with punctuation,
+//      or content ends with punctuation + letter follows closing **.
+//
+// Fix: strip inner spaces, insert half-width spaces at CJK boundaries.
+// Handles **, *, __, _ for portable Markdown that renders everywhere.
 
 const CJK_EMPHASIS_RE = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
+
+function spaceCjkEmphasis(line: string, re: RegExp, marker: string): string {
+  return line.replace(re, (m, content, offset, str) => {
+    const before = offset > 0 ? str[offset - 1] : "";
+    const afterPos = offset + m.length;
+    const after = afterPos < str.length ? str[afterPos] : "";
+    const pre = before && CJK_EMPHASIS_RE.test(before) ? " " : "";
+    const post = after && CJK_EMPHASIS_RE.test(after) ? " " : "";
+    return `${pre}${marker}${content}${marker}${post}`;
+  });
+}
 
 function fixCjkEmphasis(text: string): string {
   let inFence = false;
@@ -333,16 +352,15 @@ function fixCjkEmphasis(text: string): string {
       }
       if (inFence) return line;
 
-      // Fix **...** spans — match complete pairs and add spaces at CJK boundaries
-      const orig = line;
-      line = line.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, (m, content, offset) => {
-        const before = offset > 0 ? orig[offset - 1] : "";
-        const afterPos = offset + m.length;
-        const after = afterPos < orig.length ? orig[afterPos] : "";
-        const pre = before && CJK_EMPHASIS_RE.test(before) ? " " : "";
-        const post = after && CJK_EMPHASIS_RE.test(after) ? " " : "";
-        return `${pre}**${content}**${post}`;
-      });
+      // 1. Strip inner spaces: "** text **" → "**text**", "* text *" → "*text*"
+      line = line.replace(/\*\*\s+((?:[^*]|\*(?!\*))+?)\s+\*\*/g, "**$1**");
+      line = line.replace(/__\s+((?:[^_]|_(?!_))+?)\s+__/g, "__$1__");
+
+      // 2. Insert spaces at CJK boundaries (longer markers first to avoid conflicts)
+      line = spaceCjkEmphasis(line, /\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, "**");
+      line = spaceCjkEmphasis(line, /(?<!\*)\*((?:[^*\n])+?)\*(?!\*)/g, "*");
+      line = spaceCjkEmphasis(line, /__((?:[^_]|_(?!_))+?)__/g, "__");
+      line = spaceCjkEmphasis(line, /(?<!_)_((?:[^_\n])+?)_(?!_)/g, "_");
 
       return line;
     })

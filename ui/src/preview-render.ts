@@ -141,6 +141,17 @@ marked.use(mathExtension);
 const CJK_RE = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
 const HAIR = "\u200A";
 
+function spaceCjkEmphasisPreview(line: string, re: RegExp, marker: string): string {
+  return line.replace(re, (m, content, offset, str) => {
+    const before = offset > 0 ? str[offset - 1] : "";
+    const afterPos = offset + m.length;
+    const after = afterPos < str.length ? str[afterPos] : "";
+    const pre = before && CJK_RE.test(before) ? HAIR : "";
+    const post = after && CJK_RE.test(after) ? HAIR : "";
+    return `${pre}${marker}${content}${marker}${post}`;
+  });
+}
+
 function fixCjkEmphasis(source: string): string {
   let inFence = false;
   return source
@@ -152,17 +163,16 @@ function fixCjkEmphasis(source: string): string {
       }
       if (inFence) return line;
 
-      // Capture the original line for offset-based character lookup,
-      // then replace each **...** span, inserting hair spaces at CJK boundaries.
-      const orig = line;
-      line = line.replace(/\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, (m, content, offset) => {
-        const before = offset > 0 ? orig[offset - 1] : "";
-        const afterPos = offset + m.length;
-        const after = afterPos < orig.length ? orig[afterPos] : "";
-        const pre = before && CJK_RE.test(before) ? HAIR : "";
-        const post = after && CJK_RE.test(after) ? HAIR : "";
-        return `${pre}**${content}**${post}`;
-      });
+      // Strip inner spaces: "** text **" → "**text**"
+      line = line.replace(/\*\*\s+((?:[^*]|\*(?!\*))+?)\s+\*\*/g, "**$1**");
+      line = line.replace(/__\s+((?:[^_]|_(?!_))+?)\s+__/g, "__$1__");
+
+      // Insert hair spaces at CJK boundaries (longer markers first)
+      line = spaceCjkEmphasisPreview(line, /\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, "**");
+      line = spaceCjkEmphasisPreview(line, /(?<!\*)\*((?:[^*\n])+?)\*(?!\*)/g, "*");
+      line = spaceCjkEmphasisPreview(line, /__((?:[^_]|_(?!_))+?)__/g, "__");
+      line = spaceCjkEmphasisPreview(line, /(?<!_)_((?:[^_\n])+?)_(?!_)/g, "_");
+
       return line;
     })
     .join("\n");

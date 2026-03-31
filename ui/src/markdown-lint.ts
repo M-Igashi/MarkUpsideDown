@@ -1,4 +1,5 @@
 import { linter, type Diagnostic } from "@codemirror/lint";
+import { marked } from "marked";
 import { getDocumentStructure, type DocumentStructure } from "./document-structure.ts";
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import { KEY_LINT_ENABLED } from "./storage-keys.ts";
@@ -31,6 +32,7 @@ export const markdownLinter = linter(
     checkTables(structure, doc, diagnostics);
     checkFrontmatter(structure, doc, diagnostics);
     checkLists(structure, doc, diagnostics);
+    checkEmphasis(text, doc, diagnostics);
 
     return diagnostics;
   },
@@ -194,5 +196,114 @@ function checkLists(
         break; // one diagnostic per list block
       }
     }
+  }
+}
+
+// --- Emphasis / flanking delimiter check ---
+// Detect emphasis markers that fail CommonMark flanking delimiter rules.
+// Uses marked.parseInline() as the authoritative parser: if markers remain
+// as literal text after parsing, the emphasis is broken.
+// Reference: https://zenn.dev/miyabitti/articles/594fdb7373a3a8
+
+function checkEmphasis(
+  text: string,
+  doc: { line: (n: number) => { from: number; to: number; text: string } },
+  diagnostics: Diagnostic[],
+) {
+  const lines = text.split("\n");
+  let inFence = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^(`{3,}|~{3,})/.test(line.trimStart())) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (!/[*_]/.test(line)) continue;
+
+    const lineObj = doc.line(i + 1);
+
+    // Mask inline code spans so they don't trigger false positives
+    const noCode = line.replace(/`[^`]*`/g, (m) => " ".repeat(m.length));
+
+    checkEmphasisPattern(
+      noCode,
+      /\*\*((?:[^*]|\*(?!\*))+?)\*\*/g,
+      "**",
+      "strong",
+      line,
+      lineObj,
+      diagnostics,
+    );
+    checkEmphasisPattern(
+      noCode,
+      /(?<!\*)\*((?:[^*\n])+?)\*(?!\*)/g,
+      "*",
+      "em",
+      line,
+      lineObj,
+      diagnostics,
+    );
+    checkEmphasisPattern(
+      noCode,
+      /__((?:[^_]|_(?!_))+?)__/g,
+      "__",
+      "strong",
+      line,
+      lineObj,
+      diagnostics,
+    );
+    checkEmphasisPattern(
+      noCode,
+      /(?<!_)_((?:[^_\n])+?)_(?!_)/g,
+      "_",
+      "em",
+      line,
+      lineObj,
+      diagnostics,
+    );
+  }
+}
+
+function checkEmphasisPattern(
+  masked: string,
+  re: RegExp,
+  marker: string,
+  htmlTag: string,
+  originalLine: string,
+  lineObj: { from: number; to: number },
+  diagnostics: Diagnostic[],
+) {
+  let m;
+  while ((m = re.exec(masked)) !== null) {
+    // Build a minimal context string: one char before + match + one char after
+    const before = m.index > 0 ? originalLine[m.index - 1] : " ";
+    const afterIdx = m.index + m[0].length;
+    const after = afterIdx < originalLine.length ? originalLine[afterIdx] : " ";
+    const context = before + m[0] + after;
+
+    const html = marked.parseInline(context);
+    if (html.includes(`<${htmlTag}>`)) continue;
+
+    // Emphasis failed to parse — determine the reason for a helpful message
+    const content = m[1];
+    const isBold = marker.length === 2;
+    const name = isBold ? "Bold" : "Italic";
+    const innerSpace = content.startsWith(" ") || content.endsWith(" ");
+
+    let message: string;
+    if (innerSpace) {
+      message = `${name} not rendered — spaces inside ${marker}...${marker} prevent parsing. Remove inner spaces.`;
+    } else {
+      message = `${name} not rendered — CommonMark flanking delimiter failure. Add spaces: " ${marker}text${marker} "`;
+    }
+
+    diagnostics.push({
+      from: lineObj.from + m.index,
+      to: lineObj.from + m.index + m[0].length,
+      severity: "warning",
+      message,
+    });
   }
 }
