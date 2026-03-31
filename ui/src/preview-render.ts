@@ -129,7 +129,41 @@ const mathExtension = {
   ],
 };
 
+// --- Figure caption extension for marked ---
+// ![alt](url) followed immediately by *caption* → <figure> + <figcaption>
+
+const figureExtension = {
+  extensions: [
+    {
+      name: "figureBlock",
+      level: "block" as const,
+      start(src: string) {
+        return src.match(/^!\[/)?.index;
+      },
+      tokenizer(src: string) {
+        const match = src.match(/^!\[([^\]]*)\]\(([^)]+)\)\n\*([^*\n]+)\*(?:\n|$)/);
+        if (match) {
+          return {
+            type: "figureBlock",
+            raw: match[0],
+            alt: match[1],
+            src: match[2],
+            caption: match[3],
+          };
+        }
+      },
+      renderer(token: { alt: string; src: string; caption: string }) {
+        const altAttr = escapeHtml(token.alt);
+        const srcAttr = escapeHtml(token.src);
+        const captionHtml = escapeHtml(token.caption);
+        return `<figure><img src="${srcAttr}" alt="${altAttr}" loading="lazy"><figcaption>${captionHtml}</figcaption></figure>\n`;
+      },
+    },
+  ],
+};
+
 marked.use(mathExtension);
+marked.use(figureExtension);
 
 // --- CJK emphasis fix ---
 // CommonMark delimiter-flanking rules fail for CJK text: ** between CJK
@@ -217,12 +251,21 @@ function slAttr(sourceLine: number | undefined) {
 const previewRenderer = new marked.Renderer() as any;
 previewRenderer.code = function ({ text, lang, _sourceLine }: any) {
   const sl = slAttr(_sourceLine);
-  if (lang === "mermaid") {
+  // Parse lang:filename (e.g. "ts:src/main.ts")
+  let hlLang = lang || "";
+  let filename = "";
+  const colonIdx = hlLang.indexOf(":");
+  if (colonIdx > 0) {
+    filename = hlLang.slice(colonIdx + 1);
+    hlLang = hlLang.slice(0, colonIdx);
+  }
+  if (hlLang === "mermaid") {
     return `<div${sl} class="mermaid-container" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
   }
   const escaped = escapeHtml(text);
-  const langAttr = lang ? ` data-hljs-lang="${lang}"` : "";
-  return `<pre${sl}><code class="hljs"${langAttr}>${escaped}</code></pre>`;
+  const langAttr = hlLang ? ` data-hljs-lang="${hlLang}"` : "";
+  const filenameEl = filename ? `<div class="code-filename">${escapeHtml(filename)}</div>` : "";
+  return `${filenameEl}<pre${sl}><code class="hljs"${langAttr}>${escaped}</code></pre>`;
 };
 previewRenderer.heading = function (this: any, { tokens, depth, _sourceLine }: any) {
   return `<h${depth}${slAttr(_sourceLine)}>${this.parser.parseInline(tokens)}</h${depth}>\n`;

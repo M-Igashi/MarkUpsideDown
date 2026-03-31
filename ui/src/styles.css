@@ -2126,6 +2126,22 @@ body {
   border-color: var(--text-muted);
 }
 
+#preview-pane .code-filename {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 4px 12px;
+  font-size: 0.8em;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+#preview-pane .code-filename + pre {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  margin-top: 0;
+}
+
 #preview-pane pre code {
   background: none;
   padding: 0;
