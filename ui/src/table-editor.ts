@@ -22,7 +22,7 @@ function parseMarkdownTable(text: string): TableData | null {
   if (lines.length < 2) return null;
 
   const parseRow = (line: string): string[] =>
-    splitTableCells(line).map((c) => c.replace(/\\\|/g, "|"));
+    splitTableCells(line).map((c) => c.replace(/\\([\\|])/g, "$1"));
 
   const header = parseRow(lines[0]);
   const sepLine = lines[1].trim();
@@ -55,8 +55,8 @@ function generateMarkdownTable(table: TableData): string {
   const { headers, alignments, rows } = table;
   const colCount = headers.length;
 
-  // Escape pipes in cell content for Markdown output
-  const escapeCell = (s: string): string => s.replace(/\|/g, "\\|");
+  // Escape backslashes first, then pipes — order matters to avoid ambiguity
+  const escapeCell = (s: string): string => s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 
   const widths = Array.from({ length: colCount }, (_, i) => {
     const cells = [headers[i], ...rows.map((r) => r[i] || "")];
