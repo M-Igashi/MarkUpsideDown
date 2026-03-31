@@ -689,6 +689,7 @@ fn sanitize_filename(name: &str) -> String {
 // --- Fetch Page Title ---
 
 pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    validate_url(url)?;
     let response = client
         .get(url)
         .timeout(Duration::from_secs(10))
@@ -725,6 +726,9 @@ pub async fn download_image_with(
     url: &str,
     dest_path: &str,
 ) -> Result<String, String> {
+    validate_url(url)?;
+    let validated_path = validate_path(dest_path)?;
+    let dest_path = validated_path.to_str().ok_or("Invalid path encoding")?;
     let response = client
         .get(url)
         .timeout(Duration::from_secs(30))
@@ -1100,6 +1104,15 @@ fn validate_path(path: &str) -> Result<std::path::PathBuf, String> {
     }
 
     Ok(resolved)
+}
+
+/// Validate that a URL uses an allowed scheme (http/https only).
+fn validate_url(url: &str) -> Result<(), String> {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        Ok(())
+    } else {
+        Err("Invalid URL: only http and https schemes are allowed".to_string())
+    }
 }
 
 // --- File Tree ---
