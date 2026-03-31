@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const WORKER_INDEX_TS: &str = include_str!("../../worker/src/index.ts");
@@ -21,54 +22,61 @@ pub struct WranglerStatus {
     pub accounts: Vec<WranglerAccount>,
 }
 
+/// Cached augmented PATH for macOS GUI apps that don't inherit shell env.
+static AUGMENTED_PATH: OnceLock<Option<String>> = OnceLock::new();
+
+fn compute_augmented_path() -> Option<String> {
+    let current_path = std::env::var("PATH").ok()?;
+    let home = crate::util::home_dir();
+    let mut extra_paths = Vec::new();
+    if let Some(ref home) = home {
+        for dir in [
+            ".npm-packages/bin",
+            ".nodebrew/current/bin",
+            ".volta/bin",
+            ".local/bin",
+            ".asdf/shims",
+            ".local/share/mise/shims",
+            ".local/share/fnm/aliases/default/bin",
+            ".proto/shims",
+            "n/bin",
+        ] {
+            let p = home.join(dir);
+            if p.exists() {
+                extra_paths.push(p.to_string_lossy().to_string());
+            }
+        }
+        let nvm_dir = home.join(".nvm/versions/node");
+        if nvm_dir.exists()
+            && let Ok(entries) = std::fs::read_dir(&nvm_dir)
+        {
+            let mut versions: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+            versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+            if let Some(latest) = versions.first() {
+                extra_paths.push(latest.path().join("bin").to_string_lossy().to_string());
+            }
+        }
+    }
+    for p in ["/opt/homebrew/bin"] {
+        if !current_path.contains(p) {
+            extra_paths.push(p.to_string());
+        }
+    }
+    if extra_paths.is_empty() {
+        None
+    } else {
+        Some(format!("{}:{}", extra_paths.join(":"), current_path))
+    }
+}
+
 /// Set HOME and augment PATH for macOS GUI apps that don't inherit shell env.
 /// Covers: Homebrew (Intel + ARM), nvm, nodebrew, fnm, Volta, asdf, mise, n, proto
 fn setup_gui_env(cmd: &mut Command) {
-    let home = crate::util::home_dir();
-    if let Some(ref home) = home {
+    if let Some(home) = crate::util::home_dir() {
         cmd.env("HOME", home);
     }
-    if let Ok(current_path) = std::env::var("PATH") {
-        let mut extra_paths = Vec::new();
-        if let Some(ref home) = home {
-            for dir in [
-                ".npm-packages/bin",
-                ".nodebrew/current/bin",
-                ".volta/bin",
-                ".local/bin",
-                ".asdf/shims",
-                ".local/share/mise/shims",
-                ".local/share/fnm/aliases/default/bin",
-                ".proto/shims",
-                "n/bin",
-            ] {
-                let p = home.join(dir);
-                if p.exists() {
-                    extra_paths.push(p.to_string_lossy().to_string());
-                }
-            }
-            let nvm_dir = home.join(".nvm/versions/node");
-            if nvm_dir.exists()
-                && let Ok(entries) = std::fs::read_dir(&nvm_dir)
-            {
-                let mut versions: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-                versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
-                if let Some(latest) = versions.first() {
-                    extra_paths.push(
-                        latest.path().join("bin").to_string_lossy().to_string(),
-                    );
-                }
-            }
-        }
-        for p in ["/opt/homebrew/bin"] {
-            if !current_path.contains(p) {
-                extra_paths.push(p.to_string());
-            }
-        }
-        if !extra_paths.is_empty() {
-            let new_path = format!("{}:{}", extra_paths.join(":"), current_path);
-            cmd.env("PATH", new_path);
-        }
+    if let Some(path) = AUGMENTED_PATH.get_or_init(compute_augmented_path) {
+        cmd.env("PATH", path);
     }
 }
 

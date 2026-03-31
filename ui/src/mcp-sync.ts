@@ -29,6 +29,7 @@ let refreshGitAndSync: () => void;
 let syncTimeout: ReturnType<typeof setTimeout> | null = null;
 let lastSyncedContent: string | null = null;
 let lastSyncedFilePath: string | null = null;
+let lastSyncedCursorPos: number | null = null;
 let cachedStructureContent: string | null = null;
 let cachedStructureJson: string | null = null;
 
@@ -59,10 +60,25 @@ export function syncEditorState(cachedContent?: string) {
   syncTimeout = setTimeout(() => {
     const currentFilePath = getCurrentFilePath();
     const content = cachedContent ?? editor.state.doc.toString();
-    if (content === lastSyncedContent && currentFilePath === lastSyncedFilePath) return;
+    const cursorPos = editor.state.selection.main.head;
+    const contentChanged = content !== lastSyncedContent || currentFilePath !== lastSyncedFilePath;
+    const cursorChanged = cursorPos !== lastSyncedCursorPos;
+    if (!contentChanged && !cursorChanged) return;
+    lastSyncedCursorPos = cursorPos;
+    if (!contentChanged) {
+      // Cursor-only change: send lightweight update without content/structure/tabs
+      const cursorLineObj = editor.state.doc.lineAt(cursorPos);
+      invoke("sync_editor_state", {
+        content: lastSyncedContent,
+        filePath: currentFilePath,
+        cursorPos,
+        cursorLine: cursorLineObj.number,
+        cursorColumn: cursorPos - cursorLineObj.from,
+      }).catch(() => {});
+      return;
+    }
     lastSyncedContent = content;
     lastSyncedFilePath = currentFilePath;
-    const cursorPos = editor.state.selection.main.head;
     const cursorLineObj = editor.state.doc.lineAt(cursorPos);
     const cursorLine = cursorLineObj.number;
     const cursorColumn = cursorPos - cursorLineObj.from;

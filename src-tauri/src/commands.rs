@@ -76,6 +76,22 @@ impl EditorStates {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
+
+    /// Get a single field from the focused window's state without cloning the entire struct.
+    fn get_focused_field<T>(&self, f: impl FnOnce(&EditorStateInner) -> T) -> Option<T> {
+        let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let focused = self.focused.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(label) = focused.as_ref() {
+            if let Some(state) = map.get(label) {
+                return Some(f(state));
+            }
+        }
+        map.values().next().map(f)
+    }
+
+    pub fn get_focused_root_path(&self) -> Option<String> {
+        self.get_focused_field(|s| s.root_path.clone()).flatten()
+    }
 }
 
 
@@ -672,13 +688,9 @@ fn sanitize_filename(name: &str) -> String {
 
 // --- Fetch Page Title ---
 
-#[tauri::command]
-pub async fn fetch_page_title(
-    url: String,
-    client: tauri::State<'_, reqwest::Client>,
-) -> Result<String, String> {
+pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Result<String, String> {
     let response = client
-        .get(&url)
+        .get(url)
         .timeout(Duration::from_secs(10))
         .header("Accept", "text/html")
         .send()
@@ -698,16 +710,23 @@ pub async fn fetch_page_title(
     crate::util::extract_html_title(&text)
 }
 
-// --- Download Image to Local File ---
-
 #[tauri::command]
-pub async fn download_image(
+pub async fn fetch_page_title(
     url: String,
-    dest_path: String,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String, String> {
+    fetch_page_title_with(&client, &url).await
+}
+
+// --- Download Image to Local File ---
+
+pub async fn download_image_with(
+    client: &reqwest::Client,
+    url: &str,
+    dest_path: &str,
+) -> Result<String, String> {
     let response = client
-        .get(&url)
+        .get(url)
         .timeout(Duration::from_secs(30))
         .send()
         .await
@@ -722,17 +741,26 @@ pub async fn download_image(
         .await
         .map_err(|e| format!("Failed to read image: {e}"))?;
 
-    if let Some(parent) = std::path::Path::new(&dest_path).parent() {
+    if let Some(parent) = std::path::Path::new(dest_path).parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|e| format!("Failed to create directory: {e}"))?;
     }
 
-    tokio::fs::write(&dest_path, &bytes)
+    tokio::fs::write(dest_path, &bytes)
         .await
         .map_err(|e| format!("Failed to write image: {e}"))?;
 
-    Ok(dest_path)
+    Ok(dest_path.to_string())
+}
+
+#[tauri::command]
+pub async fn download_image(
+    url: String,
+    dest_path: String,
+    client: tauri::State<'_, reqwest::Client>,
+) -> Result<String, String> {
+    download_image_with(&client, &url, &dest_path).await
 }
 
 // --- Document to Markdown via Workers AI ---

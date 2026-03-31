@@ -258,8 +258,7 @@ async fn get_tabs(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Val
 }
 
 async fn get_root(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
-    Json(serde_json::json!({ "root_path": root_path }))
+    Json(serde_json::json!({ "root_path": state.editor.get_focused_root_path() }))
 }
 
 async fn get_dirty_files(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
@@ -318,8 +317,7 @@ async fn list_files(
     State(state): State<Arc<BridgeState>>,
     Query(query): Query<ListFilesQuery>,
 ) -> Json<serde_json::Value> {
-    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
-    let path = query.path.or(root_path);
+    let path = query.path.or_else(|| state.editor.get_focused_root_path());
     let Some(path) = path else {
         return Json(serde_json::json!({ "error": "No path specified and no project root available" }));
     };
@@ -376,8 +374,7 @@ async fn search_files(
     State(state): State<Arc<BridgeState>>,
     Query(query): Query<SearchFilesQuery>,
 ) -> Json<serde_json::Value> {
-    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
-    let search_path = query.path.or(root_path);
+    let search_path = query.path.or_else(|| state.editor.get_focused_root_path());
     let Some(search_path) = search_path else {
         return Json(serde_json::json!({ "error": "No path specified and no project root available" }));
     };
@@ -450,8 +447,7 @@ async fn delete_entry(Json(body): Json<DeleteEntryRequest>) -> Json<serde_json::
 // --- Git handlers ---
 
 async fn git_status(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
-    let Some(repo_path) = root_path else {
+    let Some(repo_path) = state.editor.get_focused_root_path() else {
         return Json(serde_json::json!({ "error": "No project root available" }));
     };
 
@@ -464,8 +460,7 @@ async fn git_status(State(state): State<Arc<BridgeState>>) -> Json<serde_json::V
 fn get_repo_path(state: &BridgeState) -> Result<String, Json<serde_json::Value>> {
     state
         .editor
-        .get_focused_state()
-        .and_then(|s| s.root_path)
+        .get_focused_root_path()
         .ok_or_else(|| Json(serde_json::json!({ "error": "No project root available" })))
 }
 
@@ -697,36 +692,7 @@ async fn download_image(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<DownloadImageRequest>,
 ) -> Json<serde_json::Value> {
-    let result = async {
-        let response = state
-            .http
-            .get(&body.url)
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch image: {e}"))?;
-
-        if !response.status().is_success() {
-            return Err(format!("HTTP {}", response.status()));
-        }
-
-        let bytes = response.bytes().await.map_err(|e| format!("Failed to read image: {e}"))?;
-
-        if let Some(parent) = std::path::Path::new(&body.dest_path).parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| format!("Failed to create directory: {e}"))?;
-        }
-
-        tokio::fs::write(&body.dest_path, &bytes)
-            .await
-            .map_err(|e| format!("Failed to write image: {e}"))?;
-
-        Ok::<_, String>(body.dest_path.clone())
-    }
-    .await;
-
-    match result {
+    match commands::download_image_with(&state.http, &body.url, &body.dest_path).await {
         Ok(path) => Json(serde_json::json!({ "path": path })),
         Err(e) => Json(serde_json::json!({ "error": e })),
     }
@@ -741,28 +707,7 @@ async fn fetch_page_title(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<FetchTitleRequest>,
 ) -> Json<serde_json::Value> {
-    let result = async {
-        let response = state
-            .http
-            .get(&body.url)
-            .timeout(std::time::Duration::from_secs(10))
-            .header("Accept", "text/html")
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch: {e}"))?;
-
-        if !response.status().is_success() {
-            return Err(format!("HTTP {}", response.status()));
-        }
-
-        let bytes = response.bytes().await.map_err(|e| format!("Failed to read body: {e}"))?;
-        let text = String::from_utf8_lossy(&bytes[..bytes.len().min(65536)]);
-
-        crate::util::extract_html_title(&text)
-    }
-    .await;
-
-    match result {
+    match commands::fetch_page_title_with(&state.http, &body.url).await {
         Ok(title) => Json(serde_json::json!({ "title": title })),
         Err(e) => Json(serde_json::json!({ "error": e })),
     }
@@ -794,8 +739,7 @@ async fn write_tags(root: &str, data: &serde_json::Value) -> Result<(), String> 
 }
 
 async fn tags_list(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
-    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
-    let Some(root) = root_path else {
+    let Some(root) = state.editor.get_focused_root_path() else {
         return Json(serde_json::json!({ "error": "No project root available" }));
     };
     Json(read_tags(&root).await)
@@ -810,8 +754,7 @@ async fn tags_set(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<TagsSetRequest>,
 ) -> Json<serde_json::Value> {
-    let root_path = state.editor.get_focused_state().and_then(|s| s.root_path);
-    let Some(root) = root_path else {
+    let Some(root) = state.editor.get_focused_root_path() else {
         return Json(serde_json::json!({ "error": "No project root available" }));
     };
     match write_tags(&root, &body.tags).await {

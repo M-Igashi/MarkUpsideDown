@@ -15,7 +15,9 @@ const SUPPRESS_WINDOW_MS = 1000;
 // especially with atomic writes (write temp → rename). Periodic content polling
 // catches changes the watcher misses.
 let pollTimer: ReturnType<typeof setInterval> | null = null;
-const POLL_INTERVAL_MS = 1000;
+const POLL_INTERVAL_MS = 3000;
+let lastPolledPath: string | null = null;
+let lastPolledContent: string | null = null;
 
 // Dependencies injected via init
 let deps: {
@@ -94,9 +96,11 @@ async function onFileChanged(event: WatchEvent) {
 // Poll active tab's file by reading content and comparing with savedContent.
 // Uses read_text_file (Tauri command) which has proper fs permissions,
 // unlike stat() which may lack fs:allow-stat permission.
+// Caches last-read disk content to avoid triggering reload when nothing changed.
 function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(async () => {
+    if (document.hidden) return; // skip when window is not visible
     const activeTab = deps.getActiveTab();
     const path = activeTab?.path;
     if (!path) return;
@@ -104,6 +108,10 @@ function startPolling() {
 
     try {
       const diskContent = await invoke<string>("read_text_file", { path });
+      // Skip if disk content hasn't changed since last poll
+      if (path === lastPolledPath && diskContent === lastPolledContent) return;
+      lastPolledPath = path;
+      lastPolledContent = diskContent;
       if (activeTab.savedContent !== null && diskContent !== activeTab.savedContent) {
         await reloadPath(path);
       }

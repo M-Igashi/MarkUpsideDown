@@ -297,8 +297,12 @@ function countCodeBlocks(codeRanges: [number, number][]): number {
   return codeRanges.length;
 }
 
-/** Full document structure parse. */
+let _cachedText: string | null = null;
+let _cachedResult: DocumentStructure | null = null;
+
+/** Full document structure parse (memoized by content). */
 export function getDocumentStructure(text: string): DocumentStructure {
+  if (text === _cachedText && _cachedResult) return _cachedResult;
   const lines = text.split("\n");
   const codeRanges = findCodeBlockRanges(lines);
 
@@ -311,7 +315,7 @@ export function getDocumentStructure(text: string): DocumentStructure {
 
   const wordCount = text.match(/\S+/g)?.length ?? 0;
 
-  return {
+  const result: DocumentStructure = {
     headings,
     links,
     tables,
@@ -326,4 +330,7 @@ export function getDocumentStructure(text: string): DocumentStructure {
       tableCount: tables.length,
     },
   };
+  _cachedText = text;
+  _cachedResult = result;
+  return result;
 }
