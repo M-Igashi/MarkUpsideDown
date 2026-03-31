@@ -4,6 +4,25 @@ import { isValidYamlLine } from "./document-structure.ts";
  * Post-conversion Markdown normalization.
  * Applied after AI.toMarkdown() / Browser Rendering output, before loading into editor.
  * Deterministic, fast, no AI involved.
+ *
+ * ## Escaping contract
+ *
+ * Each step escapes only what breaks its own syntax — no step re-escapes
+ * what another already escaped (hierarchical escaping principle).
+ *
+ * | Step                  | Escapes         | Preserves              |
+ * |-----------------------|-----------------|------------------------|
+ * | stripMalformedFrontmatter | (none)      | all                    |
+ * | fixHeadingHierarchy   | (none)          | all                    |
+ * | removeEmptyLinks      | (none)          | all                    |
+ * | normalizeListMarkers  | (none)          | all                    |
+ * | reformatTables        | (none — input)  | `\|` in cells, `\\`   |
+ * | fixCjkEmphasis        | (none)          | all                    |
+ * | collapseWhitespace    | (none)          | all                    |
+ *
+ * `reformatTables` relies on `splitTableCells` to parse `\|` as escaped
+ * pipe (not a delimiter). Cells after splitting never contain unescaped `|`.
+ * The output preserves `\|` as-is, so no escaping step is needed.
  */
 export function normalizeMarkdown(input: string): string {
   let text = input;
@@ -132,6 +151,13 @@ function normalizeListMarkers(text: string): string {
   return lines.join("\n");
 }
 
+// --- Escaping utilities ---
+
+/** Escape a character only if not already escaped (idempotent). */
+export function escapeOnce(s: string, char: string): string {
+  return s.replace(new RegExp(`(?<!\\\\)\\${char}`, "g"), `\\${char}`);
+}
+
 // --- Table reformatting ---
 
 /** Split a table row on unescaped `|` outside of inline code spans. */
@@ -241,7 +267,9 @@ function reformatTables(text: string): string {
       continue;
     }
 
-    // Parse rows using pipe-aware splitting
+    // Parse rows using pipe-aware splitting.
+    // After splitting, cells never contain unescaped `|` (those became delimiters).
+    // Escaped `\|` is preserved as-is and written through to output unchanged.
     const rows = tableLines.map((line) => splitTableCells(line));
 
     // Determine column count from header

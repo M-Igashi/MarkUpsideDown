@@ -64,7 +64,42 @@ const insertLink: Command = (view: EditorView) => {
   return true;
 };
 
-export const toggleBold = toggleWrap("**");
+/**
+ * Bold toggle: wraps with `__` (avoids nesting collision with italic `*`).
+ * Unwraps both `__` and `**` for compatibility with existing documents.
+ */
+export const toggleBold: Command = (view: EditorView) => {
+  const { state } = view;
+  const changes = state.changeByRange((range) => {
+    const selected = state.sliceDoc(range.from, range.to);
+
+    // Unwrap either __ or ** (check both for existing-document compat)
+    for (const marker of ["__", "**"]) {
+      const len = marker.length;
+      const before = state.sliceDoc(Math.max(0, range.from - len), range.from);
+      const after = state.sliceDoc(range.to, Math.min(state.doc.length, range.to + len));
+      if (before === marker && after === marker) {
+        return {
+          changes: [
+            { from: range.from - len, to: range.from, insert: "" },
+            { from: range.to, to: range.to + len, insert: "" },
+          ],
+          range: { anchor: range.from - len, head: range.to - len },
+        };
+      }
+    }
+
+    // Wrap with __ (distinct from italic * to avoid nesting ambiguity)
+    const insert = `__${selected}__`;
+    return {
+      changes: { from: range.from, to: range.to, insert },
+      range: { anchor: range.from + 2, head: range.from + 2 + selected.length },
+    };
+  });
+
+  view.dispatch(state.update(changes, { userEvent: "input" }));
+  return true;
+};
 export const toggleItalic = toggleWrap("*");
 export const toggleStrikethrough = toggleWrap("~~");
 /** Smart inline code: adjusts backtick delimiter length when content contains backticks. */
