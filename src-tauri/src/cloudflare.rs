@@ -596,6 +596,7 @@ fn set_wrangler_secret(
     let mut cmd = Command::new("wrangler");
     cmd.args(["secret", "put", name, "--name", worker_name])
         .env("CLOUDFLARE_ACCOUNT_ID", account_id)
+        .env_remove("CLOUDFLARE_API_TOKEN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
