@@ -4,6 +4,7 @@ import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import {
   KEY_WORKER_URL,
   KEY_ACCOUNT_ID,
+  KEY_WORKER_SUFFIX,
   KEY_SETUP_DONE,
   KEY_ALLOW_IMAGE,
   KEY_AUTOSAVE,
@@ -11,6 +12,19 @@ import {
 import { escapeHtml } from "./html-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
+
+/** Get or create a stable 6-char random suffix for the Worker name.
+ *  This makes the Worker URL non-guessable (e.g. markupsidedown-a3f8k2). */
+function getWorkerSuffix(): string {
+  let suffix = localStorage.getItem(KEY_WORKER_SUFFIX);
+  if (!suffix) {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const arr = crypto.getRandomValues(new Uint8Array(6));
+    suffix = Array.from(arr, (b) => chars[b % chars.length]).join("");
+    localStorage.setItem(KEY_WORKER_SUFFIX, suffix);
+  }
+  return suffix;
+}
 
 interface WorkerStatus {
   reachable: boolean;
@@ -164,9 +178,25 @@ function renderFeatureList(container: HTMLElement | null, status: WorkerStatus |
 
 // --- Auto Setup ---
 
+interface ResourceFlags {
+  kv_namespace_id: string | null;
+  r2_bucket: boolean;
+  queue: boolean;
+  vectorize: boolean;
+}
+
+interface ResourceSetupResult {
+  resources: ResourceFlags;
+  kv_error: string | null;
+  r2_error: string | null;
+  queue_error: string | null;
+  vectorize_error: string | null;
+}
+
 const SETUP_STEPS = [
   { id: "wrangler", label: "Check wrangler" },
   { id: "login", label: "Cloudflare login" },
+  { id: "resources", label: "Create resources" },
   { id: "deploy", label: "Deploy Worker" },
   { id: "secrets", label: "Configure secrets" },
   { id: "verify", label: "Verify" },
@@ -261,21 +291,58 @@ async function startAutoSetup(
   // Persist account ID for future Worker updates
   localStorage.setItem(KEY_ACCOUNT_ID, accountId);
 
-  // Step 3: Deploy
+  // Generate a stable, non-guessable Worker name (e.g. "markupsidedown-a3f8k2")
+  const workerName = `markupsidedown-${getWorkerSuffix()}`;
+
+  // Step 3: Create resources (KV, R2, Queue, Vectorize) — all optional, failures are non-fatal
+  update("resources", "running");
+  let resourceFlags: ResourceFlags = {
+    kv_namespace_id: null,
+    r2_bucket: false,
+    queue: false,
+    vectorize: false,
+  };
+  try {
+    const result = await invoke<ResourceSetupResult>("setup_cloudflare_resources", { accountId });
+    resourceFlags = result.resources;
+    const errors = [
+      result.kv_error,
+      result.r2_error,
+      result.queue_error,
+      result.vectorize_error,
+    ].filter(Boolean);
+    if (errors.length === 4) {
+      // All failed — warn but continue (Worker still works for basic fetch/convert)
+      update("resources", "error");
+      showSetupMessage(progressContainer, "setup-info", `Optional resources failed: ${errors[0]}`);
+    } else if (errors.length > 0) {
+      update("resources", "done");
+    } else {
+      update("resources", "done");
+    }
+  } catch {
+    update("resources", "skipped");
+  }
+
+  // Step 4: Deploy (pass resource flags so wrangler.jsonc is built correctly)
   update("deploy", "running");
   let workerUrl: string;
   try {
-    workerUrl = await invoke<string>("deploy_worker", { accountId });
+    workerUrl = await invoke<string>("deploy_worker", {
+      accountId,
+      resources: resourceFlags,
+      workerName,
+    });
   } catch (e) {
     return fail("deploy", `Deploy failed: ${e}`);
   }
   update("deploy", "done");
 
-  // Step 4: Secrets (optional — only needed for Render JS)
+  // Step 5: Secrets (optional — only needed for Render JS)
   update("secrets", "running");
   let secretsOk = false;
   try {
-    await invoke("setup_worker_secrets", { accountId });
+    await invoke("setup_worker_secrets", { accountId, workerName });
     secretsOk = true;
   } catch {
     // Auto-setup failed — ask user for API token
@@ -284,6 +351,7 @@ async function startAutoSetup(
       await invoke("setup_worker_secrets_with_token", {
         accountId,
         apiToken: userToken,
+        workerName,
       });
       secretsOk = true;
     } catch {
@@ -462,7 +530,7 @@ export function showSettings({
           <input
             type="url"
             id="settings-worker-url"
-            placeholder="https://markupsidedown-converter.YOUR_SUBDOMAIN.workers.dev"
+            placeholder="https://markupsidedown-XXXXXX.YOUR_SUBDOMAIN.workers.dev"
             value=""
           />
           <button id="settings-test-btn">Test</button>
@@ -719,8 +787,28 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
     updateResult.textContent = "Re-deploying Worker\u2026";
 
     try {
+      // Re-create resources before re-deploy to ensure bindings are valid
+      let updateResources: ResourceFlags = {
+        kv_namespace_id: null,
+        r2_bucket: false,
+        queue: false,
+        vectorize: false,
+      };
+      if (resolvedAccountId) {
+        try {
+          const res = await invoke<ResourceSetupResult>("setup_cloudflare_resources", {
+            accountId: resolvedAccountId,
+          });
+          updateResources = res.resources;
+        } catch {
+          // Continue with defaults — Worker will deploy without optional bindings
+        }
+      }
+      const updateWorkerName = `markupsidedown-${getWorkerSuffix()}`;
       const newUrl = await invoke<string>("deploy_worker", {
         accountId: resolvedAccountId,
+        resources: updateResources,
+        workerName: updateWorkerName,
       });
       updateResult.className = "settings-test-result test-ok";
       updateResult.textContent = `Worker updated successfully: ${newUrl}`;

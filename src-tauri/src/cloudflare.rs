@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -188,7 +188,106 @@ fn parse_worker_url(output: &str) -> Option<String> {
     None
 }
 
-fn write_temp_worker_files(dir: &Path) -> Result<(), String> {
+/// Build wrangler.jsonc dynamically based on available resources.
+/// Starts from the compiled-in template and patches/strips bindings.
+fn build_wrangler_config(resources: &ResourceFlags, worker_name: Option<&str>) -> String {
+    let mut config: serde_json::Value =
+        serde_json::from_str(&strip_jsonc_comments(WORKER_WRANGLER_JSONC))
+            .expect("wrangler.jsonc template must be valid JSON");
+
+    // Patch Worker name if a custom name is provided (e.g. "markupsidedown-a3f8k2")
+    if let Some(name) = worker_name {
+        config["name"] = serde_json::Value::String(name.to_string());
+    }
+
+    // Patch KV namespace ID or remove binding entirely
+    if let Some(ref id) = resources.kv_namespace_id {
+        if let Some(arr) = config.get_mut("kv_namespaces").and_then(|v| v.as_array_mut()) {
+            if let Some(first) = arr.first_mut() {
+                first["id"] = serde_json::Value::String(id.clone());
+            }
+        }
+    } else {
+        config.as_object_mut().map(|o| o.remove("kv_namespaces"));
+    }
+
+    // Remove R2 binding if bucket not created
+    if !resources.r2_bucket {
+        config.as_object_mut().map(|o| o.remove("r2_buckets"));
+    }
+
+    // Remove Queue bindings if queue not created
+    if !resources.queue {
+        config.as_object_mut().map(|o| o.remove("queues"));
+    }
+
+    // Remove Vectorize binding if index not created
+    if !resources.vectorize {
+        config.as_object_mut().map(|o| o.remove("vectorize"));
+    }
+
+    serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail")
+}
+
+/// Strip // and /* */ comments from JSONC so it can be parsed as JSON.
+fn strip_jsonc_comments(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    let mut in_string = false;
+
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if c == '\\' {
+                if let Some(&next) = chars.peek() {
+                    out.push(next);
+                    chars.next();
+                }
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            out.push(c);
+            continue;
+        }
+        if c == '/' {
+            match chars.peek() {
+                Some(&'/') => {
+                    // Line comment — skip to end of line
+                    for nc in chars.by_ref() {
+                        if nc == '\n' {
+                            out.push('\n');
+                            break;
+                        }
+                    }
+                }
+                Some(&'*') => {
+                    // Block comment — skip to */
+                    chars.next(); // consume *
+                    while let Some(nc) = chars.next() {
+                        if nc == '*' && chars.peek() == Some(&'/') {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                _ => out.push(c),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn write_temp_worker_files(
+    dir: &Path,
+    resources: &ResourceFlags,
+    worker_name: Option<&str>,
+) -> Result<(), String> {
     let src_dir = dir.join("src");
     std::fs::create_dir_all(&src_dir)
         .map_err(|e| format!("Failed to create temp directory: {e}"))?;
@@ -196,10 +295,164 @@ fn write_temp_worker_files(dir: &Path) -> Result<(), String> {
     std::fs::write(src_dir.join("index.ts"), WORKER_INDEX_TS)
         .map_err(|e| format!("Failed to write index.ts: {e}"))?;
 
-    std::fs::write(dir.join("wrangler.jsonc"), WORKER_WRANGLER_JSONC)
+    let config = build_wrangler_config(resources, worker_name);
+    std::fs::write(dir.join("wrangler.jsonc"), config)
         .map_err(|e| format!("Failed to write wrangler.jsonc: {e}"))?;
 
     Ok(())
+}
+
+// --- Resource creation ---
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct ResourceFlags {
+    pub kv_namespace_id: Option<String>,
+    pub r2_bucket: bool,
+    pub queue: bool,
+    pub vectorize: bool,
+}
+
+#[derive(Serialize)]
+pub struct ResourceSetupResult {
+    pub resources: ResourceFlags,
+    pub kv_error: Option<String>,
+    pub r2_error: Option<String>,
+    pub queue_error: Option<String>,
+    pub vectorize_error: Option<String>,
+}
+
+fn create_kv_namespace(account_id: &str) -> Result<String, String> {
+    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
+    match run_wrangler(
+        &["kv", "namespace", "create", "CACHE", "--name", "markupsidedown-converter"],
+        None, 30, &env,
+    ) {
+        Ok(output) => parse_kv_namespace_id(&output)
+            .ok_or_else(|| format!("Created KV namespace but could not parse ID from:\n{output}")),
+        Err(e) if e.contains("already exists") || e.contains("already being used") => {
+            // Namespace exists — find its ID by listing
+            find_existing_kv_namespace(account_id)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn parse_kv_namespace_id(output: &str) -> Option<String> {
+    // Match id = "..." or "id": "..."
+    let re_toml = regex_lite::Regex::new(r#"id\s*=\s*"([0-9a-f]{32})""#).ok()?;
+    let re_json = regex_lite::Regex::new(r#""id"\s*:\s*"([0-9a-f]{32})""#).ok()?;
+    re_toml
+        .captures(output)
+        .or_else(|| re_json.captures(output))
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+}
+
+fn find_existing_kv_namespace(account_id: &str) -> Result<String, String> {
+    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
+    let output = run_wrangler(&["kv", "namespace", "list"], None, 15, &env)?;
+
+    // Output is JSON array: [{"id":"...","title":"..."},...]
+    let namespaces: Vec<serde_json::Value> =
+        serde_json::from_str(&output).map_err(|e| format!("Failed to parse KV list: {e}"))?;
+
+    for ns in &namespaces {
+        let title = ns["title"].as_str().unwrap_or("");
+        if title.contains("CACHE") && title.contains("markupsidedown") {
+            if let Some(id) = ns["id"].as_str() {
+                return Ok(id.to_string());
+            }
+        }
+    }
+    Err("KV namespace exists but could not find its ID".to_string())
+}
+
+fn create_r2_bucket(account_id: &str) -> Result<(), String> {
+    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
+    match run_wrangler(
+        &["r2", "bucket", "create", "markupsidedown-publish"],
+        None, 30, &env,
+    ) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("already exists") || e.contains("already been taken") => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+fn create_queue(account_id: &str) -> Result<(), String> {
+    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
+    match run_wrangler(
+        &["queues", "create", "markupsidedown-convert"],
+        None, 30, &env,
+    ) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("already exists") => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+fn create_vectorize_index(account_id: &str) -> Result<(), String> {
+    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
+    match run_wrangler(
+        &[
+            "vectorize", "create", "markupsidedown-docs",
+            "--dimensions=768", "--metric=cosine",
+        ],
+        None, 30, &env,
+    ) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("already exists") => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+pub async fn setup_cloudflare_resources(account_id: String) -> ResourceSetupResult {
+    let a1 = account_id.clone();
+    let a2 = account_id.clone();
+    let a3 = account_id.clone();
+    let a4 = account_id.clone();
+
+    let (kv, r2, queue, vectorize) = tokio::join!(
+        tokio::task::spawn_blocking(move || create_kv_namespace(&a1)),
+        tokio::task::spawn_blocking(move || create_r2_bucket(&a2)),
+        tokio::task::spawn_blocking(move || create_queue(&a3)),
+        tokio::task::spawn_blocking(move || create_vectorize_index(&a4)),
+    );
+
+    let (kv_id, kv_err) = match kv {
+        Ok(Ok(id)) => (Some(id), None),
+        Ok(Err(e)) => (None, Some(e)),
+        Err(e) => (None, Some(format!("Task error: {e}"))),
+    };
+    let (r2_ok, r2_err) = match r2 {
+        Ok(Ok(())) => (true, None),
+        Ok(Err(e)) => (false, Some(e)),
+        Err(e) => (false, Some(format!("Task error: {e}"))),
+    };
+    let (queue_ok, queue_err) = match queue {
+        Ok(Ok(())) => (true, None),
+        Ok(Err(e)) => (false, Some(e)),
+        Err(e) => (false, Some(format!("Task error: {e}"))),
+    };
+    let (vec_ok, vec_err) = match vectorize {
+        Ok(Ok(())) => (true, None),
+        Ok(Err(e)) => (false, Some(e)),
+        Err(e) => (false, Some(format!("Task error: {e}"))),
+    };
+
+    ResourceSetupResult {
+        resources: ResourceFlags {
+            kv_namespace_id: kv_id,
+            r2_bucket: r2_ok,
+            queue: queue_ok,
+            vectorize: vec_ok,
+        },
+        kv_error: kv_err,
+        r2_error: r2_err,
+        queue_error: queue_err,
+        vectorize_error: vec_err,
+    }
 }
 
 #[tauri::command]
@@ -253,13 +506,19 @@ pub async fn wrangler_login() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn deploy_worker(account_id: Option<String>) -> Result<String, String> {
+pub async fn deploy_worker(
+    account_id: Option<String>,
+    resources: Option<ResourceFlags>,
+    worker_name: Option<String>,
+) -> Result<String, String> {
     let temp_dir = std::env::temp_dir().join("markupsidedown-worker-deploy");
     // Clean up any previous temp dir
     let _ = std::fs::remove_dir_all(&temp_dir);
 
+    let flags = resources.unwrap_or_default();
+
     let result = (|| {
-        write_temp_worker_files(&temp_dir)?;
+        write_temp_worker_files(&temp_dir, &flags, worker_name.as_deref())?;
 
         if let Some(id) = account_id.as_deref() {
             let env = [("CLOUDFLARE_ACCOUNT_ID", id)];
@@ -278,7 +537,10 @@ pub async fn deploy_worker(account_id: Option<String>) -> Result<String, String>
 }
 
 #[tauri::command]
-pub async fn setup_worker_secrets(account_id: String) -> Result<(), String> {
+pub async fn setup_worker_secrets(
+    account_id: String,
+    worker_name: Option<String>,
+) -> Result<(), String> {
     // 1. Process env var (works in CLI / CI)
     // 2. Login shell env var (macOS GUI apps don't inherit shell env)
     // 3. Create scoped token via OAuth (last resort)
@@ -288,26 +550,34 @@ pub async fn setup_worker_secrets(account_id: String) -> Result<(), String> {
         create_api_token_via_oauth(&account_id).await?
     };
 
-    set_secrets_with_token(account_id, api_token).await
+    set_secrets_with_token(account_id, api_token, worker_name).await
 }
 
 #[tauri::command]
 pub async fn setup_worker_secrets_with_token(
     account_id: String,
     api_token: String,
+    worker_name: Option<String>,
 ) -> Result<(), String> {
-    set_secrets_with_token(account_id, api_token).await
+    set_secrets_with_token(account_id, api_token, worker_name).await
 }
 
-async fn set_secrets_with_token(account_id: String, api_token: String) -> Result<(), String> {
+async fn set_secrets_with_token(
+    account_id: String,
+    api_token: String,
+    worker_name: Option<String>,
+) -> Result<(), String> {
+    let name = worker_name.unwrap_or_else(|| "markupsidedown-converter".to_string());
+    let name1 = name.clone();
+    let name2 = name;
     let acct_for_r1 = account_id.clone();
     let acct_for_r2 = account_id.clone();
     let (r1, r2) = tokio::join!(
         tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id, &acct_for_r1)
+            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id, &acct_for_r1, &name1)
         }),
         tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, &acct_for_r2)
+            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, &acct_for_r2, &name2)
         }),
     );
     r1.map_err(|e| format!("Task error: {e}"))??;
@@ -341,9 +611,14 @@ fn get_env_token_from_shell() -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
-fn set_wrangler_secret(name: &str, value: &str, account_id: &str) -> Result<(), String> {
+fn set_wrangler_secret(
+    name: &str,
+    value: &str,
+    account_id: &str,
+    worker_name: &str,
+) -> Result<(), String> {
     let mut cmd = Command::new("wrangler");
-    cmd.args(["secret", "put", name, "--name", "markupsidedown-converter"])
+    cmd.args(["secret", "put", name, "--name", worker_name])
         .env("CLOUDFLARE_ACCOUNT_ID", account_id)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

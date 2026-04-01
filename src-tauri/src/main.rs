@@ -152,6 +152,7 @@ fn main() {
             commands::check_for_update,
             cloudflare::check_wrangler_status,
             cloudflare::wrangler_login,
+            cloudflare::setup_cloudflare_resources,
             cloudflare::deploy_worker,
             cloudflare::setup_worker_secrets,
             cloudflare::setup_worker_secrets_with_token,
