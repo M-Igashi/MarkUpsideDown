@@ -1,8 +1,8 @@
 // Batch file import via Worker's /batch endpoint (Queue-based parallel conversion).
 
-import { getWorkerUrl } from "./settings.ts";
 import { normalizeMarkdown } from "./normalize.ts";
 import { basename } from "./path-utils.ts";
+import { workerFetch } from "./worker-fetch.ts";
 
 const { readFile, writeTextFile } = window.__TAURI__.fs;
 
@@ -35,20 +35,6 @@ export interface BatchProgress {
   completed: number;
   failed: number;
   files: { name: string; status: string; error?: string }[];
-}
-
-async function workerFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const workerUrl = getWorkerUrl();
-  if (!workerUrl) throw new Error("Worker URL not configured");
-  const resp = await fetch(`${workerUrl}${path}`, {
-    ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
-  });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${resp.status}`);
-  }
-  return resp.json() as Promise<T>;
 }
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {

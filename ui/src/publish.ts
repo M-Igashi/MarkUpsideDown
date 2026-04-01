@@ -1,7 +1,8 @@
 // Publish Markdown files to Cloudflare R2 via the Worker's /publish endpoint.
 // Local state is persisted in .markupsidedown/published.json alongside tags.json.
 
-import { getWorkerUrl } from "./settings.ts";
+import { basename } from "./path-utils.ts";
+import { workerFetch } from "./worker-fetch.ts";
 
 const { readTextFile, writeTextFile } = window.__TAURI__.fs;
 const { join } = window.__TAURI__.path;
@@ -17,22 +18,6 @@ interface PublishEntry {
 
 interface PublishState {
   files: Record<string, PublishEntry>;
-}
-
-// --- Worker API ---
-
-async function workerFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const workerUrl = getWorkerUrl();
-  if (!workerUrl) throw new Error("Worker URL not configured");
-  const resp = await fetch(`${workerUrl}${path}`, {
-    ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
-  });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${resp.status}`);
-  }
-  return resp.json() as Promise<T>;
 }
 
 // --- Local State ---
@@ -104,7 +89,7 @@ export async function publishFile(
     body: JSON.stringify({
       key,
       content,
-      filename: relativePath.split("/").pop() ?? "untitled.md",
+      filename: basename(relativePath) || "untitled.md",
       expires_in: expiresIn || undefined,
     }),
   });

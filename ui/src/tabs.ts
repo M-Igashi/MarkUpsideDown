@@ -248,20 +248,22 @@ export function getDirtyFileTabs(): Tab[] {
 
 /** Update the path (and name) of a tab after a rename on disk. */
 export function updateTabPath(oldPath: string, newPath: string): void {
+  let changed = false;
   for (const tab of tabs) {
     if (!tab.path) continue;
     if (tab.path === oldPath) {
       tab.path = newPath;
       tab.name = basename(newPath);
-      renderTabs();
-      saveState();
+      changed = true;
     } else if (tab.path.startsWith(oldPath + "/")) {
-      // Directory rename — update child paths
       tab.path = newPath + tab.path.substring(oldPath.length);
       tab.name = basename(tab.path) || tab.name;
-      renderTabs();
-      saveState();
+      changed = true;
     }
+  }
+  if (changed) {
+    renderTabs();
+    saveState();
   }
 }
 

@@ -1,25 +1,10 @@
 // Semantic search via Worker's /embed and /search endpoints (Vectorize).
 
-import { getWorkerUrl } from "./settings.ts";
 import { escapeHtml } from "./html-utils.ts";
+import { basename, dirname } from "./path-utils.ts";
+import { workerFetch } from "./worker-fetch.ts";
 
 const { readTextFile } = window.__TAURI__.fs;
-
-// --- Worker API ---
-
-async function workerFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const workerUrl = getWorkerUrl();
-  if (!workerUrl) throw new Error("Worker URL not configured");
-  const resp = await fetch(`${workerUrl}${path}`, {
-    ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
-  });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${resp.status}`);
-  }
-  return resp.json() as Promise<T>;
-}
 
 // --- Index ---
 
@@ -83,8 +68,8 @@ export async function indexProjectFiles(
           id: relativePath,
           content,
           metadata: {
-            filename: relativePath.split("/").pop() ?? "",
-            dir: relativePath.split("/").slice(0, -1).join("/"),
+            filename: basename(relativePath),
+            dir: dirname(relativePath),
           },
         };
       }),
