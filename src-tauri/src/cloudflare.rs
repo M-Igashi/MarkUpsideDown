@@ -90,6 +90,11 @@ fn run_wrangler(
     cmd.args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // Remove CLOUDFLARE_API_TOKEN from inherited env so wrangler always uses
+    // the OAuth login session, unless we explicitly pass it.
+    if !env.iter().any(|(k, _)| *k == "CLOUDFLARE_API_TOKEN") {
+        cmd.env_remove("CLOUDFLARE_API_TOKEN");
+    }
     for &(key, val) in env {
         cmd.env(key, val);
     }
@@ -541,15 +546,10 @@ pub async fn setup_worker_secrets(
     account_id: String,
     worker_name: Option<String>,
 ) -> Result<(), String> {
-    // 1. Process env var (works in CLI / CI)
-    // 2. Login shell env var (macOS GUI apps don't inherit shell env)
-    // 3. Create scoped token via OAuth (last resort)
-    let api_token = if let Some(t) = get_env_token().or_else(get_env_token_from_shell) {
-        t
-    } else {
-        create_api_token_via_oauth(&account_id).await?
-    };
-
+    // Always use wrangler login OAuth session to create a scoped token.
+    // Environment variable fallbacks were removed to avoid picking up
+    // tokens with insufficient scopes.
+    let api_token = create_api_token_via_oauth(&account_id).await?;
     set_secrets_with_token(account_id, api_token, worker_name).await
 }
 
@@ -578,30 +578,6 @@ async fn set_secrets_with_token(
     Ok(())
 }
 
-fn get_env_token() -> Option<String> {
-    std::env::var("CLOUDFLARE_API_TOKEN")
-        .ok()
-        .filter(|s| !s.is_empty())
-}
-
-/// Read CLOUDFLARE_API_TOKEN from the user's default shell.
-/// macOS GUI apps don't inherit shell env, so we spawn a non-interactive login
-/// shell which sources ~/.zshenv (zsh) or ~/.profile (bash) to pick up exports.
-/// We avoid `-i` (interactive) because it hangs without a TTY.
-fn get_env_token_from_shell() -> Option<String> {
-    let home = crate::util::home_dir()?;
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let child = Command::new(&shell)
-        .args(["-lc", "printf '%s' \"$CLOUDFLARE_API_TOKEN\""])
-        .env("HOME", &home)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let output = wait_with_timeout(child, Duration::from_secs(10)).ok()?;
-    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.is_empty() { None } else { Some(s) }
-}
 
 fn set_wrangler_secret(
     name: &str,
