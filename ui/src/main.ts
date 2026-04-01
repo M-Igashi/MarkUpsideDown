@@ -123,6 +123,8 @@ import {
   toggleTocPanel,
 } from "./toc-panel.ts";
 import { startPresentation } from "./presentation.ts";
+import { setPublishProjectRoot, loadPublishState } from "./publish.ts";
+import { openSearchUI } from "./semantic-search.ts";
 // --- Tauri APIs ---
 
 const { invoke } = window.__TAURI__.core;
@@ -592,6 +594,8 @@ initSidebar(sidebarEl, {
   },
   onFolder: (rootPath: string) => {
     setRepoPath(rootPath, true);
+    setPublishProjectRoot(rootPath);
+    loadPublishState().catch(() => {});
     refreshGitAndSyncNow();
   },
   onFold: () => toggleSidebar(),
@@ -654,6 +658,8 @@ if (clonePanelEl) {
 const initialRoot = getRootPath();
 if (initialRoot) {
   setRepoPath(initialRoot, true);
+  setPublishProjectRoot(initialRoot);
+  loadPublishState().catch(() => {});
   refreshGitAndSyncNow();
 }
 
@@ -880,6 +886,19 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "4") {
     e.preventDefault();
     toggleTocPanel();
+  } else if (e.key === "5") {
+    e.preventDefault();
+    openSearchUI(async (filePath: string) => {
+      const root = getRootPath();
+      if (!root) return;
+      const absPath = `${root}/${filePath}`;
+      try {
+        const content = await invoke<string>("read_text_file", { path: absPath });
+        loadContentAsTab(content, absPath);
+      } catch (err) {
+        statusEl.textContent = `Failed to open: ${err}`;
+      }
+    });
   } else if (e.key === "c") {
     // Cmd+C with no selection: copy entire content from focused pane
     const active = document.activeElement;
@@ -1047,6 +1066,24 @@ registerCommands([
     shortcut: "⌘4",
     category: "View",
     run: toggleTocPanel,
+  },
+  {
+    id: "search.semantic",
+    label: "Semantic Search",
+    shortcut: "⌘5",
+    category: "Search",
+    run: () =>
+      openSearchUI(async (filePath: string) => {
+        const root = getRootPath();
+        if (!root) return;
+        const absPath = `${root}/${filePath}`;
+        try {
+          const content = await invoke<string>("read_text_file", { path: absPath });
+          loadContentAsTab(content, absPath);
+        } catch (e) {
+          statusEl.textContent = `Failed to open: ${e}`;
+        }
+      }),
   },
   {
     id: "app.settings",

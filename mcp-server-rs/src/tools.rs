@@ -271,6 +271,14 @@ pub struct DeleteTagParams {
     pub name: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SemanticSearchParams {
+    #[schemars(description = "Natural language search query")]
+    pub query: String,
+    #[schemars(description = "Maximum number of results to return (default: 10)")]
+    pub limit: Option<u32>,
+}
+
 // --- Server ---
 
 pub struct McpTools {
@@ -1380,6 +1388,66 @@ impl McpTools {
             Ok(()) => Ok(CallToolResult::success(vec![Content::text(
                 format!("Tag '{}' deleted", params.name),
             )])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Semantic Search ---
+
+    #[tool(name = "semantic_search", description = "Search across indexed Markdown documents using natural language. Returns ranked results with file paths and relevance scores. Requires Vectorize to be configured in the Worker.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn semantic_search(
+        &self,
+        Parameters(params): Parameters<SemanticSearchParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let search_url = format!("{}/search", worker_url.trim_end_matches('/'));
+
+            let body = serde_json::json!({
+                "query": params.query,
+                "limit": params.limit.unwrap_or(10),
+            });
+
+            let response = self
+                .http
+                .post(&search_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            let data: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+            if !status.is_success() {
+                let err = data["error"].as_str().unwrap_or("Unknown error");
+                return Err(format!("Worker returned {status}: {err}"));
+            }
+
+            let results = data["results"].as_array();
+            match results {
+                Some(arr) if !arr.is_empty() => {
+                    let mut output = format!("Found {} results:\n\n", arr.len());
+                    for r in arr {
+                        let id = r["id"].as_str().unwrap_or("?");
+                        // Strip chunk suffix (e.g., "file.md#2" → "file.md")
+                        let doc_id = if let Some(pos) = id.rfind('#') { &id[..pos] } else { id };
+                        let score = r["score"].as_f64().unwrap_or(0.0);
+                        output.push_str(&format!("- **{}** (score: {:.2})\n", doc_id, score));
+                    }
+                    Ok(output)
+                }
+                _ => Ok("No results found.".to_string()),
+            }
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }

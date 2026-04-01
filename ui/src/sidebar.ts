@@ -1,5 +1,6 @@
 import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
 import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
+import { submitBatch, pollBatch, saveBatchResults } from "./batch-import.ts";
 import {
   basename,
   dirname,
@@ -24,6 +25,13 @@ import {
   showTagPopover,
   removeTagPopover,
 } from "./tags.ts";
+import {
+  isPublished,
+  getPublishUrl,
+  publishFile,
+  unpublishFile,
+  type ExpiryOption,
+} from "./publish.ts";
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { open: openDialog, confirm, message } = window.__TAURI__.dialog;
@@ -1281,6 +1289,40 @@ function showEmptyAreaContextMenu(event: MouseEvent) {
   buildContextMenuDOM(menu, items);
 }
 
+function showPublishMenu(x: number, y: number, absPath: string, relPath: string) {
+  const menu = document.createElement("div");
+  menu.className = "sidebar-context-menu";
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  const options: { label: string; expiry: ExpiryOption }[] = [
+    { label: "Permanent Link", expiry: "permanent" },
+    { label: "Expires in 1 hour", expiry: "1h" },
+    { label: "Expires in 24 hours", expiry: "24h" },
+    { label: "Expires in 7 days", expiry: "7d" },
+  ];
+
+  const items = options.map(({ label, expiry }) => ({
+    label,
+    action: async () => {
+      try {
+        const content = await invoke<string>("read_text_file", { path: absPath });
+        const entry = await publishFile(relPath, content, expiry);
+        await navigator.clipboard.writeText(entry.url);
+        message(`Published! URL copied to clipboard.\n${entry.url}`, {
+          title: "Published",
+          kind: "info",
+        });
+        refreshTree();
+      } catch (e) {
+        message(`Publish failed: ${e}`, { title: "Error", kind: "error" });
+      }
+    },
+  }));
+
+  buildContextMenuDOM(menu, items);
+}
+
 function buildContextMenuDOM(
   menu: HTMLElement,
   items: ({ label: string; action: () => void; danger?: boolean } | null)[],
@@ -1364,6 +1406,45 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
     items.push({ label: "Copy Relative Path", action: () => copyToClipboard(relPath) });
   }
   items.push(null);
+
+  // Publish (Markdown files only)
+  if (!entry.is_dir && rootPath) {
+    const ext = getExtension(entry.name);
+    if (MD_EXTENSIONS.has(ext)) {
+      const relPath = entry.path.startsWith(rootPath + "/")
+        ? entry.path.substring(rootPath.length + 1)
+        : entry.name;
+      if (isPublished(relPath)) {
+        const pubUrl = getPublishUrl(relPath);
+        if (pubUrl) {
+          items.push({
+            label: "Copy Public URL",
+            action: () => copyToClipboard(pubUrl),
+          });
+        }
+        items.push({
+          label: "Unpublish",
+          action: async () => {
+            try {
+              await unpublishFile(relPath);
+              refreshTree();
+            } catch (e) {
+              message(`Unpublish failed: ${e}`, { title: "Error", kind: "error" });
+            }
+          },
+        });
+      } else {
+        items.push({
+          label: "Publish…",
+          action: () => {
+            removeContextMenu();
+            showPublishMenu(event.clientX, event.clientY, entry.path, relPath);
+          },
+        });
+      }
+      items.push(null);
+    }
+  }
 
   // Tags
   items.push({
@@ -1451,6 +1532,42 @@ function showMultiContextMenu(event: MouseEvent) {
   if (clipboardPaths.size > 0 && clipboardMode) {
     items.push({ label: "Paste", action: () => pasteEntry() });
   }
+
+  // Batch convert (if any selected files are convertible)
+  if (rootPath) {
+    const convertiblePaths = [...selectedPaths].filter((p) => {
+      const ext = getExtension(basename(p));
+      return IMPORT_EXTENSIONS.has(ext);
+    });
+    if (convertiblePaths.length > 0) {
+      items.push(null);
+      items.push({
+        label: `Batch Convert ${convertiblePaths.length} Files…`,
+        action: async () => {
+          try {
+            const { batchId, total } = await submitBatch(convertiblePaths);
+            message(`Batch submitted: ${total} files. Converting…`, {
+              title: "Batch Import",
+              kind: "info",
+            });
+            const progress = await pollBatch(batchId, (p) => {
+              // Progress is tracked internally; final result reported below
+              void p;
+            });
+            const saved = await saveBatchResults(batchId, progress, rootPath!);
+            refreshTree();
+            message(`Batch complete: ${saved.length} converted, ${progress.failed} failed.`, {
+              title: "Batch Import",
+              kind: "info",
+            });
+          } catch (e) {
+            message(`Batch conversion failed: ${e}`, { title: "Error", kind: "error" });
+          }
+        },
+      });
+    }
+  }
+
   items.push(null);
   items.push({
     label: `Tag ${count} Items…`,

@@ -620,7 +620,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
           <div id="settings-mcp-tab-content" class="settings-mcp-tab-content"></div>
         </div>
         <details class="settings-mcp-tools-details">
-          <summary>Available tools (49)</summary>
+          <summary>Available tools (50)</summary>
           <div class="settings-mcp-tools-list">
             <div class="settings-mcp-tool"><code>get_editor_content</code> &mdash; Get current Markdown from the editor</div>
             <div class="settings-mcp-tool"><code>set_editor_content</code> &mdash; Replace editor content</div>
@@ -671,6 +671,7 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
             <div class="settings-mcp-tool"><code>set_file_tags</code> &mdash; Set tags for a file (replaces existing)</div>
             <div class="settings-mcp-tool"><code>create_tag</code> &mdash; Create a new tag definition with a color</div>
             <div class="settings-mcp-tool"><code>delete_tag</code> &mdash; Delete a tag and remove from all files</div>
+            <div class="settings-mcp-tool"><code>semantic_search</code> &mdash; Search indexed documents using natural language</div>
           </div>
         </details>
       </div>

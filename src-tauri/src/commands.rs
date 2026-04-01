@@ -2068,7 +2068,7 @@ pub fn create_cowork_workspace(
 This workspace is configured for use with MarkUpsideDown's MCP server.
 MarkUpsideDown must be running for editor/file/git tools to work.
 
-## Available MCP Tools (49)
+## Available MCP Tools (50)
 
 ### Editor
 | Tool | Description |
@@ -2146,6 +2146,7 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 | `set_file_tags` | Set tags for a file (replaces existing) |
 | `create_tag` | Create a new tag definition with a color |
 | `delete_tag` | Delete a tag and remove from all files |
+| `semantic_search` | Search indexed documents using natural language |
 
 ## Tips
 

@@ -80,7 +80,7 @@ Check Worker health and version: `curl https://your-worker-url/health`
 
 The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit.
 
-## Available Tools (49)
+## Available Tools (50)
 
 <details>
 <summary><strong>Editor Tools</strong> — 9 tools (require the app to be running)</summary>
@@ -198,6 +198,17 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 | `delete_tag` | Delete a tag and remove it from all files | `name: string` |
 
 Tags are stored in `.markupsidedown/tags.json` per project. Changes made via MCP are automatically synced to the frontend UI.
+
+</details>
+
+<details>
+<summary>Search (1 tool) — require Worker URL + Vectorize</summary>
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `semantic_search` | Search indexed documents using natural language | `query: string`, `limit?: number` |
+
+Requires Vectorize to be configured in the Worker. Documents must be indexed first via the `/embed` endpoint.
 
 </details>
 
