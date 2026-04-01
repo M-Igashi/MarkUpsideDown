@@ -408,10 +408,10 @@ async function startAutoSetup(
 }
 
 function showSetupMessage(container: HTMLElement, className: string, message: string) {
-  const div = container.querySelector(`.${className}`) || document.createElement("div");
+  const div = document.createElement("div");
   div.className = className;
   div.textContent = message;
-  if (!div.parentNode) container.appendChild(div);
+  container.appendChild(div);
 }
 
 function showAccountPicker(
