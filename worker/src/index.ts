@@ -7,17 +7,14 @@ interface Env {
 const IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
-  "image/gif",
   "image/webp",
-  "image/bmp",
-  "image/tiff",
+  "image/svg+xml",
 ]);
 
 const SUPPORTED_TYPES = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "text/html",
   "text/csv",
   "application/xml",
@@ -162,6 +159,21 @@ async function htmlToMarkdown(html: string, env: Env): Promise<string> {
 
 // --- Convert uploaded files → AI.toMarkdown() ---
 
+const MIME_TO_EXT: Record<string, string> = {
+  "application/pdf": "pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "text/html": "html",
+  "text/csv": "csv",
+  "application/xml": "xml",
+  "text/xml": "xml",
+};
+
+function mimeToFilename(mimeType: string): string {
+  const ext = MIME_TO_EXT[mimeType] ?? mimeType.split("/").pop() ?? "bin";
+  return `file.${ext}`;
+}
+
 async function handleConvert(request: Request, env: Env): Promise<Response> {
   const contentType = request.headers.get("content-type") || "";
   const mimeType = contentType.split(";")[0].trim();
@@ -175,7 +187,7 @@ async function handleConvert(request: Request, env: Env): Promise<Response> {
     const body = await request.arrayBuffer();
     const originalSize = body.byteLength;
     const blob = new Blob([body], { type: mimeType });
-    const fileName = `file.${mimeType.split("/").pop() || "bin"}`;
+    const fileName = mimeToFilename(mimeType);
     const result = await env.AI.toMarkdown([{ name: fileName, blob }]);
     const markdown = result
       .filter((r) => r.format === "markdown")

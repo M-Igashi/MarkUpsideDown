@@ -18,8 +18,8 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 | **Fetch URL** | Cloudflare [Markdown for Agents](https://developers.cloudflare.com/agents/guides/markdown-for-agents/) — fast, free |
 | **Fetch URL (Render JS)** | [Browser Rendering](https://developers.cloudflare.com/browser-rendering/) — SPAs, dynamic sites |
 | **Crawl website** | [Browser Rendering `/crawl` API](https://developers.cloudflare.com/browser-rendering/rest-api/crawl-endpoint/) — crawl entire sites to Markdown files |
-| **Import documents** | [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/) — PDF, DOCX, XLSX, PPTX, HTML, CSV, XML |
-| **Import images** | Workers AI OCR — JPG, PNG, GIF, WebP, BMP, TIFF |
+| **Import documents** | [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/) — PDF, DOCX, XLSX, HTML, CSV, XML |
+| **Import images** | Workers AI OCR — JPG, PNG, WebP, SVG |
 | **Drag & Drop** | Drop any supported file onto the editor to import |
 
 ### Editor

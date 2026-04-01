@@ -113,6 +113,7 @@ import { initLinkContextMenu } from "./link-context-menu.ts";
 import { smartTypography } from "./smart-typography.ts";
 import { todoAutocomplete } from "./todo-autocomplete.ts";
 import { initDownloadImages, downloadExternalImages } from "./download-images.ts";
+import { initImagePaste, handlePaste, handleImageDrop } from "./image-paste.ts";
 import { initNoteRefactor, extractToNewNote } from "./note-refactor.ts";
 import { initFrontmatterPanel, updateFrontmatterPanel } from "./frontmatter-panel.ts";
 import {
@@ -388,30 +389,42 @@ initDragDrop(document.getElementById("app")!);
 
 // Image drag from sidebar tree → insert Markdown image link at drop position
 cmScroller.addEventListener("dragover", (e) => {
-  if (!e.dataTransfer?.types.includes(SIDEBAR_IMAGE_MIME)) return;
+  if (
+    !e.dataTransfer?.types.includes(SIDEBAR_IMAGE_MIME) &&
+    !e.dataTransfer?.types.includes("Files")
+  )
+    return;
   e.preventDefault();
   e.dataTransfer.dropEffect = "copy";
 });
 cmScroller.addEventListener("drop", (e) => {
+  // Sidebar image drag
   const imagePath = e.dataTransfer?.getData(SIDEBAR_IMAGE_MIME);
-  if (!imagePath) return;
-  e.preventDefault();
-  e.stopPropagation();
-  const pos =
-    editor.posAtCoords({ x: e.clientX, y: e.clientY }) ?? editor.state.selection.main.head;
-  const currentFile = getCurrentFilePath();
-  const fileName = basename(imagePath).replace(/\.[^.]+$/, "");
-  const relativePath = currentFile
-    ? buildRelativePath(currentFile, imagePath)
-    : basename(imagePath);
-  const imageLink = `![${fileName}](${relativePath})`;
-  editor.dispatch({
-    changes: { from: pos, insert: imageLink },
-    selection: { anchor: pos + imageLink.length },
-  });
-  editor.focus();
-  statusEl.textContent = `Inserted image: ${basename(imagePath)}`;
+  if (imagePath) {
+    e.preventDefault();
+    e.stopPropagation();
+    const pos =
+      editor.posAtCoords({ x: e.clientX, y: e.clientY }) ?? editor.state.selection.main.head;
+    const currentFile = getCurrentFilePath();
+    const fileName = basename(imagePath).replace(/\.[^.]+$/, "");
+    const relativePath = currentFile
+      ? buildRelativePath(currentFile, imagePath)
+      : basename(imagePath);
+    const imageLink = `![${fileName}](${relativePath})`;
+    editor.dispatch({
+      changes: { from: pos, insert: imageLink },
+      selection: { anchor: pos + imageLink.length },
+    });
+    editor.focus();
+    statusEl.textContent = `Inserted image: ${basename(imagePath)}`;
+    return;
+  }
+  // External image file drop → save to ./assets/ and insert link
+  handleImageDrop(e);
 });
+
+// Clipboard paste → save image to ./assets/ and insert link
+editor.dom.addEventListener("paste", (e) => handlePaste(e));
 
 // --- MCP Bridge ---
 
@@ -480,6 +493,7 @@ initFrontmatterPanel(editor, editorContainer);
 // --- Download images & note refactor ---
 
 initDownloadImages({ editor, statusEl, getCurrentFilePath });
+initImagePaste({ editor, statusEl, getCurrentFilePath });
 initNoteRefactor({ editor, statusEl, getCurrentFilePath, loadContentAsTab });
 
 // --- Link context menu in preview ---

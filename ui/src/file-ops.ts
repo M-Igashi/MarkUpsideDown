@@ -22,12 +22,15 @@ export const IMPORT_EXTENSIONS = [
   "pdf",
   "docx",
   "xlsx",
-  "pptx",
   "html",
   "htm",
   "csv",
   "xml",
-  ...IMAGE_EXTENSIONS,
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "svg",
 ];
 
 function formatBytes(bytes: number) {

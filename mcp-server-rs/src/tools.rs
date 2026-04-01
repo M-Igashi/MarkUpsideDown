@@ -13,16 +13,13 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
         "pdf" => Some("application/pdf"),
         "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
         "html" | "htm" => Some("text/html"),
         "csv" => Some("text/csv"),
         "xml" => Some("application/xml"),
         "jpg" | "jpeg" => Some("image/jpeg"),
         "png" => Some("image/png"),
-        "gif" => Some("image/gif"),
         "webp" => Some("image/webp"),
-        "bmp" => Some("image/bmp"),
-        "tiff" | "tif" => Some("image/tiff"),
+        "svg" => Some("image/svg+xml"),
         _ => None,
     }
 }
@@ -506,7 +503,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "convert_to_markdown", description = "Convert a local document (PDF, DOCX, XLSX, PPTX, HTML, CSV, XML, images) to Markdown via Workers AI", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "convert_to_markdown", description = "Convert a local document (PDF, DOCX, XLSX, HTML, CSV, XML, images) to Markdown via Workers AI", annotations(read_only_hint = true, open_world_hint = false))]
     async fn convert_to_markdown(
         &self,
         Parameters(params): Parameters<FilePathParams>,

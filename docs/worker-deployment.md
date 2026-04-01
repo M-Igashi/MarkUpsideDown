@@ -112,8 +112,8 @@ The free tier is sufficient for occasional use. Render responses are cached for 
 
 | Format | Cost |
 |--------|------|
-| PDF, DOCX, XLSX, PPTX, HTML, CSV, XML | **Free** (no AI Neurons) |
-| Images (JPG, PNG, GIF, WebP, BMP, TIFF) | **AI Neurons** (OCR) |
+| PDF, DOCX, XLSX, HTML, CSV, XML | **Free** (no AI Neurons) |
+| Images (JPG, PNG, WebP, SVG) | **AI Neurons** (OCR) |
 
 The app shows a confirmation dialog before processing images.
 
@@ -121,9 +121,9 @@ The app shows a confirmation dialog before processing images.
 
 | Category | Extensions |
 |----------|-----------|
-| Documents | `.pdf`, `.docx`, `.xlsx`, `.pptx` |
+| Documents | `.pdf`, `.docx`, `.xlsx` |
 | Web/data | `.html`, `.htm`, `.csv`, `.xml` |
-| Images | `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`, `.tiff`, `.tif` |
+| Images | `.jpg`, `.jpeg`, `.png`, `.webp`, `.svg` |
 
 ## Troubleshooting
 

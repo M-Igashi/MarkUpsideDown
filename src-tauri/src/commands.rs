@@ -843,16 +843,13 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
         "pdf" => Some("application/pdf"),
         "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
         "html" | "htm" => Some("text/html"),
         "csv" => Some("text/csv"),
         "xml" => Some("application/xml"),
         "jpg" | "jpeg" => Some("image/jpeg"),
         "png" => Some("image/png"),
-        "gif" => Some("image/gif"),
         "webp" => Some("image/webp"),
-        "bmp" => Some("image/bmp"),
-        "tiff" | "tif" => Some("image/tiff"),
+        "svg" => Some("image/svg+xml"),
         _ => None,
     }
 }
@@ -1235,6 +1232,19 @@ pub async fn write_file_bytes(path: String, data: Vec<u8>) -> Result<(), String>
     tokio::fs::write(&dest, &data)
         .await
         .map_err(|e| format!("Failed to write file: {e}"))
+}
+
+#[tauri::command]
+pub async fn save_image(path: String, data: Vec<u8>) -> Result<(), String> {
+    let dest = validate_path(&path)?;
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create directory: {e}"))?;
+    }
+    tokio::fs::write(&dest, &data)
+        .await
+        .map_err(|e| format!("Failed to save image: {e}"))
 }
 
 #[tauri::command]
@@ -2106,7 +2116,7 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 ## Tips
 
 - Use `get_markdown` (recommended) instead of `fetch_markdown`/`render_markdown` for most URL fetching
-- Use `convert_to_markdown` to import PDFs, DOCX, XLSX, PPTX, HTML, CSV, XML, images
+- Use `convert_to_markdown` to import PDFs, DOCX, XLSX, HTML, CSV, XML, images
 - Use `crawl_website` + `crawl_status` for multi-page site crawls with markdown and/or json output
 - Use `extract_json` to extract structured data from web pages via AI
 - Use `get_document_structure` instead of parsing raw Markdown for structural analysis

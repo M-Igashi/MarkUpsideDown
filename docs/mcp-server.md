@@ -151,7 +151,7 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 | `render_markdown` | Fetch a JS-rendered page as Markdown via Browser Rendering | `url: string` |
 | `convert_to_markdown` | Convert a local file to Markdown via Workers AI | `file_path: string` |
 
-**Supported formats:** PDF, DOCX, XLSX, PPTX, HTML, HTM, CSV, XML, JPG, JPEG, PNG, GIF, WebP, BMP, TIFF, TIF
+**Supported formats:** PDF, DOCX, XLSX, HTML, HTM, CSV, XML, JPG, JPEG, PNG, WebP, SVG
 
 </details>
 

@@ -4,7 +4,7 @@ MarkUpsideDown connects to AI agents (Claude Desktop, Claude Code, Cowork) via M
 
 ## What You Can Do
 
-- **"Convert this PDF to Markdown"** — PDF, DOCX, XLSX, PPTX, images, and more
+- **"Convert this PDF to Markdown"** — PDF, DOCX, XLSX, images, and more
 - **"Fetch this URL as Markdown"** — static pages or JS-rendered SPAs
 - **"Crawl this documentation site"** — save an entire site as organized `.md` files
 - **"Edit the document in the editor"** — read, write, insert, normalize
