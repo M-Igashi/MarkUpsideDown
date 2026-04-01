@@ -203,7 +203,8 @@ See [ai-integration.md](ai-integration.md) for setup and [mcp-server.md](mcp-ser
 | `check_wrangler_status` | Check wrangler installation and login state | `cloudflare.rs` |
 | `wrangler_login` | Run `wrangler login` | `cloudflare.rs` |
 | `deploy_worker` | Deploy Worker from embedded source files | `cloudflare.rs` |
-| `setup_worker_secrets` | Auto-configure Worker secrets (via OAuth) | `cloudflare.rs` |
+| `setup_worker_secrets` | Auto-configure Worker secrets (OAuth attempt) | `cloudflare.rs` |
+| `setup_worker_secrets_with_token` | Configure secrets with user-provided token | `cloudflare.rs` |
 
 ### Menu
 

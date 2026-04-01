@@ -345,25 +345,26 @@ async function startAutoSetup(
   }
   update("deploy", "done");
 
-  // Step 5: Secrets (optional — only needed for Render JS)
-  // Uses wrangler login OAuth session to create a scoped API token automatically.
+  // Step 5: Secrets (needed for Render JS, Crawl, Extract JSON)
+  // Try OAuth first, fall back to manual token input.
   update("secrets", "running");
   let secretsOk = false;
   try {
     await invoke("setup_worker_secrets", { accountId, workerName });
     secretsOk = true;
-  } catch (e) {
-    // OAuth token creation failed — show the actual error for debugging
-    const reason = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
-    showSetupMessage(
-      progressContainer,
-      "setup-info",
-      `Secrets could not be configured: ${reason}\n` +
-        `You can set them later via:\n` +
-        `  wrangler secret put CLOUDFLARE_API_TOKEN --name ${workerName ?? "markupsidedown-converter"}\n` +
-        `  wrangler secret put CLOUDFLARE_ACCOUNT_ID --name ${workerName ?? "markupsidedown-converter"}\n` +
-        `Required token scopes: Workers AI (Read) + Browser Rendering (Edit)`,
-    );
+  } catch {
+    // OAuth cannot create API tokens — ask user for a token
+    try {
+      const userToken = await showApiTokenInput(progressContainer, accountId);
+      await invoke("setup_worker_secrets_with_token", {
+        accountId,
+        apiToken: userToken,
+        workerName,
+      });
+      secretsOk = true;
+    } catch {
+      // User skipped
+    }
   }
   update("secrets", secretsOk ? "done" : "skipped");
 
@@ -412,6 +413,55 @@ function showSetupMessage(container: HTMLElement, className: string, message: st
   div.className = className;
   div.textContent = message;
   container.appendChild(div);
+}
+
+function showApiTokenInput(container: HTMLElement, accountId: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const div = document.createElement("div");
+    div.className = "setup-token-input";
+    div.innerHTML = `
+      <div class="setup-token-label">
+        <strong>API Token required</strong> for Render JS, Website Crawl, and Extract JSON.<br>
+        Create a token at <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" style="color:var(--accent)">dash.cloudflare.com/profile/api-tokens</a>
+      </div>
+      <div class="setup-token-scopes">
+        <strong>Required scopes:</strong>
+        <ul style="margin:4px 0 0 16px;padding:0;font-size:12px">
+          <li>Account &gt; Workers AI &gt; Read</li>
+          <li>Account &gt; Browser Rendering &gt; Edit</li>
+        </ul>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+          Account ID: <code>${escapeHtml(accountId)}</code>
+        </div>
+      </div>
+      <input type="password" class="setup-token-field" placeholder="API Token" />
+      <div class="setup-token-actions">
+        <button class="setup-token-skip">Skip for now</button>
+        <button class="setup-token-confirm primary">Set Secrets</button>
+      </div>
+    `;
+    container.appendChild(div);
+
+    const input = div.querySelector<HTMLInputElement>(".setup-token-field")!;
+    input.focus();
+
+    const submit = () => {
+      const val = input.value.trim();
+      if (!val) return;
+      div.remove();
+      resolve(val);
+    };
+
+    div.querySelector(".setup-token-confirm")!.addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+
+    div.querySelector(".setup-token-skip")!.addEventListener("click", () => {
+      div.remove();
+      reject("skipped");
+    });
+  });
 }
 
 function showAccountPicker(

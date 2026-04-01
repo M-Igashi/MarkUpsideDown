@@ -155,6 +155,7 @@ fn main() {
             cloudflare::setup_cloudflare_resources,
             cloudflare::deploy_worker,
             cloudflare::setup_worker_secrets,
+            cloudflare::setup_worker_secrets_with_token,
             menu::add_recent_file,
         ])
         .on_window_event(move |window, event| {

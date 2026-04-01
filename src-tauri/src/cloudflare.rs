@@ -553,6 +553,14 @@ pub async fn setup_worker_secrets(
     set_secrets_with_token(account_id, api_token, worker_name).await
 }
 
+#[tauri::command]
+pub async fn setup_worker_secrets_with_token(
+    account_id: String,
+    api_token: String,
+    worker_name: Option<String>,
+) -> Result<(), String> {
+    set_secrets_with_token(account_id, api_token, worker_name).await
+}
 
 async fn set_secrets_with_token(
     account_id: String,
