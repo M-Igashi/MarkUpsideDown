@@ -13,6 +13,8 @@ pub use web::*;
 use serde::{Deserialize, Serialize};
 use tauri_plugin_store::StoreExt;
 
+use crate::error::{AppError, Result};
+
 // --- Shared Editor State (for MCP bridge) ---
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -137,13 +139,13 @@ pub struct WindowRegistryEntry {
 pub fn save_window_registry(
     handle: tauri::AppHandle,
     windows: Vec<WindowRegistryEntry>,
-) -> Result<(), String> {
+) -> Result<()> {
     let store = handle
         .store(WINDOW_REGISTRY_STORE)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::Store(e.to_string()))?;
     store.set(
         WINDOW_REGISTRY_KEY,
-        serde_json::to_value(&windows).map_err(|e| e.to_string())?,
+        serde_json::to_value(&windows).map_err(|e| AppError::Store(e.to_string()))?,
     );
     Ok(())
 }
@@ -151,10 +153,10 @@ pub fn save_window_registry(
 #[tauri::command]
 pub fn load_window_registry(
     handle: tauri::AppHandle,
-) -> Result<Vec<WindowRegistryEntry>, String> {
+) -> Result<Vec<WindowRegistryEntry>> {
     let store = handle
         .store(WINDOW_REGISTRY_STORE)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::Store(e.to_string()))?;
     let entries = store
         .get(WINDOW_REGISTRY_KEY)
         .and_then(|v| serde_json::from_value::<Vec<WindowRegistryEntry>>(v.clone()).ok())

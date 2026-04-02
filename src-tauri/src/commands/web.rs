@@ -2,6 +2,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::time::Duration;
 
 use super::files::validate_path;
+use crate::error::{AppError, Result};
 
 // --- Shared Worker Request Helper ---
 
@@ -13,22 +14,23 @@ pub(crate) trait HasWorkerError {
 /// Send a request to the Worker, parse the JSON response, and check for errors.
 pub(crate) async fn worker_request<T: DeserializeOwned + HasWorkerError>(
     request: reqwest::RequestBuilder,
-) -> Result<T, String> {
+) -> Result<T> {
     let response = request
         .send()
         .await
-        .map_err(|e| format!("Request failed: {e}"))?;
+        .map_err(|e| AppError::Network(format!("Request failed: {e}")))?;
 
     let status = response.status();
     let mut body: T = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse response: {e}"))?;
+        .map_err(|e| AppError::Network(format!("Failed to parse response: {e}")))?;
 
     if !status.is_success() {
-        return Err(body
-            .take_error()
-            .unwrap_or_else(|| format!("Worker returned {status}")));
+        return Err(AppError::Worker(
+            body.take_error()
+                .unwrap_or_else(|| format!("Worker returned {status}")),
+        ));
     }
 
     Ok(body)
@@ -97,7 +99,7 @@ struct HealthResponse {
 pub async fn test_worker_url(
     worker_url: String,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<WorkerStatus, String> {
+) -> Result<WorkerStatus> {
     let health_url = format!("{}/health", worker_url.trim_end_matches('/'));
 
     Ok(match client.get(&health_url).timeout(Duration::from_secs(10)).send().await {
@@ -181,14 +183,14 @@ pub struct MarkdownResponse {
 pub async fn fetch_url_as_markdown(
     url: String,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<MarkdownResponse, String> {
+) -> Result<MarkdownResponse> {
     let response = client
         .get(&url)
         .timeout(Duration::from_secs(30))
         .header("Accept", "text/markdown")
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::Network(e.to_string()))?;
 
     let token_count = response
         .headers()
@@ -203,7 +205,10 @@ pub async fn fetch_url_as_markdown(
         .unwrap_or("")
         .to_string();
 
-    let body = response.text().await.map_err(|e| e.to_string())?;
+    let body = response
+        .text()
+        .await
+        .map_err(|e| AppError::Network(e.to_string()))?;
 
     Ok(MarkdownResponse {
         body,
@@ -229,7 +234,7 @@ pub async fn fetch_rendered_url_as_markdown(
     url: String,
     worker_url: String,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<String, String> {
+) -> Result<String> {
     let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&url));
 
     let body: RenderWorkerResponse = worker_request(
@@ -237,7 +242,8 @@ pub async fn fetch_rendered_url_as_markdown(
     )
     .await?;
 
-    body.markdown.ok_or_else(|| "No markdown in response".to_string())
+    body.markdown
+        .ok_or_else(|| AppError::Worker("No markdown in response".into()))
 }
 
 // --- Fetch URL via Worker (AI.toMarkdown() conversion) ---
@@ -266,7 +272,7 @@ pub async fn fetch_url_via_worker(
     url: String,
     worker_url: String,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<WorkerFetchResult, String> {
+) -> Result<WorkerFetchResult> {
     let fetch_url = format!("{}/fetch", worker_url.trim_end_matches('/'));
 
     let body: FetchWorkerResponse = worker_request(
@@ -278,7 +284,9 @@ pub async fn fetch_url_via_worker(
     .await?;
 
     Ok(WorkerFetchResult {
-        markdown: body.markdown.ok_or_else(|| "No markdown in response".to_string())?,
+        markdown: body
+            .markdown
+            .ok_or_else(|| AppError::Worker("No markdown in response".into()))?,
         source: body.source.unwrap_or_else(|| "ai-to-markdown".to_string()),
         spa_detected: body.spa_detected.unwrap_or(false),
     })
@@ -308,7 +316,7 @@ pub async fn fetch_json_via_worker(
     prompt: Option<String>,
     response_format: Option<serde_json::Value>,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<JsonExtractResult, String> {
+) -> Result<JsonExtractResult> {
     let json_url = format!("{}/json", worker_url.trim_end_matches('/'));
 
     let mut req_body = serde_json::json!({ "url": url });
@@ -328,13 +336,15 @@ pub async fn fetch_json_via_worker(
     .await?;
 
     Ok(JsonExtractResult {
-        data: resp.data.ok_or_else(|| "No data in response".to_string())?,
+        data: resp
+            .data
+            .ok_or_else(|| AppError::Worker("No data in response".into()))?,
     })
 }
 
 // --- Fetch Page Title ---
 
-pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Result<String, String> {
+pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Result<String> {
     let validated_url = validate_url(url)?;
     let response = client
         .get(validated_url)
@@ -342,16 +352,16 @@ pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Resul
         .header("Accept", "text/html")
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch: {e}"))?;
+        .map_err(|e| AppError::Network(format!("Failed to fetch: {e}")))?;
 
     if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
+        return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
 
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("Failed to read body: {e}"))?;
+        .map_err(|e| AppError::Network(format!("Failed to read body: {e}")))?;
     let text = String::from_utf8_lossy(&bytes[..bytes.len().min(65536)]);
 
     crate::util::extract_html_title(&text)
@@ -361,7 +371,7 @@ pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Resul
 pub async fn fetch_page_title(
     url: String,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<String, String> {
+) -> Result<String> {
     fetch_page_title_with(&client, &url).await
 }
 
@@ -371,35 +381,37 @@ pub async fn download_image_with(
     client: &reqwest::Client,
     url: &str,
     dest_path: &str,
-) -> Result<String, String> {
+) -> Result<String> {
     let validated_url = validate_url(url)?;
     let validated_path = validate_path(dest_path)?;
-    let dest_path = validated_path.to_str().ok_or("Invalid path encoding")?;
+    let dest_path = validated_path
+        .to_str()
+        .ok_or(AppError::Validation("Invalid path encoding".into()))?;
     let response = client
         .get(validated_url)
         .timeout(Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch image: {e}"))?;
+        .map_err(|e| AppError::Network(format!("Failed to fetch image: {e}")))?;
 
     if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
+        return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
 
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("Failed to read image: {e}"))?;
+        .map_err(|e| AppError::Network(format!("Failed to read image: {e}")))?;
 
     if let Some(parent) = std::path::Path::new(dest_path).parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|e| format!("Failed to create directory: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to create directory: {e}")))?;
     }
 
     tokio::fs::write(dest_path, &bytes)
         .await
-        .map_err(|e| format!("Failed to write image: {e}"))?;
+        .map_err(|e| AppError::Io(format!("Failed to write image: {e}")))?;
 
     Ok(dest_path.to_string())
 }
@@ -409,7 +421,7 @@ pub async fn download_image(
     url: String,
     dest_path: String,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<String, String> {
+) -> Result<String> {
     download_image_with(&client, &url, &dest_path).await
 }
 
@@ -440,9 +452,11 @@ pub async fn convert_file_to_markdown(
     file_path: String,
     worker_url: String,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<ConvertResponse, String> {
+) -> Result<ConvertResponse> {
     let path = std::path::Path::new(&file_path);
-    let bytes = tokio::fs::read(path).await.map_err(|e| format!("Failed to read file: {e}"))?;
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|e| AppError::Io(format!("Failed to read file: {e}")))?;
     let original_size = bytes.len();
 
     let mime_type = mime_from_extension(
@@ -450,7 +464,7 @@ pub async fn convert_file_to_markdown(
             .and_then(|e| e.to_str())
             .unwrap_or(""),
     )
-    .ok_or_else(|| format!("Unsupported file extension: {}", file_path))?;
+    .ok_or_else(|| AppError::Validation(format!("Unsupported file extension: {}", file_path)))?;
 
     let body: ConvertWorkerResponse = worker_request(
         client
@@ -470,7 +484,7 @@ pub async fn convert_file_to_markdown(
 }
 
 #[tauri::command]
-pub fn detect_file_is_image(file_path: String) -> Result<bool, String> {
+pub fn detect_file_is_image(file_path: String) -> Result<bool> {
     let ext = std::path::Path::new(&file_path)
         .extension()
         .and_then(|e| e.to_str())
@@ -502,16 +516,16 @@ const MAX_SVG_SIZE: usize = 1_024 * 1_024; // 1 MB
 pub async fn fetch_svg(
     url: String,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<String, String> {
+) -> Result<String> {
     let response = client
         .get(&url)
         .timeout(Duration::from_secs(15))
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch SVG: {e}"))?;
+        .map_err(|e| AppError::Network(format!("Failed to fetch SVG: {e}")))?;
 
     if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
+        return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
 
     let content_type = response
@@ -522,21 +536,26 @@ pub async fn fetch_svg(
         .to_string();
 
     if !content_type.contains("svg") && !content_type.contains("xml") {
-        return Err(format!("Not an SVG (content-type: {content_type})"));
+        return Err(AppError::Validation(format!(
+            "Not an SVG (content-type: {content_type})"
+        )));
     }
 
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| AppError::Network(e.to_string()))?;
 
     if bytes.len() > MAX_SVG_SIZE {
-        return Err(format!(
+        return Err(AppError::Validation(format!(
             "SVG too large ({} bytes, max {})",
             bytes.len(),
             MAX_SVG_SIZE
-        ));
+        )));
     }
 
     let svg_text = String::from_utf8(bytes.to_vec())
-        .map_err(|_| "SVG contains invalid UTF-8".to_string())?;
+        .map_err(|_| AppError::Validation("SVG contains invalid UTF-8".into()))?;
 
     Ok(sanitize_svg(&svg_text))
 }
@@ -709,14 +728,14 @@ fn strip_js_hrefs(input: &str, lower: &str) -> String {
 
 /// Parse and validate a URL, ensuring only http/https schemes are used.
 /// Returns a new `reqwest::Url` to break the taint chain from raw user input.
-fn validate_url(url: &str) -> Result<reqwest::Url, String> {
+fn validate_url(url: &str) -> Result<reqwest::Url> {
     let parsed =
-        reqwest::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
+        reqwest::Url::parse(url).map_err(|e| AppError::Validation(format!("Invalid URL: {e}")))?;
     match parsed.scheme() {
         "http" | "https" => Ok(parsed),
-        scheme => Err(format!(
+        scheme => Err(AppError::Validation(format!(
             "Invalid URL scheme '{scheme}': only http and https are allowed"
-        )),
+        ))),
     }
 }
 
@@ -732,20 +751,23 @@ pub struct UpdateInfo {
 pub async fn check_for_update(
     client: tauri::State<'_, reqwest::Client>,
     current_version: String,
-) -> Result<Option<UpdateInfo>, String> {
+) -> Result<Option<UpdateInfo>> {
     let resp = client
         .get("https://api.github.com/repos/M-Igashi/markupsidedown/releases/latest")
         .header("User-Agent", "markupsidedown")
         .timeout(Duration::from_secs(5))
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::Network(e.to_string()))?;
 
     if !resp.status().is_success() {
         return Ok(None);
     }
 
-    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Network(e.to_string()))?;
     let tag = body["tag_name"].as_str().unwrap_or("");
     let latest = tag.strip_prefix('v').unwrap_or(tag);
     let html_url = body["html_url"].as_str().unwrap_or("").to_string();

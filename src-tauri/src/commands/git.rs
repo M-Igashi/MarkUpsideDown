@@ -2,21 +2,23 @@ use serde::Serialize;
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
+use crate::error::{AppError, Result};
+
 // --- CLI Command Runner ---
 
-fn run_cli(cmd: &str, args: &[&str]) -> Result<String, String> {
+fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
     let output = Command::new(cmd)
         .args(args)
         .output()
-        .map_err(|e| format!("Failed to run {cmd}: {e}"))?;
+        .map_err(|e| AppError::Git(format!("Failed to run {cmd}: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+        return Err(AppError::Git(if stderr.is_empty() {
             format!("{cmd} command failed")
         } else {
             stderr
-        });
+        }));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -71,13 +73,13 @@ fn unquote_git_path(s: &str) -> String {
 /// during a multi-step revert) don't race on the index file.
 static GIT_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
+fn run_git(repo_path: &str, args: &[&str]) -> Result<String> {
     let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     run_git_unlocked(repo_path, args)
 }
 
 /// Run git without acquiring GIT_LOCK -- caller must hold the lock.
-fn run_git_unlocked(repo_path: &str, args: &[&str]) -> Result<String, String> {
+fn run_git_unlocked(repo_path: &str, args: &[&str]) -> Result<String> {
     let mut full_args = vec!["-C", repo_path];
     full_args.extend_from_slice(args);
     run_cli("git", &full_args)
@@ -85,11 +87,9 @@ fn run_git_unlocked(repo_path: &str, args: &[&str]) -> Result<String, String> {
 
 /// Run a blocking closure on the tokio thread pool, mapping join errors.
 async fn spawn_blocking<T: Send + 'static>(
-    f: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    tokio::task::spawn_blocking(f)
-        .await
-        .map_err(|e| format!("Task error: {e}"))?
+    f: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tokio::task::spawn_blocking(f).await?
 }
 
 #[derive(Serialize)]
@@ -111,7 +111,7 @@ pub struct GitStatus {
 }
 
 #[tauri::command]
-pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
+pub async fn git_status(repo_path: String) -> Result<GitStatus> {
     spawn_blocking(move || {
         // Hold lock for all three commands to avoid racing with multi-step
         // operations like git_revert (stash -> revert -> pop).
@@ -251,7 +251,7 @@ fn parse_numstat_line(line: &str) -> Option<(u32, u32, String)> {
 }
 
 #[tauri::command]
-pub async fn git_stage_all(repo_path: String) -> Result<(), String> {
+pub async fn git_stage_all(repo_path: String) -> Result<()> {
     spawn_blocking(move || {
         run_git(&repo_path, &["add", "-A"])?;
         Ok(())
@@ -260,7 +260,7 @@ pub async fn git_stage_all(repo_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn git_stage(repo_path: String, file_path: String) -> Result<(), String> {
+pub async fn git_stage(repo_path: String, file_path: String) -> Result<()> {
     spawn_blocking(move || {
         run_git(&repo_path, &["add", "--", &file_path])?;
         Ok(())
@@ -269,7 +269,7 @@ pub async fn git_stage(repo_path: String, file_path: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub async fn git_unstage(repo_path: String, file_path: String) -> Result<(), String> {
+pub async fn git_unstage(repo_path: String, file_path: String) -> Result<()> {
     spawn_blocking(move || {
         run_git(&repo_path, &["reset", "HEAD", "--", &file_path])?;
         Ok(())
@@ -278,7 +278,7 @@ pub async fn git_unstage(repo_path: String, file_path: String) -> Result<(), Str
 }
 
 #[tauri::command]
-pub async fn git_commit(repo_path: String, message: String) -> Result<String, String> {
+pub async fn git_commit(repo_path: String, message: String) -> Result<String> {
     spawn_blocking(move || {
         let output = run_git(&repo_path, &["commit", "-m", &message])?;
         Ok(output.trim().to_string())
@@ -286,7 +286,7 @@ pub async fn git_commit(repo_path: String, message: String) -> Result<String, St
     .await
 }
 
-async fn git_remote_command(repo_path: String, cmd: &'static str) -> Result<String, String> {
+async fn git_remote_command(repo_path: String, cmd: &'static str) -> Result<String> {
     spawn_blocking(move || {
         let output = run_git(&repo_path, &[cmd])?;
         Ok(output.trim().to_string())
@@ -295,24 +295,24 @@ async fn git_remote_command(repo_path: String, cmd: &'static str) -> Result<Stri
 }
 
 #[tauri::command]
-pub async fn git_push(repo_path: String) -> Result<String, String> {
+pub async fn git_push(repo_path: String) -> Result<String> {
     git_remote_command(repo_path, "push").await
 }
 
 #[tauri::command]
-pub async fn git_pull(repo_path: String) -> Result<String, String> {
+pub async fn git_pull(repo_path: String) -> Result<String> {
     git_remote_command(repo_path, "pull").await
 }
 
 #[tauri::command]
-pub async fn git_fetch(repo_path: String) -> Result<String, String> {
+pub async fn git_fetch(repo_path: String) -> Result<String> {
     git_remote_command(repo_path, "fetch").await
 }
 
 // --- Diff ---
 
 #[tauri::command]
-pub async fn git_diff(repo_path: String, file_path: String, staged: bool) -> Result<String, String> {
+pub async fn git_diff(repo_path: String, file_path: String, staged: bool) -> Result<String> {
     spawn_blocking(move || {
         let mut args = vec!["diff"];
         if staged {
@@ -328,7 +328,7 @@ pub async fn git_diff(repo_path: String, file_path: String, staged: bool) -> Res
 // --- Discard ---
 
 #[tauri::command]
-pub async fn git_discard(repo_path: String, file_path: String) -> Result<(), String> {
+pub async fn git_discard(repo_path: String, file_path: String) -> Result<()> {
     spawn_blocking(move || {
         // Check if the file is untracked
         let status_output = run_git(&repo_path, &["status", "--porcelain", "--", &file_path])?;
@@ -338,7 +338,7 @@ pub async fn git_discard(repo_path: String, file_path: String) -> Result<(), Str
             // Delete untracked file
             let full_path = std::path::Path::new(&repo_path).join(&file_path);
             std::fs::remove_file(&full_path)
-                .map_err(|e| format!("Failed to delete {}: {e}", file_path))?;
+                .map_err(|e| AppError::Io(format!("Failed to delete {}: {e}", file_path)))?;
         } else {
             // Restore tracked file
             run_git(&repo_path, &["checkout", "--", &file_path])?;
@@ -349,7 +349,7 @@ pub async fn git_discard(repo_path: String, file_path: String) -> Result<(), Str
 }
 
 #[tauri::command]
-pub async fn git_discard_all(repo_path: String) -> Result<(), String> {
+pub async fn git_discard_all(repo_path: String) -> Result<()> {
     spawn_blocking(move || {
         // Restore all tracked files
         run_git(&repo_path, &["checkout", "--", "."])?;
@@ -372,7 +372,7 @@ pub struct GitLogEntry {
 }
 
 #[tauri::command]
-pub async fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitLogEntry>, String> {
+pub async fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitLogEntry>> {
     let limit = limit.unwrap_or(10);
     spawn_blocking(move || {
         let limit_str = format!("-{}", limit);
@@ -406,14 +406,16 @@ pub async fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitLog
 // --- Revert ---
 
 #[tauri::command]
-pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String, String> {
+pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String> {
     spawn_blocking(move || {
         let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
         // Require clean working tree
         let status = run_git_unlocked(&repo_path, &["status", "--porcelain"])?;
         if !status.trim().is_empty() {
-            return Err("Commit or discard changes before reverting.".to_string());
+            return Err(AppError::Git(
+                "Commit or discard changes before reverting.".into(),
+            ));
         }
 
         let short = if commit_hash.len() >= 7 { &commit_hash[..7] } else { &commit_hash };
@@ -437,7 +439,7 @@ pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String
 // --- Show commit diff ---
 
 #[tauri::command]
-pub async fn git_show(repo_path: String, commit_hash: String) -> Result<String, String> {
+pub async fn git_show(repo_path: String, commit_hash: String) -> Result<String> {
     spawn_blocking(move || {
         run_git(&repo_path, &["show", "--patch", "--format=", &commit_hash])
     })
@@ -447,7 +449,7 @@ pub async fn git_show(repo_path: String, commit_hash: String) -> Result<String, 
 // --- Clone ---
 
 #[tauri::command]
-pub async fn git_clone(url: String, dest: String) -> Result<String, String> {
+pub async fn git_clone(url: String, dest: String) -> Result<String> {
     spawn_blocking(move || {
         run_cli("git", &["clone", &url, &dest]).map(|s| s.trim().to_string())
     })
@@ -455,7 +457,7 @@ pub async fn git_clone(url: String, dest: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn git_init(repo_path: String) -> Result<String, String> {
+pub async fn git_init(repo_path: String) -> Result<String> {
     spawn_blocking(move || {
         run_cli("git", &["init", &repo_path]).map(|s| s.trim().to_string())
     })

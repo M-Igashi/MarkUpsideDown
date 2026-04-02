@@ -501,13 +501,13 @@ pub async fn check_wrangler_status() -> WranglerStatus {
 }
 
 #[tauri::command]
-pub async fn wrangler_login() -> Result<(), String> {
+pub async fn wrangler_login() -> crate::error::Result<()> {
     tokio::task::spawn_blocking(|| {
-        run_wrangler(&["login"], None, 120, &[])?;
+        run_wrangler(&["login"], None, 120, &[])
+            .map_err(crate::error::AppError::Wrangler)?;
         Ok(())
     })
-    .await
-    .map_err(|e| format!("Task error: {e}"))?
+    .await?
 }
 
 #[tauri::command]
@@ -515,7 +515,8 @@ pub async fn deploy_worker(
     account_id: Option<String>,
     resources: Option<ResourceFlags>,
     worker_name: Option<String>,
-) -> Result<String, String> {
+) -> crate::error::Result<String> {
+    use crate::error::AppError;
     let temp_dir = std::env::temp_dir().join("markupsidedown-worker-deploy");
     // Clean up any previous temp dir
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -536,20 +537,22 @@ pub async fn deploy_worker(
     // Always clean up temp dir
     let _ = std::fs::remove_dir_all(&temp_dir);
 
-    let output = result?;
+    let output = result.map_err(AppError::Wrangler)?;
     parse_worker_url(&output)
-        .ok_or_else(|| format!("Worker deployed but could not parse URL from output:\n{output}"))
+        .ok_or_else(|| AppError::Wrangler(format!("Worker deployed but could not parse URL from output:\n{output}")))
 }
 
 #[tauri::command]
 pub async fn setup_worker_secrets(
     account_id: String,
     worker_name: Option<String>,
-) -> Result<(), String> {
+) -> crate::error::Result<()> {
     // Always use wrangler login OAuth session to create a scoped token.
     // Environment variable fallbacks were removed to avoid picking up
     // tokens with insufficient scopes.
-    let api_token = create_api_token_via_oauth(&account_id).await?;
+    let api_token = create_api_token_via_oauth(&account_id)
+        .await
+        .map_err(crate::error::AppError::Wrangler)?;
     set_secrets_with_token(account_id, api_token, worker_name).await
 }
 
@@ -558,7 +561,7 @@ pub async fn setup_worker_secrets_with_token(
     account_id: String,
     api_token: String,
     worker_name: Option<String>,
-) -> Result<(), String> {
+) -> crate::error::Result<()> {
     set_secrets_with_token(account_id, api_token, worker_name).await
 }
 
@@ -566,7 +569,8 @@ async fn set_secrets_with_token(
     account_id: String,
     api_token: String,
     worker_name: Option<String>,
-) -> Result<(), String> {
+) -> crate::error::Result<()> {
+    use crate::error::AppError;
     let name = worker_name.unwrap_or_else(|| "markupsidedown-converter".to_string());
     let name1 = name.clone();
     let name2 = name;
@@ -580,8 +584,8 @@ async fn set_secrets_with_token(
             set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, &acct_for_r2, &name2)
         }),
     );
-    r1.map_err(|e| format!("Task error: {e}"))??;
-    r2.map_err(|e| format!("Task error: {e}"))??;
+    r1?.map_err(AppError::Wrangler)?;
+    r2?.map_err(AppError::Wrangler)?;
 
     Ok(())
 }

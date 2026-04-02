@@ -423,7 +423,9 @@ async fn list_recursive(root: &str) -> Result<Vec<commands::FileEntry>, String> 
     let mut stack = vec![root.to_string()];
 
     while let Some(dir) = stack.pop() {
-        let entries = commands::list_directory(dir).await?;
+        let entries = commands::list_directory(dir)
+            .await
+            .map_err(|e| e.to_string())?;
         for entry in entries {
             if entry.is_dir {
                 stack.push(entry.path.clone());
@@ -600,11 +602,11 @@ async fn git_commit(
 
 async fn git_remote_op(
     _state: &BridgeState,
-    op: impl std::future::Future<Output = Result<String, String>>,
+    op: impl std::future::Future<Output = crate::error::Result<String>>,
 ) -> Json<serde_json::Value> {
     match op.await {
         Ok(output) => Json(serde_json::json!({ "output": output })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
     }
 }
 

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{EditorStates, TabInfo};
+use crate::error::{AppError, Result};
 
 // --- Editor State Sync ---
 
@@ -18,7 +19,7 @@ pub fn sync_editor_state(
     root_path: Option<String>,
     tabs: Option<Vec<TabInfo>>,
     state: tauri::State<'_, std::sync::Arc<EditorStates>>,
-) -> Result<(), String> {
+) -> Result<()> {
     let label = window.label().to_string();
     let mut map = state.map.lock().unwrap_or_else(|e| e.into_inner());
     let s = map.entry(label).or_default();
@@ -52,10 +53,10 @@ pub fn sync_editor_state(
 // --- MCP Sidecar ---
 
 #[tauri::command]
-pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String, String> {
+pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String> {
     use tauri::Manager;
     let triple = tauri::utils::platform::target_triple()
-        .map_err(|e| format!("Failed to get target triple: {e}"))?;
+        .map_err(|e| AppError::Io(format!("Failed to get target triple: {e}")))?;
     let bin_name_with_triple = format!("markupsidedown-mcp-{triple}");
 
     // Production (.app bundle): Contents/MacOS/markupsidedown-mcp (no triple suffix)
@@ -77,7 +78,9 @@ pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String, String> {
         return Ok(dev_path.to_string_lossy().to_string());
     }
 
-    Err(format!("MCP binary 'markupsidedown-mcp' not found"))
+    Err(AppError::Io(
+        "MCP binary 'markupsidedown-mcp' not found".into(),
+    ))
 }
 
 // --- Claude Desktop MCP Config ---
@@ -86,19 +89,19 @@ pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String, String> {
 pub fn install_mcp_to_claude_desktop(
     mcp_binary_path: String,
     worker_url: String,
-) -> Result<String, String> {
+) -> Result<String> {
     use std::fs;
 
     let config_path = crate::util::home_dir()
-        .ok_or("Cannot resolve home directory")?
+        .ok_or(AppError::Io("Cannot resolve home directory".into()))?
         .join("Library/Application Support/Claude/claude_desktop_config.json");
 
     // Read existing config or create new one
     let mut config: serde_json::Value = if config_path.exists() {
         let content = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read config: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to read config: {e}")))?;
         serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse config: {e}"))?
+            .map_err(|e| AppError::Io(format!("Failed to parse config: {e}")))?
     } else {
         serde_json::json!({})
     };
@@ -112,7 +115,7 @@ pub fn install_mcp_to_claude_desktop(
     // Add/update markupsidedown entry
     let servers = config
         .as_object_mut()
-        .ok_or("Config is not a JSON object")?
+        .ok_or(AppError::Validation("Config is not a JSON object".into()))?
         .entry("mcpServers")
         .or_insert_with(|| serde_json::json!({}));
     servers["markupsidedown"] = entry;
@@ -121,7 +124,7 @@ pub fn install_mcp_to_claude_desktop(
         &config_path,
         serde_json::to_string_pretty(&config).unwrap(),
     )
-    .map_err(|e| format!("Failed to write config: {e}"))?;
+    .map_err(|e| AppError::Io(format!("Failed to write config: {e}")))?;
 
     Ok(config_path.to_string_lossy().to_string())
 }
@@ -131,21 +134,21 @@ pub fn install_mcp_to_claude_desktop(
 #[tauri::command]
 pub fn create_cowork_workspace(
     folder_path: String,
-) -> Result<String, String> {
+) -> Result<String> {
     use std::fs;
     use std::path::PathBuf;
 
     // Expand ~ to home directory
     let expanded = if folder_path.starts_with("~/") {
         crate::util::home_dir()
-            .ok_or("Cannot resolve home directory")?
+            .ok_or(AppError::Io("Cannot resolve home directory".into()))?
             .join(&folder_path[2..])
     } else {
         PathBuf::from(&folder_path)
     };
 
     fs::create_dir_all(&expanded)
-        .map_err(|e| format!("Failed to create directory: {e}"))?;
+        .map_err(|e| AppError::Io(format!("Failed to create directory: {e}")))?;
 
     // Generate CLAUDE.md
     let claude_md = r#"# MarkUpsideDown Workspace
@@ -272,7 +275,7 @@ MarkUpsideDown must be running for editor/file/git tools to work.
     let claude_md_path = expanded.join("CLAUDE.md");
     if !claude_md_path.exists() {
         fs::write(&claude_md_path, claude_md)
-            .map_err(|e| format!("Failed to write CLAUDE.md: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to write CLAUDE.md: {e}")))?;
     }
 
     Ok(expanded.to_string_lossy().to_string())
@@ -288,7 +291,7 @@ pub struct ComrakDiagnostic {
 }
 
 #[tauri::command]
-pub fn validate_markdown(content: String) -> Result<Vec<ComrakDiagnostic>, String> {
+pub fn validate_markdown(content: String) -> Result<Vec<ComrakDiagnostic>> {
     use comrak::{parse_document, Arena, Options};
 
     let arena = Arena::new();

@@ -4,6 +4,7 @@
 mod bridge;
 mod cloudflare;
 mod commands;
+mod error;
 mod menu;
 mod util;
 

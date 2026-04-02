@@ -6,7 +6,8 @@ pub fn home_dir() -> Option<PathBuf> {
 
 /// Extract the page title from an HTML string.
 /// Looks for `<title>...</title>` (case-insensitive) and decodes common HTML entities.
-pub fn extract_html_title(html: &str) -> Result<String, String> {
+pub fn extract_html_title(html: &str) -> crate::error::Result<String> {
+    use crate::error::AppError;
     let lower = html.to_ascii_lowercase();
     let start = lower
         .find("<title")
@@ -24,11 +25,11 @@ pub fn extract_html_title(html: &str) -> Result<String, String> {
                 .replace("&#x27;", "'")
                 .replace("&apos;", "'");
             if title.is_empty() {
-                Err("Empty title".to_string())
+                Err(AppError::Validation("Empty title".into()))
             } else {
                 Ok(title)
             }
         }
-        _ => Err("No title found".to_string()),
+        _ => Err(AppError::Validation("No title found".into())),
     }
 }

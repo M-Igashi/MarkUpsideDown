@@ -1,10 +1,12 @@
 use serde::Serialize;
 
+use crate::error::{AppError, Result};
+
 // --- Path Validation ---
 
 /// Validate and sanitize a user-provided path to prevent path traversal attacks.
 /// Ensures the resolved path is under the user's home directory.
-pub(crate) fn validate_path(path: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn validate_path(path: &str) -> Result<std::path::PathBuf> {
     let p = std::path::Path::new(path);
 
     // Try to canonicalize the full path first; if the file doesn't exist yet,
@@ -14,23 +16,24 @@ pub(crate) fn validate_path(path: &str) -> Result<std::path::PathBuf, String> {
         Err(_) => {
             let parent = p
                 .parent()
-                .ok_or_else(|| "Invalid path: no parent directory".to_string())?;
+                .ok_or_else(|| AppError::Validation("Invalid path: no parent directory".into()))?;
             let file_name = p
                 .file_name()
-                .ok_or_else(|| "Invalid path: no file name".to_string())?;
+                .ok_or_else(|| AppError::Validation("Invalid path: no file name".into()))?;
             let canonical_parent = parent
                 .canonicalize()
-                .map_err(|e| format!("Invalid parent path: {e}"))?;
+                .map_err(|e| AppError::Io(format!("Invalid parent path: {e}")))?;
             canonical_parent.join(file_name)
         }
     };
 
-    let home = crate::util::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+    let home =
+        crate::util::home_dir().ok_or_else(|| AppError::Io("Cannot determine home directory".into()))?;
     if !resolved.starts_with(&home) {
-        return Err(format!(
+        return Err(AppError::Validation(format!(
             "Access denied: path must be under {}",
             home.display()
-        ));
+        )));
     }
 
     Ok(resolved)
@@ -48,40 +51,47 @@ pub struct FileEntry {
 }
 
 #[tauri::command]
-pub async fn read_text_file(path: String) -> Result<String, String> {
+pub async fn read_text_file(path: String) -> Result<String> {
     let path = validate_path(&path)?;
     tokio::fs::read_to_string(&path)
         .await
-        .map_err(|e| format!("Failed to read file: {e}"))
+        .map_err(|e| AppError::Io(format!("Failed to read file: {e}")))
 }
 
 #[tauri::command]
-pub async fn write_text_file(path: String, content: String) -> Result<(), String> {
+pub async fn write_text_file(path: String, content: String) -> Result<()> {
     let path = validate_path(&path)?;
     tokio::fs::write(&path, content.as_bytes())
         .await
-        .map_err(|e| format!("Failed to write file: {e}"))
+        .map_err(|e| AppError::Io(format!("Failed to write file: {e}")))
 }
 
 #[tauri::command]
-pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+pub async fn read_file_bytes(path: String) -> Result<Vec<u8>> {
     let path = validate_path(&path)?;
     tokio::fs::read(&path)
         .await
-        .map_err(|e| format!("Failed to read file: {e}"))
+        .map_err(|e| AppError::Io(format!("Failed to read file: {e}")))
 }
 
 #[tauri::command]
-pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
+pub async fn list_directory(path: String) -> Result<Vec<FileEntry>> {
     let path = validate_path(&path)?;
     let mut entries = Vec::new();
     let mut read_dir = tokio::fs::read_dir(&path)
         .await
-        .map_err(|e| format!("Failed to read directory: {e}"))?;
+        .map_err(|e| AppError::Io(format!("Failed to read directory: {e}")))?;
 
-    while let Some(entry) = read_dir.next_entry().await.map_err(|e| e.to_string())? {
+    while let Some(entry) = read_dir
+        .next_entry()
+        .await
+        .map_err(|e| AppError::Io(e.to_string()))?
+    {
         let name = entry.file_name().to_string_lossy().to_string();
-        let file_type = entry.file_type().await.map_err(|e| e.to_string())?;
+        let file_type = entry
+            .file_type()
+            .await
+            .map_err(|e| AppError::Io(e.to_string()))?;
         let entry_path = entry.path();
         let extension = entry_path
             .extension()
@@ -122,7 +132,7 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 
 
 #[tauri::command]
-pub async fn create_file(path: String) -> Result<(), String> {
+pub async fn create_file(path: String) -> Result<()> {
     let p = validate_path(&path)?;
     match tokio::fs::OpenOptions::new()
         .write(true)
@@ -132,104 +142,108 @@ pub async fn create_file(path: String) -> Result<(), String> {
     {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            Err("File already exists".to_string())
+            Err(AppError::Io("File already exists".into()))
         }
-        Err(e) => Err(format!("Failed to create file: {e}")),
+        Err(e) => Err(AppError::Io(format!("Failed to create file: {e}"))),
     }
 }
 
 #[tauri::command]
-pub async fn create_directory(path: String) -> Result<(), String> {
+pub async fn create_directory(path: String) -> Result<()> {
     let p = validate_path(&path)?;
     match tokio::fs::create_dir(&p).await {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            Err("Directory already exists".to_string())
+            Err(AppError::Io("Directory already exists".into()))
         }
-        Err(e) => Err(format!("Failed to create directory: {e}")),
+        Err(e) => Err(AppError::Io(format!("Failed to create directory: {e}"))),
     }
 }
 
 #[tauri::command]
-pub async fn rename_entry(from: String, to: String) -> Result<(), String> {
+pub async fn rename_entry(from: String, to: String) -> Result<()> {
     let from = validate_path(&from)?;
     let to = validate_path(&to)?;
     tokio::fs::rename(&from, &to)
         .await
-        .map_err(|e| format!("Failed to rename: {e}"))
+        .map_err(|e| AppError::Io(format!("Failed to rename: {e}")))
 }
 
 #[tauri::command]
-pub async fn write_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
+pub async fn write_file_bytes(path: String, data: Vec<u8>) -> Result<()> {
     let dest = validate_path(&path)?;
     if dest.exists() {
-        return Err(format!(
+        return Err(AppError::Io(format!(
             "'{}' already exists",
             dest.file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default()
-        ));
+        )));
     }
     tokio::fs::write(&dest, &data)
         .await
-        .map_err(|e| format!("Failed to write file: {e}"))
+        .map_err(|e| AppError::Io(format!("Failed to write file: {e}")))
 }
 
 #[tauri::command]
-pub async fn save_image(path: String, data: Vec<u8>) -> Result<(), String> {
+pub async fn save_image(path: String, data: Vec<u8>) -> Result<()> {
     let dest = validate_path(&path)?;
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|e| format!("Failed to create directory: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to create directory: {e}")))?;
     }
     tokio::fs::write(&dest, &data)
         .await
-        .map_err(|e| format!("Failed to save image: {e}"))
+        .map_err(|e| AppError::Io(format!("Failed to save image: {e}")))
 }
 
 #[tauri::command]
-pub async fn delete_entry(path: String, is_dir: bool) -> Result<(), String> {
+pub async fn delete_entry(path: String, is_dir: bool) -> Result<()> {
     let _ = is_dir; // trash::delete handles both files and directories
     let validated = validate_path(&path)?;
     let path_clone = validated.to_string_lossy().to_string();
     tokio::task::spawn_blocking(move || {
-        trash::delete(&path_clone).map_err(|e| format!("Failed to move to trash: {e}"))
+        trash::delete(&path_clone).map_err(|e| AppError::Io(format!("Failed to move to trash: {e}")))
     })
-    .await
-    .map_err(|e| format!("Task failed: {e}"))?
+    .await?
 }
 
 #[tauri::command]
-pub async fn copy_entry(from: String, to_dir: String) -> Result<String, String> {
+pub async fn copy_entry(from: String, to_dir: String) -> Result<String> {
     let src = validate_path(&from)?;
     let to_dir = validate_path(&to_dir)?;
     let file_name = src
         .file_name()
-        .ok_or("Invalid source path")?
+        .ok_or(AppError::Validation("Invalid source path".into()))?
         .to_string_lossy()
         .to_string();
     let dest = to_dir.join(&file_name);
     if dest.exists() {
-        return Err(format!("'{}' already exists in destination", file_name));
+        return Err(AppError::Io(format!(
+            "'{}' already exists in destination",
+            file_name
+        )));
     }
     if src.is_dir() {
         copy_dir_recursive(&src, &dest).await?;
     } else {
         tokio::fs::copy(&src, &dest)
             .await
-            .map_err(|e| format!("Failed to copy: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to copy: {e}")))?;
     }
     Ok(dest.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-pub async fn duplicate_entry(path: String) -> Result<String, String> {
+pub async fn duplicate_entry(path: String) -> Result<String> {
     let validated = validate_path(&path)?;
     let path_clone = validated.to_string_lossy().to_string();
     let dest = tokio::task::spawn_blocking(move || {
         let src = std::path::Path::new(&path_clone);
-        let parent = src.parent().ok_or("No parent directory")?;
+        let parent = src
+            .parent()
+            .ok_or(AppError::Validation("No parent directory".into()))?;
         let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("");
         let ext = src.extension().and_then(|s| s.to_str());
 
@@ -247,16 +261,15 @@ pub async fn duplicate_entry(path: String) -> Result<String, String> {
             };
             let candidate = parent.join(&name);
             if !candidate.exists() {
-                break Ok::<_, String>(candidate);
+                break Ok::<_, AppError>(candidate);
             }
             n += 1;
             if n > 100 {
-                break Err("Too many copies exist".to_string());
+                break Err(AppError::Io("Too many copies exist".into()));
             }
         }
     })
-    .await
-    .map_err(|e| format!("Task error: {e}"))??;
+    .await??;
 
     let src = &validated;
     if src.is_dir() {
@@ -264,22 +277,22 @@ pub async fn duplicate_entry(path: String) -> Result<String, String> {
     } else {
         tokio::fs::copy(src, &dest)
             .await
-            .map_err(|e| format!("Failed to duplicate: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to duplicate: {e}")))?;
     }
     Ok(dest.to_string_lossy().to_string())
 }
 
-async fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+async fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> Result<()> {
     tokio::fs::create_dir(dest)
         .await
-        .map_err(|e| format!("Failed to create directory: {e}"))?;
+        .map_err(|e| AppError::Io(format!("Failed to create directory: {e}")))?;
     let mut entries = tokio::fs::read_dir(src)
         .await
-        .map_err(|e| format!("Failed to read directory: {e}"))?;
+        .map_err(|e| AppError::Io(format!("Failed to read directory: {e}")))?;
     while let Some(entry) = entries
         .next_entry()
         .await
-        .map_err(|e| format!("Failed to read entry: {e}"))?
+        .map_err(|e| AppError::Io(format!("Failed to read entry: {e}")))?
     {
         let entry_path = entry.path();
         let dest_path = dest.join(entry.file_name());
@@ -288,28 +301,28 @@ async fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> Re
         } else {
             tokio::fs::copy(&entry_path, &dest_path)
                 .await
-                .map_err(|e| format!("Failed to copy file: {e}"))?;
+                .map_err(|e| AppError::Io(format!("Failed to copy file: {e}")))?;
         }
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn reveal_in_finder(path: String) -> Result<(), String> {
+pub async fn reveal_in_finder(path: String) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
             .arg("-R")
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("Failed to reveal in Finder: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to reveal in Finder: {e}")))?;
     }
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
             .arg(format!("/select,{}", &path))
             .spawn()
-            .map_err(|e| format!("Failed to reveal in Explorer: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to reveal in Explorer: {e}")))?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -321,39 +334,39 @@ pub async fn reveal_in_finder(path: String) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(&parent)
             .spawn()
-            .map_err(|e| format!("Failed to open file manager: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to open file manager: {e}")))?;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn open_with_default_app(path: String) -> Result<(), String> {
+pub async fn open_with_default_app(path: String) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to open file: {e}")))?;
     }
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to open file: {e}")))?;
     }
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to open file: {e}")))?;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn open_in_terminal(path: String) -> Result<(), String> {
+pub async fn open_in_terminal(path: String) -> Result<()> {
     let dir = if std::path::Path::new(&path).is_dir() {
         path
     } else {
@@ -369,14 +382,14 @@ pub async fn open_in_terminal(path: String) -> Result<(), String> {
             .arg("Terminal")
             .arg(&dir)
             .spawn()
-            .map_err(|e| format!("Failed to open Terminal: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to open Terminal: {e}")))?;
     }
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
             .args(["/c", "start", "cmd", "/k", &format!("cd /d {dir}")])
             .spawn()
-            .map_err(|e| format!("Failed to open terminal: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to open terminal: {e}")))?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -393,7 +406,7 @@ pub async fn open_in_terminal(path: String) -> Result<(), String> {
             }
         }
         if !opened {
-            return Err("No terminal emulator found".to_string());
+            return Err(AppError::Io("No terminal emulator found".into()));
         }
     }
     Ok(())

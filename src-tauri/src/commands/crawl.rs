@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use super::web::{worker_request, HasWorkerError};
+use crate::error::{AppError, Result};
 
 // --- Website Crawl via Browser Rendering /crawl API ---
 
@@ -32,7 +33,7 @@ pub async fn crawl_website(
     formats: Option<Vec<String>>,
     response_format: Option<serde_json::Value>,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<CrawlStartResult, String> {
+) -> Result<CrawlStartResult> {
     let crawl_url = format!("{}/crawl", worker_url.trim_end_matches('/'));
 
     let mut body = serde_json::json!({
@@ -68,7 +69,9 @@ pub async fn crawl_website(
     .await?;
 
     Ok(CrawlStartResult {
-        job_id: resp.job_id.ok_or("No job_id in response")?,
+        job_id: resp
+            .job_id
+            .ok_or(AppError::Worker("No job_id in response".into()))?,
     })
 }
 
@@ -125,7 +128,7 @@ pub async fn crawl_status(
     worker_url: String,
     cursor: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
-) -> Result<CrawlStatusResult, String> {
+) -> Result<CrawlStatusResult> {
     let mut status_url = format!(
         "{}/crawl/{}?limit=100&status=completed",
         worker_url.trim_end_matches('/'),
@@ -140,7 +143,9 @@ pub async fn crawl_status(
     )
     .await?;
 
-    let result = resp.result.ok_or("No result in response")?;
+    let result = resp
+        .result
+        .ok_or(AppError::Worker("No result in response".into()))?;
 
     let pages: Vec<CrawlPage> = result
         .records
@@ -174,7 +179,7 @@ pub struct CrawlSaveResult {
 pub async fn crawl_save(
     pages: Vec<CrawlPage>,
     base_dir: String,
-) -> Result<CrawlSaveResult, String> {
+) -> Result<CrawlSaveResult> {
     let mut saved_count = 0u32;
 
     for page in &pages {
@@ -182,11 +187,11 @@ pub async fn crawl_save(
         if let Some(parent) = std::path::Path::new(&file_path).parent() {
             tokio::fs::create_dir_all(parent)
                 .await
-                .map_err(|e| format!("Failed to create directory: {e}"))?;
+                .map_err(|e| AppError::Io(format!("Failed to create directory: {e}")))?;
         }
         tokio::fs::write(&file_path, &page.markdown)
             .await
-            .map_err(|e| format!("Failed to write {file_path}: {e}"))?;
+            .map_err(|e| AppError::Io(format!("Failed to write {file_path}: {e}")))?;
         saved_count += 1;
     }
 
