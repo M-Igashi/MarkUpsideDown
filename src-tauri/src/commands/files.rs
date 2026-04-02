@@ -107,7 +107,12 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 
     // Filter out well-known build artifact and dependency directories.
     const HIDDEN_DIRS: &[&str] = &["node_modules", "target", "dist", "build"];
-    entries.retain(|e| !(e.is_dir && HIDDEN_DIRS.contains(&e.name.as_str())));
+    // Filter out OS-generated junk files.
+    const HIDDEN_FILES: &[&str] = &[".DS_Store", "Thumbs.db"];
+    entries.retain(|e| {
+        !(e.is_dir && HIDDEN_DIRS.contains(&e.name.as_str()))
+            && !(!e.is_dir && HIDDEN_FILES.contains(&e.name.as_str()))
+    });
 
     // Sort: directories first, then alphabetically (case-insensitive)
     entries.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
