@@ -404,6 +404,39 @@ impl BridgeClient {
         }
         Ok(())
     }
+
+    // --- Git extended operations ---
+
+    pub async fn git_stage_all(&self) -> Result<(), String> {
+        self.post_check_error("/git/stage-all", serde_json::json!({})).await
+    }
+
+    pub async fn git_show(&self, commit_hash: &str) -> Result<String, String> {
+        let val = self.request("GET", &format!("/git/show?commit_hash={}", urlencoding::encode(commit_hash)), None).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub async fn git_clone(&self, url: &str, dest: &str) -> Result<String, String> {
+        let val = self.request("POST", "/git/clone", Some(serde_json::json!({ "url": url, "dest": dest }))).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub async fn git_init(&self, path: &str) -> Result<String, String> {
+        let val = self.request("POST", "/git/init", Some(serde_json::json!({ "path": path }))).await?;
+        let json = val.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
 }
 
 #[derive(Deserialize, serde::Serialize)]

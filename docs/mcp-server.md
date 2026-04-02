@@ -80,7 +80,7 @@ Check Worker health and version: `curl https://your-worker-url/health`
 
 The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit.
 
-## Available Tools (50)
+## Available Tools (61)
 
 <details>
 <summary><strong>Editor Tools</strong> — 9 tools (require the app to be running)</summary>
@@ -168,11 +168,12 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 </details>
 
 <details>
-<summary><strong>Git Operations</strong> — 11 tools (require the app to be running)</summary>
+<summary><strong>Git Operations</strong> — 15 tools (require the app to be running)</summary>
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `git_stage` | Stage a file for commit | `path: string` |
+| `git_stage_all` | Stage all changes (git add -A) | — |
 | `git_unstage` | Unstage a file | `path: string` |
 | `git_commit` | Commit staged changes | `message: string` |
 | `git_push` | Push commits to remote | — |
@@ -182,7 +183,10 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 | `git_discard` | Discard changes for a specific file | `path: string` |
 | `git_discard_all` | Discard all uncommitted changes | — |
 | `git_log` | Get recent commit history | `limit?: number` |
+| `git_show` | Show the patch for a specific commit | `commit_hash: string` |
 | `git_revert` | Revert a commit by creating a new revert commit | `commit_hash: string` |
+| `git_clone` | Clone a git repository | `url: string`, `dest: string` |
+| `git_init` | Initialize a new git repository | `path: string` |
 
 </details>
 
@@ -202,13 +206,40 @@ Tags are stored in `.markupsidedown/tags.json` per project. Changes made via MCP
 </details>
 
 <details>
-<summary>Search (1 tool) — require Worker URL + Vectorize</summary>
+<summary><strong>Search & Indexing</strong> — 3 tools (require Worker URL + Vectorize)</summary>
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `semantic_search` | Search indexed documents using natural language | `query: string`, `limit?: number` |
+| `index_documents` | Index documents into Vectorize for semantic search | `documents: {id, content, metadata?}[]` |
+| `remove_document` | Remove a document from the Vectorize index | `id: string` |
 
-Requires Vectorize to be configured in the Worker. Documents are auto-indexed when crawled or imported/converted via the app. Manual indexing is also available via the `/embed` endpoint.
+Requires Vectorize to be configured in the Worker. Documents are auto-indexed when crawled or imported/converted via the app. Use `index_documents` for manual indexing and `remove_document` to clean up stale entries.
+
+</details>
+
+<details>
+<summary><strong>Publishing</strong> — 3 tools (require Worker URL + R2)</summary>
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `publish_document` | Publish Markdown to a public URL via R2 | `key: string`, `content: string`, `filename?: string`, `expires_in?: number` (seconds, 0 = permanent) |
+| `unpublish_document` | Remove a published document from R2 | `key: string` |
+| `list_published` | List all published documents in R2 | — |
+
+Published documents are accessible at `{worker_url}/p/{key}` as `text/markdown`.
+
+</details>
+
+<details>
+<summary><strong>Batch Conversion</strong> — 2 tools (require Worker URL + Queue + KV)</summary>
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `submit_batch` | Submit files for parallel batch conversion | `files: {name, content}[]` (content is base64-encoded) |
+| `get_batch_status` | Poll batch conversion job status | `batch_id: string` |
+
+Batch conversion uses Queue-based parallel processing. Submit files with `submit_batch`, then poll with `get_batch_status` until all files are `done` or `failed`.
 
 </details>
 

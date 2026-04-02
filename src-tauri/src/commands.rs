@@ -2068,7 +2068,7 @@ pub fn create_cowork_workspace(
 This workspace is configured for use with MarkUpsideDown's MCP server.
 MarkUpsideDown must be running for editor/file/git tools to work.
 
-## Available MCP Tools (50)
+## Available MCP Tools (61)
 
 ### Editor
 | Tool | Description |
@@ -2127,6 +2127,7 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 |------|-------------|
 | `git_status` | Get git status (branch, changes, ahead/behind) |
 | `git_stage` | Stage a file for commit |
+| `git_stage_all` | Stage all changes (git add -A) |
 | `git_unstage` | Unstage a file |
 | `git_commit` | Commit staged changes |
 | `git_push` | Push commits to remote |
@@ -2136,7 +2137,10 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 | `git_discard` | Discard changes for a specific file |
 | `git_discard_all` | Discard all uncommitted changes |
 | `git_log` | Get recent commit history |
+| `git_show` | Show the patch for a specific commit |
 | `git_revert` | Revert a commit |
+| `git_clone` | Clone a git repository |
+| `git_init` | Initialize a new git repository |
 
 ### Tags
 | Tool | Description |
@@ -2146,7 +2150,26 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 | `set_file_tags` | Set tags for a file (replaces existing) |
 | `create_tag` | Create a new tag definition with a color |
 | `delete_tag` | Delete a tag and remove from all files |
+
+### Search & Indexing
+| Tool | Description |
+|------|-------------|
 | `semantic_search` | Search indexed documents using natural language |
+| `index_documents` | Index documents into Vectorize for semantic search |
+| `remove_document` | Remove a document from the Vectorize index |
+
+### Publishing
+| Tool | Description |
+|------|-------------|
+| `publish_document` | Publish Markdown to a public URL via R2 |
+| `unpublish_document` | Remove a published document from R2 |
+| `list_published` | List all published documents in R2 |
+
+### Batch Conversion
+| Tool | Description |
+|------|-------------|
+| `submit_batch` | Submit files for parallel batch conversion |
+| `get_batch_status` | Poll batch conversion job status |
 
 ## Tips
 
@@ -2157,6 +2180,9 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 - Use `get_document_structure` instead of parsing raw Markdown for structural analysis
 - Use `lint_document` to check for structural issues before committing
 - Use `normalize_document` after editing to clean up formatting (includes CJK emphasis spacing)
+- Use `publish_document` to share Markdown at a public URL (permanent or time-limited)
+- Use `index_documents` + `semantic_search` for AI-powered document retrieval
+- Use `submit_batch` + `get_batch_status` for bulk file conversion
 "#;
     let claude_md_path = expanded.join("CLAUDE.md");
     if !claude_md_path.exists() {

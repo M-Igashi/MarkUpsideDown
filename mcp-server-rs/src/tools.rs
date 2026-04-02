@@ -279,6 +279,86 @@ pub struct SemanticSearchParams {
     pub limit: Option<u32>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct IndexDocumentsParams {
+    #[schemars(description = "Array of documents to index. Each document needs an 'id' (unique identifier, e.g. file path) and 'content' (Markdown text). Optional 'metadata' object for additional context.")]
+    pub documents: Vec<IndexDocumentEntry>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct IndexDocumentEntry {
+    #[schemars(description = "Unique document identifier (e.g., file path or URL)")]
+    pub id: String,
+    #[schemars(description = "Markdown content to index")]
+    pub content: String,
+    #[schemars(description = "Optional metadata key-value pairs")]
+    pub metadata: Option<std::collections::HashMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RemoveDocumentParams {
+    #[schemars(description = "Document ID to remove from the Vectorize index")]
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PublishDocumentParams {
+    #[schemars(description = "Unique key for the published document (used in the public URL)")]
+    pub key: String,
+    #[schemars(description = "Markdown content to publish")]
+    pub content: String,
+    #[schemars(description = "Display filename (default: untitled.md)")]
+    pub filename: Option<String>,
+    #[schemars(description = "Time-to-live in seconds (omit or 0 for permanent). Examples: 3600 = 1h, 86400 = 24h, 604800 = 7d")]
+    pub expires_in: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct UnpublishDocumentParams {
+    #[schemars(description = "Key of the published document to remove")]
+    pub key: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SubmitBatchParams {
+    #[schemars(description = "Array of files to convert. Each needs 'name' (filename with extension) and 'content' (base64-encoded file content).")]
+    pub files: Vec<BatchFileEntry>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BatchFileEntry {
+    #[schemars(description = "Filename with extension (e.g., 'report.pdf')")]
+    pub name: String,
+    #[schemars(description = "Base64-encoded file content")]
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetBatchStatusParams {
+    #[schemars(description = "Batch ID returned by submit_batch")]
+    pub batch_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitShowParams {
+    #[schemars(description = "Full commit hash to show")]
+    pub commit_hash: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitCloneParams {
+    #[schemars(description = "Repository URL to clone")]
+    pub url: String,
+    #[schemars(description = "Local directory path to clone into")]
+    pub dest: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitInitParams {
+    #[schemars(description = "Directory path to initialize as a git repository")]
+    pub path: String,
+}
+
 // --- Server ---
 
 pub struct McpTools {
@@ -1388,6 +1468,342 @@ impl McpTools {
             Ok(()) => Ok(CallToolResult::success(vec![Content::text(
                 format!("Tag '{}' deleted", params.name),
             )])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Worker-direct Tools (publish, embed, batch) ---
+
+    #[tool(name = "index_documents", description = "Index documents into Vectorize for semantic search. Each document is chunked and embedded automatically. Requires Vectorize binding in the Worker.", annotations(read_only_hint = false, open_world_hint = true))]
+    async fn index_documents(
+        &self,
+        Parameters(params): Parameters<IndexDocumentsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let embed_url = format!("{}/embed", worker_url.trim_end_matches('/'));
+
+            let documents: Vec<serde_json::Value> = params.documents.iter().map(|d| {
+                let mut doc = serde_json::json!({ "id": d.id, "content": d.content });
+                if let Some(ref meta) = d.metadata {
+                    doc["metadata"] = serde_json::json!(meta);
+                }
+                doc
+            }).collect();
+
+            let response = self
+                .http
+                .post(&embed_url)
+                .timeout(std::time::Duration::from_secs(60))
+                .json(&serde_json::json!({ "documents": documents }))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
+
+            if !status.is_success() {
+                let err = data["error"].as_str().unwrap_or("Unknown error");
+                return Err(format!("Worker returned {status}: {err}"));
+            }
+
+            let indexed = data["indexed"].as_u64().unwrap_or(0);
+            let chunks = data["chunks"].as_u64().unwrap_or(0);
+            Ok(format!("Indexed {indexed} documents ({chunks} chunks)"))
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "remove_document", description = "Remove a document from the Vectorize index. Deletes all chunks associated with the document ID.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
+    async fn remove_document(
+        &self,
+        Parameters(params): Parameters<RemoveDocumentParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let delete_url = format!("{}/embed/{}", worker_url.trim_end_matches('/'), urlencoding::encode(&params.id));
+
+            let response = self
+                .http
+                .delete(&delete_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                let err = data["error"].as_str().unwrap_or("Unknown error");
+                return Err(format!("Worker returned {status}: {err}"));
+            }
+
+            Ok(format!("Removed document: {}", params.id))
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "publish_document", description = "Publish Markdown content to a public URL via R2 storage. Returns the public URL. Supports permanent or time-limited publishing.", annotations(read_only_hint = false, open_world_hint = true))]
+    async fn publish_document(
+        &self,
+        Parameters(params): Parameters<PublishDocumentParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let publish_url = format!("{}/publish", worker_url.trim_end_matches('/'));
+
+            let mut body = serde_json::json!({
+                "key": params.key,
+                "content": params.content,
+                "filename": params.filename.unwrap_or_else(|| "untitled.md".to_string()),
+            });
+            if let Some(ttl) = params.expires_in {
+                if ttl > 0 {
+                    body["expires_in"] = serde_json::json!(ttl);
+                }
+            }
+
+            let response = self
+                .http
+                .put(&publish_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
+
+            if !status.is_success() {
+                let err = data["error"].as_str().unwrap_or("Unknown error");
+                return Err(format!("Worker returned {status}: {err}"));
+            }
+
+            let url = data["url"].as_str().unwrap_or("unknown");
+            let expires = data["expiresAt"].as_str();
+            match expires {
+                Some(exp) => Ok(format!("Published: {url}\nExpires: {exp}")),
+                None => Ok(format!("Published (permanent): {url}")),
+            }
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "unpublish_document", description = "Remove a published document from R2 storage", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
+    async fn unpublish_document(
+        &self,
+        Parameters(params): Parameters<UnpublishDocumentParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let delete_url = format!("{}/publish/{}", worker_url.trim_end_matches('/'), urlencoding::encode(&params.key));
+
+            let response = self
+                .http
+                .delete(&delete_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                let err = data["error"].as_str().unwrap_or("Unknown error");
+                return Err(format!("Worker returned {status}: {err}"));
+            }
+
+            Ok(format!("Unpublished: {}", params.key))
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "list_published", description = "List all published documents in R2 storage. Returns key, size, and upload timestamp for each.", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn list_published(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let list_url = format!("{}/published", worker_url.trim_end_matches('/'));
+
+            let response = self
+                .http
+                .get(&list_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
+
+            if !status.is_success() {
+                let err = data["error"].as_str().unwrap_or("Unknown error");
+                return Err(format!("Worker returned {status}: {err}"));
+            }
+
+            let files = data["files"].as_array();
+            match files {
+                Some(arr) if !arr.is_empty() => {
+                    let json = serde_json::to_string_pretty(&data["files"]).unwrap_or_default();
+                    Ok(format!("{} published documents\n\n{json}", arr.len()))
+                }
+                _ => Ok("No published documents.".to_string()),
+            }
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "submit_batch", description = "Submit multiple files for parallel batch conversion to Markdown via Queue. Returns a batch_id to poll with get_batch_status. Requires Queue and KV bindings in the Worker.", annotations(read_only_hint = false, open_world_hint = true))]
+    async fn submit_batch(
+        &self,
+        Parameters(params): Parameters<SubmitBatchParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let batch_url = format!("{}/batch", worker_url.trim_end_matches('/'));
+
+            let files: Vec<serde_json::Value> = params.files.iter().map(|f| {
+                serde_json::json!({ "name": f.name, "content": f.content })
+            }).collect();
+
+            let response = self
+                .http
+                .post(&batch_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .json(&serde_json::json!({ "files": files }))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
+
+            if !status.is_success() {
+                let err = data["error"].as_str().unwrap_or("Unknown error");
+                return Err(format!("Worker returned {status}: {err}"));
+            }
+
+            let batch_id = data["batch_id"].as_str().unwrap_or("unknown");
+            Ok(format!("Batch submitted. batch_id: {batch_id}\n\nUse get_batch_status with this batch_id to poll for results."))
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "get_batch_status", description = "Poll the status of a batch conversion job. Returns overall progress and per-file status (queued/done/failed).", annotations(read_only_hint = true, open_world_hint = true))]
+    async fn get_batch_status(
+        &self,
+        Parameters(params): Parameters<GetBatchStatusParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let worker_url = self.resolve_worker_url().await?;
+            let status_url = format!("{}/batch/{}", worker_url.trim_end_matches('/'), params.batch_id);
+
+            let response = self
+                .http
+                .get(&status_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .send()
+                .await
+                .map_err(|e| format!("Request failed: {e}"))?;
+
+            let status = response.status();
+            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
+
+            if !status.is_success() {
+                let err = data["error"].as_str().unwrap_or("Unknown error");
+                return Err(format!("Worker returned {status}: {err}"));
+            }
+
+            let json = serde_json::to_string_pretty(&data).unwrap_or_default();
+            Ok(json)
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- Git Extended Tools ---
+
+    #[tool(name = "git_stage_all", description = "Stage all changes for commit (git add -A). Stages new, modified, and deleted files.", annotations(read_only_hint = false, open_world_hint = false))]
+    async fn git_stage_all(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_stage_all().await {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text("All changes staged")])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_show", description = "Show the patch (diff) for a specific commit", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn git_show(
+        &self,
+        Parameters(params): Parameters<GitShowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_show(&params.commit_hash).await {
+            Ok(output) => {
+                let msg = if output.is_empty() { "No output".to_string() } else { output };
+                Ok(CallToolResult::success(vec![Content::text(msg)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_clone", description = "Clone a git repository to a local directory", annotations(read_only_hint = false, open_world_hint = true))]
+    async fn git_clone(
+        &self,
+        Parameters(params): Parameters<GitCloneParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_clone(&params.url, &params.dest).await {
+            Ok(output) => {
+                let msg = if output.is_empty() { format!("Cloned to: {}", params.dest) } else { output };
+                Ok(CallToolResult::success(vec![Content::text(msg)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "git_init", description = "Initialize a new git repository in the specified directory", annotations(read_only_hint = false, open_world_hint = false))]
+    async fn git_init(
+        &self,
+        Parameters(params): Parameters<GitInitParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.git_init(&params.path).await {
+            Ok(output) => {
+                let msg = if output.is_empty() { format!("Initialized: {}", params.path) } else { output };
+                Ok(CallToolResult::success(vec![Content::text(msg)]))
+            }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }

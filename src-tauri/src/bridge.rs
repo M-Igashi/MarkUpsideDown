@@ -91,6 +91,10 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/content/fetch-title", post(fetch_page_title))
         .route("/tags/list", get(tags_list))
         .route("/tags/set", post(tags_set))
+        .route("/git/stage-all", post(git_stage_all))
+        .route("/git/show", get(git_show))
+        .route("/git/clone", post(git_clone))
+        .route("/git/init", post(git_init))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
@@ -777,6 +781,63 @@ async fn tags_set(
             state.emit_to_focused("bridge:tags-changed", ());
             Json(serde_json::json!({ "ok": true }))
         }
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+// --- Git extended handlers ---
+
+async fn git_stage_all(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::git_stage_all(repo_path).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct GitShowQuery {
+    commit_hash: String,
+}
+
+async fn git_show(
+    State(state): State<Arc<BridgeState>>,
+    Query(query): Query<GitShowQuery>,
+) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::git_show(repo_path, query.commit_hash).await {
+        Ok(output) => Json(serde_json::json!({ "output": output })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct GitCloneRequest {
+    url: String,
+    dest: String,
+}
+
+async fn git_clone(Json(body): Json<GitCloneRequest>) -> Json<serde_json::Value> {
+    match commands::git_clone(body.url, body.dest).await {
+        Ok(output) => Json(serde_json::json!({ "output": output })),
+        Err(e) => Json(serde_json::json!({ "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct GitInitRequest {
+    path: String,
+}
+
+async fn git_init(Json(body): Json<GitInitRequest>) -> Json<serde_json::Value> {
+    match commands::git_init(body.path).await {
+        Ok(output) => Json(serde_json::json!({ "output": output })),
         Err(e) => Json(serde_json::json!({ "error": e })),
     }
 }

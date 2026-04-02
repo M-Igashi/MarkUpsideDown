@@ -63,4 +63,4 @@ This replaces the need for a built-in chat panel.
 ## Further Reading
 
 - [Worker Deployment Guide](worker-deployment.md) — deploy and configure the Cloudflare Worker
-- [MCP Server Reference](mcp-server.md) — all 50 tools, standalone mode, troubleshooting
+- [MCP Server Reference](mcp-server.md) — all 61 tools, standalone mode, troubleshooting
