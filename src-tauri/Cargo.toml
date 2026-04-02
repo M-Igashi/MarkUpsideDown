@@ -28,3 +28,4 @@ futures = "0.3"
 trash = "5"
 tauri-plugin-store = "2"
 tauri-plugin-single-instance = "2"
+comrak = { version = "0.51", default-features = false }

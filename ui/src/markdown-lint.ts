@@ -4,6 +4,8 @@ import { getDocumentStructure, type DocumentStructure } from "./document-structu
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import { KEY_LINT_ENABLED } from "./storage-keys.ts";
 
+const { invoke } = window.__TAURI__.core;
+
 /**
  * CodeMirror 6 lint extension for Markdown structural issues.
  * Uses the shared document-structure parser for analysis.
@@ -67,8 +69,14 @@ export function getLintDiagnostics(text: string): LintDiagnostic[] {
   }));
 }
 
+interface ComrakDiagnostic {
+  line: number;
+  severity: "info";
+  message: string;
+}
+
 export const markdownLinter = linter(
-  (view) => {
+  async (view) => {
     if (!isLintEnabled()) return [];
 
     const doc = view.state.doc;
@@ -88,6 +96,23 @@ export const markdownLinter = linter(
     checkFootnotes(lines, doc, diagnostics);
     checkHtmlComments(lines, doc, diagnostics);
     checkBlankLines(lines, doc, diagnostics, structure);
+
+    // comrak-based CommonMark validation (block structure checks)
+    try {
+      const comrakDiags = await invoke<ComrakDiagnostic[]>("validate_markdown", { content: text });
+      for (const d of comrakDiags) {
+        if (d.line < 1 || d.line > doc.lines) continue;
+        const line = doc.line(d.line);
+        diagnostics.push({
+          from: line.from,
+          to: line.to,
+          severity: d.severity,
+          message: `[comrak] ${d.message}`,
+        });
+      }
+    } catch {
+      // Silently ignore — TS-based linting still works without comrak
+    }
 
     return diagnostics;
   },

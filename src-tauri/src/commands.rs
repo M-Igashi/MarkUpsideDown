@@ -2249,3 +2249,173 @@ fn is_newer(latest: &str, current: &str) -> bool {
     }
     false
 }
+
+// --- comrak-based CommonMark validation (#140) ---
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ComrakDiagnostic {
+    pub line: usize,
+    pub severity: String,
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn validate_markdown(content: String) -> Result<Vec<ComrakDiagnostic>, String> {
+    use comrak::{parse_document, Arena, Options};
+
+    let arena = Arena::new();
+    let options = Options::default();
+    let root = parse_document(&arena, &content, &options);
+
+    let mut diagnostics = Vec::new();
+
+    check_html_blocks(root, &mut diagnostics);
+    check_link_nesting(root, &mut diagnostics);
+    check_list_continuation(root, &mut diagnostics);
+    check_blockquote_boundary(root, &content, &mut diagnostics);
+
+    diagnostics.sort_by_key(|d| d.line);
+    Ok(diagnostics)
+}
+
+/// Detect HTML blocks that may unintentionally swallow Markdown content.
+fn check_html_blocks<'a>(
+    root: &'a comrak::nodes::AstNode<'a>,
+    diagnostics: &mut Vec<ComrakDiagnostic>,
+) {
+    use comrak::nodes::NodeValue;
+
+    for node in root.descendants() {
+        let ast = node.data.borrow();
+        if let NodeValue::HtmlBlock(ref hb) = ast.value {
+            // Skip well-known intentional HTML tags
+            let trimmed = hb.literal.trim_start().to_lowercase();
+            if trimmed.starts_with("<details")
+                || trimmed.starts_with("<summary")
+                || trimmed.starts_with("<div")
+                || trimmed.starts_with("</div")
+                || trimmed.starts_with("</details")
+                || trimmed.starts_with("<!--")
+            {
+                continue;
+            }
+
+            let start = ast.sourcepos.start.line;
+            let end = ast.sourcepos.end.line;
+            let span = if start == end {
+                format!("line {start}")
+            } else {
+                format!("lines {start}-{end}")
+            };
+
+            diagnostics.push(ComrakDiagnostic {
+                line: start,
+                severity: "info".into(),
+                message: format!(
+                    "HTML block detected ({span}) — content inside is not parsed as Markdown"
+                ),
+            });
+        }
+    }
+}
+
+/// Detect nested links (CommonMark forbids links inside links).
+fn check_link_nesting<'a>(
+    root: &'a comrak::nodes::AstNode<'a>,
+    diagnostics: &mut Vec<ComrakDiagnostic>,
+) {
+    use comrak::nodes::NodeValue;
+
+    for node in root.descendants() {
+        let is_link = matches!(node.data.borrow().value, NodeValue::Link(_));
+        if !is_link {
+            continue;
+        }
+
+        // Check if any descendant is also a Link
+        for child in node.descendants().skip(1) {
+            if matches!(child.data.borrow().value, NodeValue::Link(_)) {
+                let line = child.data.borrow().sourcepos.start.line;
+                diagnostics.push(ComrakDiagnostic {
+                    line,
+                    severity: "info".into(),
+                    message: "Nested link detected — CommonMark does not allow links inside links"
+                        .into(),
+                });
+            }
+        }
+    }
+}
+
+/// Detect paragraphs that likely fell out of a list due to incorrect indentation.
+fn check_list_continuation<'a>(
+    root: &'a comrak::nodes::AstNode<'a>,
+    diagnostics: &mut Vec<ComrakDiagnostic>,
+) {
+    use comrak::nodes::NodeValue;
+
+    for node in root.descendants() {
+        let is_list = matches!(node.data.borrow().value, NodeValue::List(_));
+        if !is_list {
+            continue;
+        }
+
+        let list_end = node.data.borrow().sourcepos.end.line;
+
+        // Check next sibling: if it's a paragraph starting right after the list, flag it
+        if let Some(next) = node.next_sibling() {
+            let next_ast = next.data.borrow();
+            if matches!(next_ast.value, NodeValue::Paragraph) {
+                let para_start = next_ast.sourcepos.start.line;
+                // Paragraph immediately follows list (no blank line or just one blank line)
+                if para_start <= list_end + 2 {
+                    diagnostics.push(ComrakDiagnostic {
+                        line: para_start,
+                        severity: "info".into(),
+                        message: "Paragraph immediately after list — may be an unintended list continuation (check indentation)".into(),
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Detect blockquotes immediately followed by a paragraph with no blank line separation.
+fn check_blockquote_boundary<'a>(
+    root: &'a comrak::nodes::AstNode<'a>,
+    content: &str,
+    diagnostics: &mut Vec<ComrakDiagnostic>,
+) {
+    use comrak::nodes::NodeValue;
+
+    let lines: Vec<&str> = content.lines().collect();
+
+    for node in root.descendants() {
+        let is_bq = matches!(node.data.borrow().value, NodeValue::BlockQuote);
+        if !is_bq {
+            continue;
+        }
+
+        let bq_end = node.data.borrow().sourcepos.end.line;
+
+        if let Some(next) = node.next_sibling() {
+            let next_ast = next.data.borrow();
+            if matches!(next_ast.value, NodeValue::Paragraph) {
+                let para_start = next_ast.sourcepos.start.line;
+                // Check if the line between blockquote end and paragraph start is blank
+                let has_blank = (bq_end..para_start.saturating_sub(1)).any(|l| {
+                    lines
+                        .get(l) // 0-indexed: line l+1 in 1-indexed
+                        .is_some_and(|s| s.trim().is_empty())
+                });
+                if !has_blank && para_start == bq_end + 1 {
+                    diagnostics.push(ComrakDiagnostic {
+                        line: para_start,
+                        severity: "info".into(),
+                        message: "Paragraph immediately after blockquote — different parsers may interpret this differently".into(),
+                    });
+                }
+            }
+        }
+    }
+}
