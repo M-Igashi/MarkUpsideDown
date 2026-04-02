@@ -418,19 +418,33 @@ async fn list_files(
 }
 
 /// Walk a directory tree recursively, filtering hidden files and git-ignored entries.
+/// Limits: max 20 levels deep, max 10 000 entries, skips `.git/`.
 async fn list_recursive(root: &str) -> Result<Vec<commands::FileEntry>, String> {
-    let mut result = Vec::new();
-    let mut stack = vec![root.to_string()];
+    const MAX_DEPTH: usize = 20;
+    const MAX_ENTRIES: usize = 10_000;
 
-    while let Some(dir) = stack.pop() {
+    let mut result = Vec::new();
+    // (path, depth)
+    let mut stack: Vec<(String, usize)> = vec![(root.to_string(), 0)];
+
+    while let Some((dir, depth)) = stack.pop() {
         let entries = commands::list_directory(dir)
             .await
             .map_err(|e| e.to_string())?;
         for entry in entries {
             if entry.is_dir {
-                stack.push(entry.path.clone());
+                let name = entry.name.as_str();
+                if name == ".git" || name == "__pycache__" {
+                    continue;
+                }
+                if depth < MAX_DEPTH {
+                    stack.push((entry.path.clone(), depth + 1));
+                }
             }
             result.push(entry);
+            if result.len() >= MAX_ENTRIES {
+                return Ok(result);
+            }
         }
     }
     Ok(result)

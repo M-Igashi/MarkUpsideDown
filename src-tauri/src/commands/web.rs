@@ -4,6 +4,19 @@ use std::time::Duration;
 use super::files::validate_path;
 use crate::error::{AppError, Result};
 
+/// Reject responses whose Content-Length exceeds `max_bytes`.
+/// If the header is absent the response is allowed through (post-read checks still apply).
+fn reject_oversized_response(response: &reqwest::Response, max_bytes: u64) -> Result<()> {
+    if let Some(len) = response.content_length() {
+        if len > max_bytes {
+            return Err(AppError::Validation(format!(
+                "Response too large ({len} bytes, max {max_bytes})"
+            )));
+        }
+    }
+    Ok(())
+}
+
 // --- Shared Worker Request Helper ---
 
 /// Trait for Worker API responses that carry an optional error field.
@@ -344,6 +357,8 @@ pub async fn fetch_json_via_worker(
 
 // --- Fetch Page Title ---
 
+const MAX_TITLE_FETCH_SIZE: u64 = 65_536; // 64 KB
+
 pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Result<String> {
     let validated_url = validate_url(url)?;
     let response = client
@@ -358,11 +373,13 @@ pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Resul
         return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
 
+    reject_oversized_response(&response, MAX_TITLE_FETCH_SIZE)?;
+
     let bytes = response
         .bytes()
         .await
         .map_err(|e| AppError::Network(format!("Failed to read body: {e}")))?;
-    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(65536)]);
+    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_TITLE_FETCH_SIZE as usize)]);
 
     crate::util::extract_html_title(&text)
 }
@@ -376,6 +393,8 @@ pub async fn fetch_page_title(
 }
 
 // --- Download Image to Local File ---
+
+const MAX_IMAGE_SIZE: u64 = 50 * 1_024 * 1_024; // 50 MB
 
 pub async fn download_image_with(
     client: &reqwest::Client,
@@ -397,6 +416,8 @@ pub async fn download_image_with(
     if !response.status().is_success() {
         return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
+
+    reject_oversized_response(&response, MAX_IMAGE_SIZE)?;
 
     let bytes = response
         .bytes()
@@ -540,6 +561,8 @@ pub async fn fetch_svg(
             "Not an SVG (content-type: {content_type})"
         )));
     }
+
+    reject_oversized_response(&response, MAX_SVG_SIZE as u64)?;
 
     let bytes = response
         .bytes()
