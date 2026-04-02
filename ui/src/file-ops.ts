@@ -4,6 +4,7 @@ import { ensureWorkerUrl, isImageConversionAllowed, isAutoSaveEnabled } from "./
 import { getUrlAsMarkdown, fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fetch-markdown.ts";
 import { normalizeMarkdown } from "./normalize.ts";
 import { getRootPath, refreshTree } from "./sidebar.ts";
+import { indexDocument } from "./semantic-search.ts";
 import { getActiveTab, isTabDirty, markTabSaved, updateActiveTab } from "./tabs.ts";
 import { suppressNext } from "./file-watcher.ts";
 
@@ -224,7 +225,8 @@ export async function convertFile(filePath: string) {
       filePath,
       workerUrl,
     });
-    loadContentAsTab(normalizeMarkdown(result.markdown), filePath);
+    const markdown = normalizeMarkdown(result.markdown);
+    loadContentAsTab(markdown, filePath);
     const tag = result.is_image ? " (image OCR)" : "";
     const fileName = basename(filePath);
     const mdSize = new Blob([result.markdown]).size;
@@ -236,6 +238,12 @@ export async function convertFile(filePath: string) {
     } else {
       statusEl.textContent = `Converted${tag}: ${fileName} | ~${words.toLocaleString()} words${warn}`;
     }
+
+    // Auto-index converted file for semantic search (fire and forget)
+    const rootPath = getRootPath();
+    const docId =
+      rootPath && filePath.startsWith(rootPath) ? filePath.slice(rootPath.length + 1) : fileName;
+    indexDocument(docId, markdown, { filename: fileName }).catch(() => {});
   } catch (e) {
     statusEl.textContent = `Convert error: ${e}`;
   }

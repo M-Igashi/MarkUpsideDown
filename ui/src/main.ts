@@ -107,7 +107,11 @@ import {
   KEY_EDITOR_COLLAPSED,
   KEY_PREVIEW_COLLAPSED,
 } from "./storage-keys.ts";
-import { registerCommands, toggle as toggleCommandPalette } from "./command-palette.ts";
+import {
+  registerCommands,
+  toggle as toggleCommandPalette,
+  setSemanticSearchHandler,
+} from "./command-palette.ts";
 import { autoLinkTitle } from "./auto-link-title.ts";
 import { initLinkContextMenu } from "./link-context-menu.ts";
 import { smartTypography } from "./smart-typography.ts";
@@ -931,6 +935,18 @@ document.addEventListener("keydown", (e) => {
 });
 
 // --- Command Palette Registry ---
+
+setSemanticSearchHandler(async (filePath: string) => {
+  const root = getRootPath();
+  if (!root) return;
+  const absPath = `${root}/${filePath}`;
+  try {
+    const content = await invoke<string>("read_text_file", { path: absPath });
+    loadContentAsTab(content, absPath);
+  } catch (e) {
+    statusEl.textContent = `Failed to open: ${e}`;
+  }
+});
 
 registerCommands([
   { id: "file.open", label: "Open File", shortcut: "⌘O", category: "File", run: openFile },

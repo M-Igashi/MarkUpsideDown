@@ -1,6 +1,7 @@
 // --- Command Palette (Cmd+K / Ctrl+K) ---
 
 import { escapeHtml } from "./html-utils.ts";
+import { semanticSearch, type SearchResult } from "./semantic-search.ts";
 
 export interface Command {
   id: string;
@@ -13,6 +14,12 @@ export interface Command {
 const commands: Command[] = [];
 let overlay: HTMLElement | null = null;
 let selectedIndex = 0;
+let semanticSearchHandler: ((filePath: string) => void) | null = null;
+
+/** Register a handler for `?` prefix semantic search in the command palette. */
+export function setSemanticSearchHandler(handler: (filePath: string) => void) {
+  semanticSearchHandler = handler;
+}
 
 export function registerCommand(cmd: Command) {
   if (!commands.some((c) => c.id === cmd.id)) {
@@ -100,7 +107,7 @@ export function open() {
   const input = document.createElement("input");
   input.className = "command-palette-input";
   input.type = "text";
-  input.placeholder = "Type a command…";
+  input.placeholder = "Type a command… (? for semantic search)";
 
   const list = document.createElement("div");
   list.className = "command-palette-list";
@@ -111,31 +118,100 @@ export function open() {
   document.body.appendChild(overlay);
 
   let filtered = filterCommands("");
+  let searchResults: SearchResult[] = [];
+  let isSearchMode = false;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   renderResults(list, filtered);
 
   // Focus input after append
   requestAnimationFrame(() => input.focus());
 
+  function renderSearchResults() {
+    list.innerHTML = "";
+    for (let i = 0; i < searchResults.length; i++) {
+      const r = searchResults[i];
+      const docId = typeof r.id === "string" && r.id.includes("#") ? r.id.split("#")[0] : r.id;
+      const item = document.createElement("div");
+      item.className = "command-palette-item" + (i === selectedIndex ? " selected" : "");
+      item.innerHTML = `
+        <span class="command-palette-label">${escapeHtml(docId)}</span>
+        <span class="command-palette-meta">
+          <span class="command-palette-category">${(r.score * 100).toFixed(0)}%</span>
+        </span>
+      `;
+      item.addEventListener("mouseenter", () => {
+        selectedIndex = i;
+        for (const el of list.children) el.classList.remove("selected");
+        item.classList.add("selected");
+      });
+      item.addEventListener("click", () => {
+        close();
+        semanticSearchHandler?.(docId);
+      });
+      list.appendChild(item);
+    }
+    if (searchResults.length === 0 && input.value.length > 1) {
+      list.innerHTML = '<div class="command-palette-empty">No results</div>';
+    }
+  }
+
   input.addEventListener("input", () => {
     selectedIndex = 0;
-    filtered = filterCommands(input.value);
-    renderResults(list, filtered);
+    const value = input.value;
+    const wasSearchMode = isSearchMode;
+    isSearchMode = value.startsWith("?") && semanticSearchHandler !== null;
+
+    if (isSearchMode) {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      const query = value.slice(1).trim();
+      if (!query) {
+        searchResults = [];
+        renderSearchResults();
+        return;
+      }
+      debounceTimer = setTimeout(async () => {
+        try {
+          searchResults = await semanticSearch(query);
+          selectedIndex = 0;
+          renderSearchResults();
+        } catch {
+          list.innerHTML = '<div class="command-palette-empty">Search error</div>';
+        }
+      }, 300);
+    } else {
+      if (wasSearchMode && debounceTimer) clearTimeout(debounceTimer);
+      filtered = filterCommands(value);
+      renderResults(list, filtered);
+    }
   });
 
   input.addEventListener("keydown", (e) => {
+    const items = isSearchMode ? searchResults : filtered;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1);
-      updateSelection(list);
-      scrollSelectedIntoView(list);
+      selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+      if (isSearchMode) renderSearchResults();
+      else {
+        updateSelection(list);
+        scrollSelectedIntoView(list);
+      }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       selectedIndex = Math.max(selectedIndex - 1, 0);
-      updateSelection(list);
-      scrollSelectedIntoView(list);
+      if (isSearchMode) renderSearchResults();
+      else {
+        updateSelection(list);
+        scrollSelectedIntoView(list);
+      }
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (filtered[selectedIndex]) {
+      if (isSearchMode) {
+        if (searchResults[selectedIndex]) {
+          const docId = searchResults[selectedIndex].id.split("#")[0];
+          close();
+          semanticSearchHandler?.(docId);
+        }
+      } else if (filtered[selectedIndex]) {
         close();
         filtered[selectedIndex].run();
       }

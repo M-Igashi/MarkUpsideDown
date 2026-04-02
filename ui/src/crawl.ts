@@ -2,6 +2,7 @@ import { normalizeMarkdown } from "./normalize.ts";
 import { ensureWorkerUrl } from "./settings.ts";
 import { escapeHtml } from "./html-utils.ts";
 import { getRootPath } from "./sidebar.ts";
+import { indexDocuments } from "./semantic-search.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog } = window.__TAURI__.dialog;
@@ -85,6 +86,36 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
 
     statusEl.textContent = `Crawl complete: ${result.saved_count} pages saved to ${result.base_dir}`;
     onCrawlComplete?.();
+
+    // Auto-index crawled pages for semantic search (fire and forget)
+    if (allPages.length > 0) {
+      const docs = allPages.map((page) => {
+        // Derive relative path from URL
+        let relPath: string;
+        try {
+          const u = new URL(page.url);
+          relPath = u.pathname.replace(/^\//, "").replace(/\/$/, "/index") + ".md";
+        } catch {
+          relPath = page.url;
+        }
+        return {
+          id: relPath,
+          content: page.markdown,
+          metadata: {
+            filename: relPath.split("/").pop() || relPath,
+            dir: relPath.split("/").slice(0, -1).join("/"),
+          },
+        };
+      });
+      statusEl.textContent += " — Indexing for search…";
+      indexDocuments(docs)
+        .then((r) => {
+          statusEl.textContent = `Crawl complete: ${result.saved_count} pages saved, ${r.indexed} indexed`;
+        })
+        .catch(() => {
+          // Vectorize not configured — silently ignore
+        });
+    }
   } catch (e) {
     statusEl.textContent = `Crawl error: ${e}`;
   } finally {
