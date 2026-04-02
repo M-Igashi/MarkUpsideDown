@@ -542,17 +542,18 @@ async fn search_files(
 /// Fast file name search using `git ls-files` for git repositories.
 /// Returns `None` if the path is not a git repo or git fails.
 async fn git_search_files(search_path: &str, query: &str) -> Option<Vec<commands::FileEntry>> {
-    let git_dir = std::path::Path::new(search_path).join(".git");
-    if !git_dir.exists() {
+    // Validate path to prevent path traversal before any filesystem access
+    let validated = commands::validate_path(search_path).ok()?;
+    if !validated.join(".git").exists() {
         return None;
     }
 
-    let search_path = search_path.to_string();
+    let search_path_str = validated.to_string_lossy().to_string();
     let query = query.to_string();
 
     tokio::task::spawn_blocking(move || {
         let output = std::process::Command::new("git")
-            .args(["-C", &search_path, "ls-files", "--cached", "--others", "--exclude-standard"])
+            .args(["-C", &search_path_str, "ls-files", "--cached", "--others", "--exclude-standard"])
             .output()
             .ok()?;
 
@@ -570,7 +571,7 @@ async fn git_search_files(search_path: &str, query: &str) -> Option<Vec<commands
                 name.to_lowercase().contains(&query_lower)
             })
             .map(|line| {
-                let full_path = format!("{search_path}/{line}");
+                let full_path = format!("{search_path_str}/{line}");
                 let name = line.rsplit('/').next().unwrap_or(line).to_string();
                 let extension = std::path::Path::new(line)
                     .extension()
