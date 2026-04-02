@@ -23,9 +23,15 @@ let onTabOpen: ((tab: Tab) => void) | null = null;
 let onTabClose: ((tab: Tab) => void) | null = null;
 
 let nextId = 1;
+let currentProjectRoot: string | null = null;
 
 function genId(): string {
   return `tab-${nextId++}`;
+}
+
+/** Storage key for a given project root. Falls back to the global key. */
+function tabsKey(root: string | null): string {
+  return root ? `${KEY_TABS}:${root}` : KEY_TABS;
 }
 
 export function initTabs(
@@ -83,23 +89,75 @@ export function initTabs(
 }
 
 function saveState(): void {
-  localStorage.setItem(
-    KEY_TABS,
-    JSON.stringify({
-      tabs: tabs.map((t) => ({
-        id: t.id,
-        path: t.path,
-        name: t.name,
-        // Skip content for file-backed tabs to avoid hitting localStorage limits
-        content: t.path ? "" : t.content,
-        scrollTop: t.scrollTop || 0,
-      })),
-      activeTabId,
-    }),
-  );
+  const data = JSON.stringify({
+    tabs: tabs.map((t) => ({
+      id: t.id,
+      path: t.path,
+      name: t.name,
+      // Skip content for file-backed tabs to avoid hitting localStorage limits
+      content: t.path ? "" : t.content,
+      scrollTop: t.scrollTop || 0,
+    })),
+    activeTabId,
+  });
+  // Save to project-specific key and the global key (for initial load fallback)
+  localStorage.setItem(tabsKey(currentProjectRoot), data);
+  localStorage.setItem(KEY_TABS, data);
 }
 
 // --- Public API ---
+
+/** Set the project root so tabs are saved under the correct key. */
+export function setTabsProjectRoot(root: string | null): void {
+  currentProjectRoot = root;
+}
+
+/**
+ * Switch tabs to a different project.
+ * Saves current tabs under the old project key, then restores tabs for the new project.
+ * Calls onReload for the active tab if it has a file path (content needs to be loaded from disk).
+ */
+export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void): void {
+  // Save current tabs under the current project key
+  saveState();
+
+  // Switch to new project
+  currentProjectRoot = newRoot;
+
+  // Try to restore tabs for the new project
+  const saved = localStorage.getItem(tabsKey(newRoot));
+  if (saved) {
+    try {
+      const state = JSON.parse(saved);
+      tabs = state.tabs || [];
+      activeTabId = state.activeTabId || null;
+      for (const tab of tabs) {
+        const num = parseInt(tab.id?.replace("tab-", ""), 10);
+        if (num >= nextId) nextId = num + 1;
+        tab.savedContent = null;
+      }
+    } catch {
+      tabs = [];
+      activeTabId = null;
+    }
+  } else {
+    tabs = [];
+    activeTabId = null;
+  }
+
+  renderTabs();
+
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+  if (activeTab) {
+    if (activeTab.path && !activeTab.content && onReload) {
+      onReload(activeTab);
+    } else {
+      onTabSwitch?.(activeTab);
+    }
+  } else {
+    onTabEmpty?.();
+  }
+}
 
 export function openTab(path: string | null, name: string, content: string): Tab {
   // If file already open, switch to it

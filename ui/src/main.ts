@@ -55,6 +55,8 @@ import {
   updateTabPath,
   closeTabsByPath,
   closeTabsUnderDir,
+  setTabsProjectRoot,
+  switchProjectTabs,
 } from "./tabs.ts";
 import {
   initFileWatcher,
@@ -597,6 +599,13 @@ initSidebar(sidebarEl, {
     loadContentAsTab(content, filePath);
   },
   onFolder: (rootPath: string) => {
+    // Save current tabs, restore tabs for the new project
+    switchProjectTabs(rootPath, reloadTab);
+    // Stop watchers for old tabs, start watchers for new tabs
+    stopAllFileWatchers();
+    for (const tab of getTabs()) {
+      if (tab.path) startWatching(tab.path);
+    }
     setRepoPath(rootPath, true);
     setPublishProjectRoot(rootPath);
     loadPublishState().catch(() => {});
@@ -811,6 +820,22 @@ initFileWatcher({
   },
 });
 
+// Set project root before restoring tabs so the correct per-project key is used
+setTabsProjectRoot(getRootPath());
+
+// Shared tab reload logic — used by initTabs.onReload and switchProjectTabs
+async function reloadTab(tab: { content: string; path: string | null; id: string }) {
+  if (!tab.path) return;
+  try {
+    const content = await invoke<string>("read_text_file", { path: tab.path });
+    updateActiveTab({ content });
+    markTabSaved(tab.id);
+    loadContent(content, tab.path);
+  } catch {
+    loadContent("", tab.path);
+  }
+}
+
 initTabs(tabBarEl, {
   onSwitch: (tab: {
     content: string;
@@ -837,17 +862,7 @@ initTabs(tabBarEl, {
   onEmpty: () => {
     loadContent("# Welcome to MarkUpsideDown\n\nStart typing your Markdown here…\n");
   },
-  onReload: async (tab: { content: string; path: string | null; id: string }) => {
-    if (!tab.path) return;
-    try {
-      const content = await invoke<string>("read_text_file", { path: tab.path });
-      updateActiveTab({ content });
-      markTabSaved(tab.id);
-      loadContent(content, tab.path);
-    } catch {
-      loadContent("", tab.path);
-    }
-  },
+  onReload: reloadTab,
   onOpen: (tab) => {
     if (tab.path) startWatching(tab.path);
   },
