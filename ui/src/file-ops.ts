@@ -45,14 +45,14 @@ function formatBytes(bytes: number) {
 let editor: EditorView;
 let statusEl: HTMLElement;
 let getCurrentFilePath: () => string | null;
-let loadContentAsTab: (content: string, filePath?: string) => void;
+let loadContentAsTab: (content: string, filePath?: string, tabName?: string) => void;
 let refreshGitAndSync: () => void;
 
 export function initFileOps(deps: {
   editor: EditorView;
   statusEl: HTMLElement;
   getCurrentFilePath: () => string | null;
-  loadContentAsTab: (content: string, filePath?: string) => void;
+  loadContentAsTab: (content: string, filePath?: string, tabName?: string) => void;
   refreshGitAndSync: () => void;
 }) {
   editor = deps.editor;
@@ -60,6 +60,32 @@ export function initFileOps(deps: {
   getCurrentFilePath = deps.getCurrentFilePath;
   loadContentAsTab = deps.loadContentAsTab;
   refreshGitAndSync = deps.refreshGitAndSync;
+}
+
+// --- Title extraction ---
+
+function extractTitle(content: string): string | undefined {
+  const match = content.match(/^#\s+(.+)/m);
+  if (!match) return undefined;
+  const raw = match[1].trim();
+  const sanitized = raw
+    .slice(0, 80)
+    .replace(/[/\\:*?"<>|]/g, "")
+    .trim();
+  return sanitized || undefined;
+}
+
+function suggestFilename(): string | undefined {
+  const tab = getActiveTab();
+  if (!tab || tab.path) return undefined;
+  const name = tab.name;
+  if (!name || name === "Untitled") return undefined;
+  const safe = name
+    .slice(0, 80)
+    .replace(/[/\\:*?"<>|]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  return safe ? `${safe}.md` : undefined;
 }
 
 // --- Save ---
@@ -74,7 +100,9 @@ export async function saveFile() {
       const tab = getActiveTab();
       if (tab) markTabSaved(tab.id);
     } else {
+      const suggested = suggestFilename();
       const path = await save({
+        defaultPath: suggested,
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (path) {
@@ -159,7 +187,8 @@ export async function getUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) {
       const { content, method } = await getUrlAsMarkdown(url, workerUrl, (msg) => {
         statusEl.textContent = msg;
       });
-      loadContentAsTab(content);
+      const title = extractTitle(content);
+      loadContentAsTab(content, undefined, title);
       statusEl.textContent = `Fetched (${method}): ${url}`;
     } catch (e) {
       statusEl.textContent = `Fetch error: ${e}`;
@@ -173,7 +202,8 @@ export async function fetchUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
     try {
       const workerUrl = await ensureWorkerUrl();
       const { content, method } = await fetchUrlAsMarkdown(url, workerUrl);
-      loadContentAsTab(content);
+      const title = extractTitle(content);
+      loadContentAsTab(content, undefined, title);
       statusEl.textContent = `Fetched (${method}): ${url}`;
     } catch (e) {
       statusEl.textContent = `Fetch error: ${e}`;
@@ -188,7 +218,8 @@ export async function renderUrl(urlInput: HTMLInputElement, urlBar: HTMLElement)
     statusEl.textContent = "Rendering page (this may take a moment)…";
     try {
       const markdown = await renderUrlAsMarkdown(url, workerUrl);
-      loadContentAsTab(markdown);
+      const title = extractTitle(markdown);
+      loadContentAsTab(markdown, undefined, title);
       statusEl.textContent = "Rendered: " + url;
     } catch (e) {
       statusEl.textContent = `Render error: ${e}`;

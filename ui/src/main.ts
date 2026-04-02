@@ -238,8 +238,8 @@ function loadContent(content: string, filePath?: string | null) {
   updateStatus(editor.state);
 }
 
-function loadContentAsTab(content: string, filePath?: string) {
-  const name = filePath ? basename(filePath) : "Untitled";
+function loadContentAsTab(content: string, filePath?: string, tabName?: string) {
+  const name = tabName || (filePath ? basename(filePath) : "Untitled");
   openTab(filePath || null, name, content);
   if (filePath) {
     invoke("add_recent_file", { path: filePath }).catch(() => {});

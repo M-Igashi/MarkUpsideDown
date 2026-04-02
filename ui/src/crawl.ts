@@ -31,6 +31,7 @@ interface CrawlSaveResult {
 
 let statusEl: HTMLElement;
 let onCrawlComplete: (() => void) | null = null;
+let crawlAbort: AbortController | null = null;
 
 export function initCrawl(deps: { statusEl: HTMLElement; onCrawlComplete: () => void }) {
   statusEl = deps.statusEl;
@@ -55,6 +56,9 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
   urlInput.disabled = true;
   statusEl.textContent = "Starting crawl...";
 
+  crawlAbort = new AbortController();
+  const { signal } = crawlAbort;
+
   try {
     // Step 1: Start crawl
     const { job_id } = await invoke<CrawlStartResult>("crawl_website", {
@@ -67,10 +71,10 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
       excludePatterns: options.excludePatterns.length ? options.excludePatterns : null,
     });
 
-    statusEl.textContent = `Crawl started (job: ${job_id.slice(0, 8)}...)`;
+    showCrawlStatus(`Crawl started (job: ${job_id.slice(0, 8)}...)`);
 
     // Step 2: Poll for results
-    const allPages = await pollCrawl(job_id, workerUrl);
+    const allPages = await pollCrawl(job_id, workerUrl, signal);
 
     if (allPages.length === 0) {
       statusEl.textContent = "Crawl completed but no pages were found";
@@ -117,23 +121,50 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
         });
     }
   } catch (e) {
-    statusEl.textContent = `Crawl error: ${e}`;
+    if (signal.aborted) {
+      statusEl.textContent = "Crawl aborted";
+    } else {
+      statusEl.textContent = `Crawl error: ${e}`;
+    }
   } finally {
+    crawlAbort = null;
     urlBar.classList.remove("loading");
     urlInput.disabled = false;
   }
 }
 
-async function pollCrawl(jobId: string, workerUrl: string): Promise<CrawlPage[]> {
+function showCrawlStatus(message: string) {
+  statusEl.textContent = "";
+  statusEl.append(message + " ");
+  const cancel = document.createElement("a");
+  cancel.textContent = "[Cancel]";
+  cancel.href = "#";
+  cancel.style.cursor = "pointer";
+  cancel.addEventListener("click", (e) => {
+    e.preventDefault();
+    crawlAbort?.abort();
+  });
+  statusEl.appendChild(cancel);
+}
+
+async function pollCrawl(
+  jobId: string,
+  workerUrl: string,
+  signal: AbortSignal,
+): Promise<CrawlPage[]> {
   const allPages: CrawlPage[] = [];
   const maxAttempts = 300; // 5 minutes at 1s interval
-  let lastStatus = "";
+  let lastMsg = "";
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (signal.aborted) return allPages;
+
     let cursor: string | null = null;
 
     // Fetch all available completed pages
     do {
+      if (signal.aborted) return allPages;
+
       const result = await invoke<CrawlStatusResult>("crawl_status", {
         jobId,
         workerUrl,
@@ -146,10 +177,10 @@ async function pollCrawl(jobId: string, workerUrl: string): Promise<CrawlPage[]>
         }
       }
 
-      const newStatus = `Crawling... ${result.finished}/${result.total} pages (${allPages.length} saved)`;
-      if (newStatus !== lastStatus) {
-        statusEl.textContent = newStatus;
-        lastStatus = newStatus;
+      const newMsg = `Crawling... ${result.finished}/${result.total} pages (${allPages.length} saved)`;
+      if (newMsg !== lastMsg) {
+        showCrawlStatus(newMsg);
+        lastMsg = newMsg;
       }
 
       cursor = result.cursor;
@@ -163,8 +194,19 @@ async function pollCrawl(jobId: string, workerUrl: string): Promise<CrawlPage[]>
       }
     } while (cursor);
 
-    // Wait before next poll
-    await new Promise((r) => setTimeout(r, 1000));
+    // Wait before next poll (abortable)
+    await new Promise<void>((r) => {
+      if (signal.aborted) return r();
+      const timer = setTimeout(r, 1000);
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          r();
+        },
+        { once: true },
+      );
+    });
   }
 
   // If we got here, we timed out but may still have pages
