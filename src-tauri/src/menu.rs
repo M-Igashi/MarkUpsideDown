@@ -115,7 +115,7 @@ pub fn handle_event(handle: &AppHandle, event: &MenuEvent) {
             .map(|d| d.as_millis())
             .unwrap_or(0);
         let label = format!("main-{ts}");
-        let _ = WebviewWindowBuilder::new(handle, &label, WebviewUrl::App("index.html".into()))
+        let _ = WebviewWindowBuilder::new(handle, &label, WebviewUrl::App("index.html?fresh=1".into()))
             .title("MarkUpsideDown")
             .inner_size(1200.0, 800.0)
             .build();

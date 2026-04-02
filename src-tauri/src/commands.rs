@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
+use tauri_plugin_store::StoreExt;
 
 // --- Shared Editor State (for MCP bridge) ---
 
@@ -2434,4 +2435,47 @@ fn check_blockquote_boundary<'a>(
             }
         }
     }
+}
+
+// --- Window Registry (for session restoration) ---
+
+const WINDOW_REGISTRY_STORE: &str = "window-registry.json";
+const WINDOW_REGISTRY_KEY: &str = "windows";
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct WindowRegistryEntry {
+    pub label: String,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[tauri::command]
+pub fn save_window_registry(
+    handle: tauri::AppHandle,
+    windows: Vec<WindowRegistryEntry>,
+) -> Result<(), String> {
+    let store = handle
+        .store(WINDOW_REGISTRY_STORE)
+        .map_err(|e| e.to_string())?;
+    store.set(
+        WINDOW_REGISTRY_KEY,
+        serde_json::to_value(&windows).map_err(|e| e.to_string())?,
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub fn load_window_registry(
+    handle: tauri::AppHandle,
+) -> Result<Vec<WindowRegistryEntry>, String> {
+    let store = handle
+        .store(WINDOW_REGISTRY_STORE)
+        .map_err(|e| e.to_string())?;
+    let entries = store
+        .get(WINDOW_REGISTRY_KEY)
+        .and_then(|v| serde_json::from_value::<Vec<WindowRegistryEntry>>(v.clone()).ok())
+        .unwrap_or_default();
+    Ok(entries)
 }

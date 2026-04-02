@@ -1,6 +1,30 @@
 // Centralized localStorage key registry.
 // Every key lives here so naming collisions are caught at a glance.
 
+// --- Window label ---
+
+let _windowLabel = "main";
+
+/** Get the current window's label (e.g. "main", "main-1712345678901"). */
+export function getWindowLabel(): string {
+  return _windowLabel;
+}
+
+/** Initialize window label from Tauri. Call once at startup before any state restore. */
+export function initWindowLabel(): void {
+  try {
+    _windowLabel =
+      (window as any).__TAURI__?.webviewWindow?.getCurrentWebviewWindow()?.label ?? "main";
+  } catch {
+    _windowLabel = "main";
+  }
+}
+
+/** Scope a storage key to the current window: `key@label`. */
+export function windowKey(key: string): string {
+  return `${key}@${_windowLabel}`;
+}
+
 // --- Settings ---
 export const KEY_WORKER_URL = "markupsidedown:workerUrl";
 export const KEY_ACCOUNT_ID = "markupsidedown:accountId";

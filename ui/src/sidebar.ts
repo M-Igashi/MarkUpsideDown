@@ -16,6 +16,7 @@ import {
   KEY_SIDEBAR_SORT,
   KEY_SIDEBAR_PANEL,
   KEY_SIDEBAR_SHOW_DOTFILES,
+  windowKey,
 } from "./storage-keys.ts";
 import {
   loadTags,
@@ -189,6 +190,7 @@ export function initSidebar(
     onDirChange,
     onRename,
     onDelete,
+    skipRestore,
   }: {
     onOpen: (content: string, filePath: string) => void;
     onFolder: (rootPath: string) => void;
@@ -196,6 +198,7 @@ export function initSidebar(
     onDirChange?: () => void;
     onRename?: (oldPath: string, newPath: string) => void;
     onDelete?: (paths: string[], hadDir: boolean) => void;
+    skipRestore?: boolean;
   },
 ) {
   sidebarEl = el;
@@ -206,22 +209,24 @@ export function initSidebar(
   onEntryRename = onRename ?? null;
   onEntryDelete = onDelete ?? null;
 
-  // Restore state
-  const saved = localStorage.getItem(KEY_SIDEBAR);
-  if (saved) {
-    try {
-      const state = JSON.parse(saved);
-      rootPath = state.rootPath || null;
-      expandedDirs = new Set(state.expandedDirs || []);
-    } catch {
-      // ignore
+  // Restore state (per-window scoped key)
+  if (!skipRestore) {
+    const saved = localStorage.getItem(windowKey(KEY_SIDEBAR));
+    if (saved) {
+      try {
+        const state = JSON.parse(saved);
+        rootPath = state.rootPath || null;
+        expandedDirs = new Set(state.expandedDirs || []);
+      } catch {
+        // ignore
+      }
     }
-  }
 
-  // Restore active panel
-  const savedPanel = localStorage.getItem(KEY_SIDEBAR_PANEL);
-  if (savedPanel === "files" || savedPanel === "git" || savedPanel === "clone") {
-    activePanel = savedPanel;
+    // Restore active panel
+    const savedPanel = localStorage.getItem(windowKey(KEY_SIDEBAR_PANEL));
+    if (savedPanel === "files" || savedPanel === "git" || savedPanel === "clone") {
+      activePanel = savedPanel;
+    }
   }
 
   render();
@@ -236,7 +241,7 @@ export function initSidebar(
 
 function saveState() {
   localStorage.setItem(
-    KEY_SIDEBAR,
+    windowKey(KEY_SIDEBAR),
     JSON.stringify({
       rootPath,
       expandedDirs: [...expandedDirs],
@@ -571,7 +576,7 @@ function createNavButton(panel: SidebarPanel, label: string, svgIcon: string): H
 
 export function switchPanel(panel: SidebarPanel) {
   activePanel = panel;
-  localStorage.setItem(KEY_SIDEBAR_PANEL, panel);
+  localStorage.setItem(windowKey(KEY_SIDEBAR_PANEL), panel);
   // Update header title
   const titleEl = sidebarEl?.querySelector(".sidebar-title");
   if (titleEl) titleEl.textContent = panelTitle();

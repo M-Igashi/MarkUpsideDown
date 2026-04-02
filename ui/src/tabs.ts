@@ -1,4 +1,4 @@
-import { KEY_TABS } from "./storage-keys.ts";
+import { KEY_TABS, windowKey } from "./storage-keys.ts";
 import { basename } from "./path-utils.ts";
 
 // --- Types ---
@@ -42,12 +42,14 @@ export function initTabs(
     onReload,
     onOpen,
     onClose,
+    skipRestore,
   }: {
     onSwitch: (tab: Tab) => void;
     onEmpty: () => void;
     onReload?: (tab: Tab) => void;
     onOpen?: (tab: Tab) => void;
     onClose?: (tab: Tab) => void;
+    skipRestore?: boolean;
   },
 ): void {
   tabBarEl = el;
@@ -56,21 +58,23 @@ export function initTabs(
   onTabOpen = onOpen || null;
   onTabClose = onClose || null;
 
-  // Restore state
-  const saved = localStorage.getItem(KEY_TABS);
-  if (saved) {
-    try {
-      const state = JSON.parse(saved);
-      tabs = state.tabs || [];
-      activeTabId = state.activeTabId || null;
-      // Ensure IDs are unique and initialize runtime-only fields
-      for (const tab of tabs) {
-        const num = parseInt(tab.id?.replace("tab-", ""), 10);
-        if (num >= nextId) nextId = num + 1;
-        tab.savedContent = null; // will be set on reload from disk
+  // Restore state (per-window scoped key)
+  if (!skipRestore) {
+    const saved = localStorage.getItem(windowKey(KEY_TABS));
+    if (saved) {
+      try {
+        const state = JSON.parse(saved);
+        tabs = state.tabs || [];
+        activeTabId = state.activeTabId || null;
+        // Ensure IDs are unique and initialize runtime-only fields
+        for (const tab of tabs) {
+          const num = parseInt(tab.id?.replace("tab-", ""), 10);
+          if (num >= nextId) nextId = num + 1;
+          tab.savedContent = null; // will be set on reload from disk
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
   }
 
@@ -100,9 +104,9 @@ function saveState(): void {
     })),
     activeTabId,
   });
-  // Save to project-specific key and the global key (for initial load fallback)
-  localStorage.setItem(tabsKey(currentProjectRoot), data);
-  localStorage.setItem(KEY_TABS, data);
+  // Save to project-specific key and the window-scoped global key
+  localStorage.setItem(windowKey(tabsKey(currentProjectRoot)), data);
+  localStorage.setItem(windowKey(KEY_TABS), data);
 }
 
 // --- Public API ---
@@ -124,8 +128,8 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
   // Switch to new project
   currentProjectRoot = newRoot;
 
-  // Try to restore tabs for the new project
-  const saved = localStorage.getItem(tabsKey(newRoot));
+  // Try to restore tabs for the new project (per-window scoped)
+  const saved = localStorage.getItem(windowKey(tabsKey(newRoot)));
   if (saved) {
     try {
       const state = JSON.parse(saved);

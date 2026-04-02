@@ -9,8 +9,9 @@ mod util;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_cli::CliExt;
+use tauri_plugin_store::StoreExt;
 
 /// Resolve file path strings to absolute paths, filtering to files that exist.
 fn resolve_file_paths<'a>(
@@ -57,8 +58,16 @@ fn main() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            // Focus existing window
-            if let Some(window) = app.get_webview_window("main") {
+            // Focus the most recently focused window, falling back to "main"
+            let editor_states = app
+                .try_state::<std::sync::Arc<crate::commands::EditorStates>>();
+            let focused_label = editor_states
+                .as_ref()
+                .and_then(|s| s.get_focused_label());
+            let target = focused_label
+                .and_then(|l| app.get_webview_window(&l))
+                .or_else(|| app.get_webview_window("main"));
+            if let Some(window) = target {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
@@ -77,6 +86,24 @@ fn main() {
             let m = menu::build(app.handle())?;
             app.set_menu(m)?;
             bridge::start(app.handle().clone(), editor_states.clone());
+
+            // Restore additional windows from session registry
+            if let Ok(store) = app.handle().store("window-registry.json") {
+                if let Some(val) = store.get("windows") {
+                    if let Ok(entries) = serde_json::from_value::<Vec<commands::WindowRegistryEntry>>(val.clone()) {
+                        for entry in entries.iter().filter(|e| e.label != "main") {
+                            let url = WebviewUrl::App("index.html".into());
+                            let mut builder = WebviewWindowBuilder::new(app, &entry.label, url)
+                                .title("MarkUpsideDown")
+                                .inner_size(entry.width, entry.height);
+                            if let (Some(x), Some(y)) = (entry.x, entry.y) {
+                                builder = builder.position(x, y);
+                            }
+                            let _ = builder.build();
+                        }
+                    }
+                }
+            }
 
             // Handle CLI file arguments (supports multiple files)
             if let Ok(matches) = app.cli().matches() {
@@ -160,6 +187,8 @@ fn main() {
             cloudflare::setup_worker_secrets_with_token,
             menu::add_recent_file,
             commands::validate_markdown,
+            commands::save_window_registry,
+            commands::load_window_registry,
         ])
         .on_window_event(move |window, event| {
             match event {
@@ -169,8 +198,25 @@ fn main() {
                 tauri::WindowEvent::Destroyed => {
                     // Remove this window's editor state
                     editor_states_events.remove_window(window.label());
+
+                    let remaining = window.app_handle().webview_windows().len();
+                    // Remove closed window from registry (if app stays open)
+                    if remaining > 1 {
+                        let label = window.label().to_string();
+                        if let Ok(store) = window.app_handle().store("window-registry.json") {
+                            if let Some(val) = store.get("windows") {
+                                if let Ok(mut entries) = serde_json::from_value::<Vec<commands::WindowRegistryEntry>>(val.clone()) {
+                                    entries.retain(|e| e.label != label);
+                                    if let Ok(json) = serde_json::to_value(&entries) {
+                                        store.set("windows", json);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Only clean up bridge when the last window closes
-                    if window.app_handle().webview_windows().len() <= 1 {
+                    if remaining <= 1 {
                         bridge::cleanup();
                     }
                 }

@@ -108,6 +108,9 @@ import {
   KEY_SIDEBAR_COLLAPSED,
   KEY_EDITOR_COLLAPSED,
   KEY_PREVIEW_COLLAPSED,
+  initWindowLabel,
+  windowKey,
+  getWindowLabel,
 } from "./storage-keys.ts";
 import {
   registerCommands,
@@ -131,6 +134,30 @@ import {
 import { startPresentation } from "./presentation.ts";
 import { setPublishProjectRoot, loadPublishState } from "./publish.ts";
 import { openSearchUI } from "./semantic-search.ts";
+// --- Window label (must run before any state restoration) ---
+initWindowLabel();
+const isFreshWindow = new URLSearchParams(window.location.search).has("fresh");
+
+// --- One-time migration: copy unscoped keys to window-scoped keys for "main" window ---
+{
+  const MIGRATION_KEY = "markupsidedown:v2-window-migrated";
+  if (!localStorage.getItem(MIGRATION_KEY) && !isFreshWindow) {
+    const keysToMigrate = [
+      "markupsidedown:tabs",
+      "markupsidedown:sidebar",
+      "markupsidedown:sidebarPanel",
+      "markupsidedown:sidebarCollapsed",
+      "markupsidedown:editorCollapsed",
+      "markupsidedown:previewCollapsed",
+    ];
+    for (const key of keysToMigrate) {
+      const val = localStorage.getItem(key);
+      if (val !== null) localStorage.setItem(windowKey(key), val);
+    }
+    localStorage.setItem(MIGRATION_KEY, "1");
+  }
+}
+
 // --- Tauri APIs ---
 
 const { invoke } = window.__TAURI__.core;
@@ -589,7 +616,7 @@ makeDraggable(divider, (clientX) => {
 const sidebarEl = document.getElementById("sidebar")!;
 const sidebarDivider = document.getElementById("sidebar-divider")!;
 
-const sidebarCollapsed = getStorageBool(KEY_SIDEBAR_COLLAPSED, false);
+const sidebarCollapsed = getStorageBool(windowKey(KEY_SIDEBAR_COLLAPSED), false);
 if (sidebarCollapsed) {
   sidebarEl.classList.add("collapsed");
 }
@@ -637,6 +664,7 @@ initSidebar(sidebarEl, {
       }
     }
   },
+  skipRestore: isFreshWindow,
 });
 
 const gitPanelEl = getGitPanelEl();
@@ -680,7 +708,7 @@ function toggleSidebar() {
   preservePreviewScroll(() => {
     const collapsed = sidebarEl.classList.toggle("collapsed");
     sidebarUnfoldBtn.classList.toggle("visible", collapsed);
-    setStorageBool(KEY_SIDEBAR_COLLAPSED, collapsed);
+    setStorageBool(windowKey(KEY_SIDEBAR_COLLAPSED), collapsed);
   });
 }
 
@@ -693,7 +721,7 @@ makeDraggable(
     sidebarUnfoldBtn.classList.remove("visible");
   },
   () => {
-    setStorageBool(KEY_SIDEBAR_COLLAPSED, false);
+    setStorageBool(windowKey(KEY_SIDEBAR_COLLAPSED), false);
   },
 );
 
@@ -751,7 +779,7 @@ function toggleEditor() {
     const collapsed = editorContainer.classList.toggle("collapsed");
     editorUnfoldBtn.classList.toggle("visible", collapsed);
     updateDividerVisibility();
-    setStorageBool(KEY_EDITOR_COLLAPSED, collapsed);
+    setStorageBool(windowKey(KEY_EDITOR_COLLAPSED), collapsed);
   });
 }
 
@@ -759,7 +787,7 @@ function togglePreview() {
   const collapsed = previewWrapper.classList.toggle("collapsed");
   previewUnfoldBtn.classList.toggle("visible", collapsed);
   updateDividerVisibility();
-  setStorageBool(KEY_PREVIEW_COLLAPSED, collapsed);
+  setStorageBool(windowKey(KEY_PREVIEW_COLLAPSED), collapsed);
 }
 
 sidebarUnfoldBtn.addEventListener("click", toggleSidebar);
@@ -771,12 +799,12 @@ previewUnfoldBtn.addEventListener("click", togglePreview);
 if (sidebarCollapsed) {
   sidebarUnfoldBtn.classList.add("visible");
 }
-if (getStorageBool(KEY_EDITOR_COLLAPSED, false)) {
+if (getStorageBool(windowKey(KEY_EDITOR_COLLAPSED), false)) {
   editorContainer.classList.add("collapsed");
   divider.classList.add("hidden");
   editorUnfoldBtn.classList.add("visible");
 }
-if (getStorageBool(KEY_PREVIEW_COLLAPSED, false)) {
+if (getStorageBool(windowKey(KEY_PREVIEW_COLLAPSED), false)) {
   previewWrapper.classList.add("collapsed");
   divider.classList.add("hidden");
   previewUnfoldBtn.classList.add("visible");
@@ -869,6 +897,7 @@ initTabs(tabBarEl, {
   onClose: (tab) => {
     if (tab.path) stopWatching(tab.path);
   },
+  skipRestore: isFreshWindow,
 });
 
 // Start watching all previously open file-backed tabs
@@ -1129,9 +1158,46 @@ registerCommands([
   },
 ]);
 
+// --- Window registry (session restoration) ---
+
+async function saveWindowRegistry() {
+  try {
+    // Load current registry and update this window's entry
+    const existing: Array<{
+      label: string;
+      x?: number;
+      y?: number;
+      width: number;
+      height: number;
+    }> = await invoke("load_window_registry").catch(() => []);
+
+    const label = getWindowLabel();
+    const entry = {
+      label,
+      x: window.screenX,
+      y: window.screenY,
+      width: window.outerWidth,
+      height: window.outerHeight,
+    };
+
+    const filtered = (existing as (typeof entry)[]).filter((e) => e.label !== label);
+    filtered.push(entry);
+    await invoke("save_window_registry", { windows: filtered });
+  } catch {
+    // ignore
+  }
+}
+
+// Save registry periodically and on visibility change
+setInterval(saveWindowRegistry, 30_000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveWindowRegistry();
+});
+
 // --- Cleanup on window close ---
 
 window.addEventListener("beforeunload", () => {
+  saveWindowRegistry();
   stopDirWatcher();
   stopAllFileWatchers();
 });

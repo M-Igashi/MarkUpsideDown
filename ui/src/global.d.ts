@@ -19,11 +19,20 @@ interface TauriEvent {
   listen<T = unknown>(event: string, handler: (event: { payload: T }) => void): Promise<() => void>;
 }
 
+interface TauriWebviewWindow {
+  label: string;
+}
+
+interface TauriWebviewWindowModule {
+  getCurrentWebviewWindow(): TauriWebviewWindow;
+}
+
 interface TauriGlobal {
   core: TauriCore;
   dialog: TauriDialog;
   fs: TauriFs;
   event?: TauriEvent;
+  webviewWindow?: TauriWebviewWindowModule;
 }
 
 declare global {
