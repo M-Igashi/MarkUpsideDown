@@ -637,8 +637,9 @@ wrangler secret put CLOUDFLARE_API_TOKEN</pre>
           <div id="settings-mcp-tab-content" class="settings-mcp-tab-content"></div>
         </div>
         <details class="settings-mcp-tools-details">
-          <summary>Available tools (61)</summary>
+          <summary>Available tools (62)</summary>
           <div class="settings-mcp-tools-list">
+            <div class="settings-mcp-tool"><code>list_windows</code> &mdash; List all open windows with labels and project roots</div>
             <div class="settings-mcp-tool"><code>get_editor_content</code> &mdash; Get current Markdown from the editor</div>
             <div class="settings-mcp-tool"><code>set_editor_content</code> &mdash; Replace editor content</div>
             <div class="settings-mcp-tool"><code>insert_text</code> &mdash; Insert text at cursor, start, or end</div>

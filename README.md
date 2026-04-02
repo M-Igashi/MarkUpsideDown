@@ -62,7 +62,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 
 ### AI Agent Integration
 
-- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, lint/normalize documents, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (61 tools). See [docs/ai-integration.md](docs/ai-integration.md) for setup.
+- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, lint/normalize documents, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (62 tools). See [docs/ai-integration.md](docs/ai-integration.md) for setup.
 - **File-watcher sync** — External edits by AI agents are automatically detected and reloaded in the editor
 
 ### Keyboard Shortcuts
@@ -129,7 +129,7 @@ cargo tauri build      # production build
 | Document | Contents |
 |----------|----------|
 | [docs/ai-integration.md](docs/ai-integration.md) | AI agent setup guide (quick start) |
-| [docs/mcp-server.md](docs/mcp-server.md) | MCP server reference (61 tools, standalone mode) |
+| [docs/mcp-server.md](docs/mcp-server.md) | MCP server reference (62 tools, standalone mode) |
 | [docs/worker-deployment.md](docs/worker-deployment.md) | Worker deployment, API tokens, pricing |
 | [docs/architecture.md](docs/architecture.md) | Data flow, components, IPC/bridge API reference |
 | [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md) | All keyboard shortcuts |

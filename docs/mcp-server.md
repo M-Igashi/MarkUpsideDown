@@ -80,7 +80,16 @@ Check Worker health and version: `curl https://your-worker-url/health`
 
 The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit.
 
-## Available Tools (61)
+## Available Tools (62)
+
+<details>
+<summary><strong>Window Tools</strong> — 1 tool (require the app to be running)</summary>
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `list_windows` | List all open windows with labels, project roots, and focused status | — |
+
+</details>
 
 <details>
 <summary><strong>Editor Tools</strong> — 9 tools (require the app to be running)</summary>

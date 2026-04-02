@@ -366,6 +366,7 @@ pub struct McpTools {
     bridge: BridgeClient,
     http: reqwest::Client,
     worker_url_env: Option<String>,
+    cached_worker_url: std::sync::Mutex<Option<(String, std::time::Instant)>>,
 }
 
 #[tool_router]
@@ -378,6 +379,7 @@ impl McpTools {
             bridge: BridgeClient::new(http.clone()),
             http,
             worker_url_env,
+            cached_worker_url: std::sync::Mutex::new(None),
         }
     }
 
@@ -385,11 +387,36 @@ impl McpTools {
         if let Some(ref url) = self.worker_url_env {
             return Ok(url.clone());
         }
+        // Check cache (TTL: 60 seconds)
+        {
+            let cache = self.cached_worker_url.lock().unwrap();
+            if let Some((ref url, ref ts)) = *cache {
+                if ts.elapsed() < std::time::Duration::from_secs(60) {
+                    return Ok(url.clone());
+                }
+            }
+        }
         let bridge_state = self.bridge.get_editor_state().await.ok();
-        get_worker_url(
+        let url = get_worker_url(
             None,
             bridge_state.as_ref().and_then(|s| s.worker_url.as_deref()),
-        )
+        )?;
+        *self.cached_worker_url.lock().unwrap() = Some((url.clone(), std::time::Instant::now()));
+        Ok(url)
+    }
+
+    // --- Window Tools ---
+
+    #[tool(name = "list_windows", description = "List all open MarkUpsideDown windows with their labels and project root paths. Shows which window is currently focused. Useful for multi-window workflows.", annotations(read_only_hint = true, open_world_hint = false))]
+    async fn list_windows(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.list_windows().await {
+            Ok((windows, focused)) => {
+                let json = serde_json::json!({ "windows": windows, "focused": focused });
+                let text = serde_json::to_string_pretty(&json).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(text)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
     }
 
     // --- Editor Tools (require running app) ---
@@ -436,6 +463,7 @@ impl McpTools {
                 .http
                 .get(&params.url)
                 .header("Accept", "text/markdown")
+                .timeout(std::time::Duration::from_secs(30))
                 .send()
                 .await
                 .map_err(|e| e.to_string())?;
@@ -482,7 +510,7 @@ impl McpTools {
             let worker_url = self.resolve_worker_url().await?;
 
             let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&params.url));
-            let response = self.http.get(&render_url).send().await.map_err(|e| e.to_string())?;
+            let response = self.http.get(&render_url).timeout(std::time::Duration::from_secs(30)).send().await.map_err(|e| e.to_string())?;
 
             #[derive(Deserialize)]
             struct Resp {
@@ -514,6 +542,7 @@ impl McpTools {
                 .http
                 .get(&params.url)
                 .header("Accept", "text/markdown")
+                .timeout(std::time::Duration::from_secs(30))
                 .send()
                 .await
                 .map_err(|e| e.to_string())?;
@@ -544,6 +573,7 @@ impl McpTools {
                     .http
                     .post(format!("{worker_url}/fetch"))
                     .json(&serde_json::json!({ "url": params.url }))
+                    .timeout(std::time::Duration::from_secs(30))
                     .send()
                     .await
                     .map_err(|e| e.to_string())?;
@@ -565,7 +595,7 @@ impl McpTools {
                     }
 
                     let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&params.url));
-                    if let Ok(resp) = self.http.get(&render_url).send().await {
+                    if let Ok(resp) = self.http.get(&render_url).timeout(std::time::Duration::from_secs(30)).send().await {
                         if let Ok(rdata) = resp.json::<RenderResp>().await {
                             if rdata.error.is_none() {
                                 if let Some(rendered) = rdata.markdown {
@@ -615,6 +645,7 @@ impl McpTools {
                 .http
                 .post(format!("{worker_url}/convert"))
                 .header("Content-Type", mime)
+                .timeout(std::time::Duration::from_secs(60))
                 .body(bytes)
                 .send()
                 .await

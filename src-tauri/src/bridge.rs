@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands::{self, EditorStates};
+use crate::error::AppError;
 
 const PORT_RANGE_START: u16 = 31415;
 const PORT_RANGE_END: u16 = 31420;
@@ -142,6 +143,42 @@ pub fn cleanup() {
 fn find_available_port() -> Option<u16> {
     (PORT_RANGE_START..=PORT_RANGE_END)
         .find(|&port| TcpListener::bind(("127.0.0.1", port)).is_ok())
+}
+
+// --- Error helpers ---
+
+/// Trait for converting error types into categorized bridge JSON responses.
+trait BridgeError {
+    fn to_bridge_json(&self) -> Json<serde_json::Value>;
+}
+
+impl BridgeError for AppError {
+    fn to_bridge_json(&self) -> Json<serde_json::Value> {
+        let error_type = match self {
+            AppError::Io(_) => "io",
+            AppError::Network(_) => "network",
+            AppError::Git(_) => "git",
+            AppError::Worker(_) => "worker",
+            AppError::Validation(_) => "validation",
+            AppError::Store(_) => "store",
+            AppError::Wrangler(_) => "wrangler",
+            AppError::Task(_) => "task",
+        };
+        Json(serde_json::json!({
+            "error": self.to_string(),
+            "error_type": error_type,
+        }))
+    }
+}
+
+impl BridgeError for String {
+    fn to_bridge_json(&self) -> Json<serde_json::Value> {
+        Json(serde_json::json!({ "error": self, "error_type": "internal" }))
+    }
+}
+
+fn not_found_json(msg: &str) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "error": msg, "error_type": "not_found" }))
 }
 
 // --- Handlers ---
@@ -302,10 +339,10 @@ async fn get_structure(
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 Json(val)
             } else {
-                Json(serde_json::json!({ "error": "Invalid structure data" }))
+                not_found_json("Invalid structure data")
             }
         }
-        None => Json(serde_json::json!({ "error": "No structure data available" })),
+        None => not_found_json("No structure data available"),
     }
 }
 
@@ -401,18 +438,18 @@ async fn list_files(
 ) -> Json<serde_json::Value> {
     let path = query.path.or_else(|| state.editor.get_focused_root_path());
     let Some(path) = path else {
-        return Json(serde_json::json!({ "error": "No path specified and no project root available" }));
+        return not_found_json("No path specified and no project root available");
     };
 
     if query.recursive.unwrap_or(false) {
         match list_recursive(&path).await {
             Ok(entries) => Json(serde_json::json!({ "entries": entries })),
-            Err(e) => Json(serde_json::json!({ "error": e })),
+            Err(e) => e.to_bridge_json(),
         }
     } else {
         match commands::list_directory(path.clone()).await {
             Ok(entries) => Json(serde_json::json!({ "entries": entries })),
-            Err(e) => Json(serde_json::json!({ "error": e })),
+            Err(e) => e.to_bridge_json(),
         }
     }
 }
@@ -458,7 +495,7 @@ struct ReadFileQuery {
 async fn read_file(Query(query): Query<ReadFileQuery>) -> Json<serde_json::Value> {
     match commands::read_text_file(query.path).await {
         Ok(content) => Json(serde_json::json!({ "content": content })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -474,9 +511,15 @@ async fn search_files(
 ) -> Json<serde_json::Value> {
     let search_path = query.path.or_else(|| state.editor.get_focused_root_path());
     let Some(search_path) = search_path else {
-        return Json(serde_json::json!({ "error": "No path specified and no project root available" }));
+        return not_found_json("No path specified and no project root available");
     };
 
+    // Fast path: use git ls-files for git repos
+    if let Some(matches) = git_search_files(&search_path, &query.query).await {
+        return Json(serde_json::json!({ "matches": matches }));
+    }
+
+    // Fallback: recursive directory walk for non-git directories
     match list_recursive(&search_path).await {
         Ok(entries) => {
             let query_lower = query.query.to_lowercase();
@@ -486,8 +529,62 @@ async fn search_files(
                 .collect();
             Json(serde_json::json!({ "matches": matches }))
         }
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
+}
+
+/// Fast file name search using `git ls-files` for git repositories.
+/// Returns `None` if the path is not a git repo or git fails.
+async fn git_search_files(search_path: &str, query: &str) -> Option<Vec<commands::FileEntry>> {
+    let git_dir = std::path::Path::new(search_path).join(".git");
+    if !git_dir.exists() {
+        return None;
+    }
+
+    let search_path = search_path.to_string();
+    let query = query.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let output = std::process::Command::new("git")
+            .args(["-C", &search_path, "ls-files", "--cached", "--others", "--exclude-standard"])
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let query_lower = query.to_lowercase();
+
+        let entries: Vec<commands::FileEntry> = stdout
+            .lines()
+            .filter(|line| {
+                let name = line.rsplit('/').next().unwrap_or(line);
+                name.to_lowercase().contains(&query_lower)
+            })
+            .map(|line| {
+                let full_path = format!("{search_path}/{line}");
+                let name = line.rsplit('/').next().unwrap_or(line).to_string();
+                let extension = std::path::Path::new(line)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|s| s.to_string());
+                commands::FileEntry {
+                    name,
+                    path: full_path,
+                    is_dir: false,
+                    extension,
+                    modified_at: None,
+                }
+            })
+            .collect();
+
+        Some(entries)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 // --- File mutation handlers ---
@@ -500,7 +597,7 @@ struct CreateFileRequest {
 async fn create_file(Json(body): Json<CreateFileRequest>) -> Json<serde_json::Value> {
     match commands::create_file(body.path).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -512,7 +609,7 @@ struct CreateDirectoryRequest {
 async fn create_directory(Json(body): Json<CreateDirectoryRequest>) -> Json<serde_json::Value> {
     match commands::create_directory(body.path).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -525,7 +622,7 @@ struct RenameEntryRequest {
 async fn rename_entry(Json(body): Json<RenameEntryRequest>) -> Json<serde_json::Value> {
     match commands::rename_entry(body.from, body.to).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -538,7 +635,7 @@ struct DeleteEntryRequest {
 async fn delete_entry(Json(body): Json<DeleteEntryRequest>) -> Json<serde_json::Value> {
     match commands::delete_entry(body.path, body.is_dir.unwrap_or(false)).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -546,12 +643,12 @@ async fn delete_entry(Json(body): Json<DeleteEntryRequest>) -> Json<serde_json::
 
 async fn git_status(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
     let Some(repo_path) = state.editor.get_focused_root_path() else {
-        return Json(serde_json::json!({ "error": "No project root available" }));
+        return not_found_json("No project root available");
     };
 
     match commands::git_status(repo_path).await {
         Ok(status) => Json(serde_json::json!(status)),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -559,7 +656,7 @@ fn get_repo_path(state: &BridgeState) -> Result<String, Json<serde_json::Value>>
     state
         .editor
         .get_focused_root_path()
-        .ok_or_else(|| Json(serde_json::json!({ "error": "No project root available" })))
+        .ok_or_else(|| not_found_json("No project root available"))
 }
 
 #[derive(Deserialize)]
@@ -577,7 +674,7 @@ async fn git_stage(
     };
     match commands::git_stage(repo_path, body.path).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -591,7 +688,7 @@ async fn git_unstage(
     };
     match commands::git_unstage(repo_path, body.path).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -610,7 +707,7 @@ async fn git_commit(
     };
     match commands::git_commit(repo_path, body.message).await {
         Ok(output) => Json(serde_json::json!({ "output": output })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -620,7 +717,7 @@ async fn git_remote_op(
 ) -> Json<serde_json::Value> {
     match op.await {
         Ok(output) => Json(serde_json::json!({ "output": output })),
-        Err(e) => Json(serde_json::json!({ "error": e.to_string() })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -666,7 +763,7 @@ async fn git_diff(
     };
     match commands::git_diff(repo_path, query.path, query.staged.unwrap_or(false)).await {
         Ok(diff) => Json(serde_json::json!({ "diff": diff })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -680,7 +777,7 @@ async fn git_discard(
     };
     match commands::git_discard(repo_path, body.path).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -691,7 +788,7 @@ async fn git_discard_all(State(state): State<Arc<BridgeState>>) -> Json<serde_js
     };
     match commands::git_discard_all(repo_path).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -710,7 +807,7 @@ async fn git_log(
     };
     match commands::git_log(repo_path, query.limit).await {
         Ok(entries) => Json(serde_json::json!({ "entries": entries })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -729,7 +826,7 @@ async fn git_revert(
     };
     match commands::git_revert(repo_path, body.commit_hash).await {
         Ok(output) => Json(serde_json::json!({ "output": output })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -744,7 +841,7 @@ struct CopyEntryRequest {
 async fn copy_entry(Json(body): Json<CopyEntryRequest>) -> Json<serde_json::Value> {
     match commands::copy_entry(body.from, body.to_dir).await {
         Ok(dest) => Json(serde_json::json!({ "path": dest })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -756,7 +853,7 @@ struct DuplicateEntryRequest {
 async fn duplicate_entry(Json(body): Json<DuplicateEntryRequest>) -> Json<serde_json::Value> {
     match commands::duplicate_entry(body.path).await {
         Ok(dest) => Json(serde_json::json!({ "path": dest })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -768,7 +865,7 @@ async fn crawl_save(Json(body): Json<CrawlSaveRequest>) -> Json<serde_json::Valu
             "saved_count": result.saved_count,
             "base_dir": result.base_dir,
         })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -792,7 +889,7 @@ async fn download_image(
 ) -> Json<serde_json::Value> {
     match commands::download_image_with(&state.http, &body.url, &body.dest_path).await {
         Ok(path) => Json(serde_json::json!({ "path": path })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -807,7 +904,7 @@ async fn fetch_page_title(
 ) -> Json<serde_json::Value> {
     match commands::fetch_page_title_with(&state.http, &body.url).await {
         Ok(title) => Json(serde_json::json!({ "title": title })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -838,7 +935,7 @@ async fn write_tags(root: &str, data: &serde_json::Value) -> Result<(), String> 
 
 async fn tags_list(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
     let Some(root) = state.editor.get_focused_root_path() else {
-        return Json(serde_json::json!({ "error": "No project root available" }));
+        return not_found_json("No project root available");
     };
     Json(read_tags(&root).await)
 }
@@ -853,14 +950,14 @@ async fn tags_set(
     Json(body): Json<TagsSetRequest>,
 ) -> Json<serde_json::Value> {
     let Some(root) = state.editor.get_focused_root_path() else {
-        return Json(serde_json::json!({ "error": "No project root available" }));
+        return not_found_json("No project root available");
     };
     match write_tags(&root, &body.tags).await {
         Ok(()) => {
             state.emit_to_focused("bridge:tags-changed", ());
             Json(serde_json::json!({ "ok": true }))
         }
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -873,7 +970,7 @@ async fn git_stage_all(State(state): State<Arc<BridgeState>>) -> Json<serde_json
     };
     match commands::git_stage_all(repo_path).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -892,7 +989,7 @@ async fn git_show(
     };
     match commands::git_show(repo_path, query.commit_hash).await {
         Ok(output) => Json(serde_json::json!({ "output": output })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -905,7 +1002,7 @@ struct GitCloneRequest {
 async fn git_clone(Json(body): Json<GitCloneRequest>) -> Json<serde_json::Value> {
     match commands::git_clone(body.url, body.dest).await {
         Ok(output) => Json(serde_json::json!({ "output": output })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 
@@ -917,7 +1014,7 @@ struct GitInitRequest {
 async fn git_init(Json(body): Json<GitInitRequest>) -> Json<serde_json::Value> {
     match commands::git_init(body.path).await {
         Ok(output) => Json(serde_json::json!({ "output": output })),
-        Err(e) => Json(serde_json::json!({ "error": e })),
+        Err(e) => e.to_bridge_json(),
     }
 }
 

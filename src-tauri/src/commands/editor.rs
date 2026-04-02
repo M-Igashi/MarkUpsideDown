@@ -156,7 +156,12 @@ pub fn create_cowork_workspace(
 This workspace is configured for use with MarkUpsideDown's MCP server.
 MarkUpsideDown must be running for editor/file/git tools to work.
 
-## Available MCP Tools (61)
+## Available MCP Tools (62)
+
+### Windows
+| Tool | Description |
+|------|-------------|
+| `list_windows` | List all open windows with labels and project roots |
 
 ### Editor
 | Tool | Description |

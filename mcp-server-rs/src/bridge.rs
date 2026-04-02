@@ -437,6 +437,23 @@ impl BridgeClient {
         }
         Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
     }
+
+    // --- Window management ---
+
+    pub async fn list_windows(&self) -> Result<(Vec<WindowInfo>, Option<String>), String> {
+        let val = self.request("GET", "/windows", None).await?;
+        let json = val.unwrap_or_default();
+        #[derive(Deserialize)]
+        struct Resp { windows: Vec<WindowInfo>, focused: Option<String> }
+        let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
+        Ok((resp.windows, resp.focused))
+    }
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct WindowInfo {
+    pub label: String,
+    pub root: Option<String>,
 }
 
 #[derive(Deserialize, serde::Serialize)]
