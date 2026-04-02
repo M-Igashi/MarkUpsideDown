@@ -78,7 +78,7 @@ import {
   buildScrollAnchors,
   preservePreviewScroll,
 } from "./scroll-sync.ts";
-import { initPreview, renderPreview } from "./preview-render.ts";
+import { initPreview, renderPreview, getMermaid } from "./preview-render.ts";
 import {
   initFileOps,
   saveFile,
@@ -1217,3 +1217,6 @@ window.addEventListener("beforeunload", () => {
 
 checkFirstRun();
 checkForUpdate();
+
+// Preload heavy optional modules during idle time
+requestIdleCallback(() => getMermaid());

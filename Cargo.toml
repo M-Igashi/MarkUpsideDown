@@ -1,6 +1,5 @@
 [workspace]
-members = ["src-tauri"]
-exclude = ["mcp-server-rs"]
+members = ["src-tauri", "mcp-server-rs"]
 resolver = "3"
 
 [profile.release]

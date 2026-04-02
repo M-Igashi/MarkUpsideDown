@@ -63,7 +63,7 @@ async function getKaTeX() {
 
 let mermaidModule: any = null;
 
-async function getMermaid() {
+export async function getMermaid() {
   if (mermaidModule) return mermaidModule;
   const { default: mermaid } = await import("mermaid");
   mermaid.initialize({
