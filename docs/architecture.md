@@ -18,7 +18,7 @@ MCP Server (mcp-server-rs/)
 │          │ invoke()          ▲ scroll sync                │
 │  ┌───────┴───────────────────┴──────────────────────┐    │
 │  │  Tauri Backend (Rust)                             │    │
-│  │  ├─ commands.rs   (IPC: fetch, convert, file, git)│    │
+│  │  ├─ commands/     (IPC: files, web, git, crawl, editor)│  │
 │  │  ├─ bridge.rs     (axum HTTP server for MCP)      │    │
 │  │  └─ cloudflare.rs (wrangler CLI, auto-setup)      │    │
 │  └───────┬──────────────────────────────────────────┘    │
@@ -34,6 +34,12 @@ MCP Server (mcp-server-rs/)
 │       (/content → AI.toMarkdown())   │
 │  POST /crawl    → start site crawl    │
 │  GET  /crawl/:id → poll crawl results │
+│  POST /batch    → Queue-based batch   │
+│  GET  /batch/:id → poll batch results │
+│  PUT  /publish  → publish to R2       │
+│  GET  /p/:key   → serve published MD  │
+│  POST /embed    → index in Vectorize  │
+│  POST /search   → semantic search     │
 └──────────────────────────────────────┘
 ```
 
@@ -77,9 +83,16 @@ MCP Server (mcp-server-rs/)
 | Mermaid viewer | Zoom/pan viewer for Mermaid diagrams (Copy as PNG) | `ui/src/mermaid-viewer.ts` |
 | Theme | CodeMirror editor theme (warm paper palette) | `ui/src/theme.ts` |
 | Path utils | `basename()`, `dirname()`, `buildRelativePath()` | `ui/src/path-utils.ts` |
-| HTML utils | `escapeHtml()`, `copySvgAsPng()` | `ui/src/html-utils.ts` |
+| HTML utils | `escapeHtml()`, `copySvgAsPng()`, `writeTextFile()` | `ui/src/html-utils.ts` |
 | Fetch markdown | Shared URL→Markdown pipeline | `ui/src/fetch-markdown.ts` |
-| Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands.rs` |
+| Storage utils | `getStorageBool()`, `setStorageBool()` | `ui/src/storage-utils.ts` |
+| Storage keys | Centralized localStorage key registry | `ui/src/storage-keys.ts` |
+| Worker fetch | Shared Worker API fetch helper | `ui/src/worker-fetch.ts` |
+| Batch import | Queue-based parallel batch conversion | `ui/src/batch-import.ts` |
+| Publish | Publish Markdown to R2 (permanent or time-limited) | `ui/src/publish.ts` |
+| Semantic search | Natural language search via Vectorize | `ui/src/semantic-search.ts` |
+| Update toast | App update availability notification | `ui/src/update-toast.ts` |
+| Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands/` |
 | Auto-setup | Wrangler CLI (login, deploy, secrets) | `src-tauri/src/cloudflare.rs` |
 | MCP bridge | Rust (axum HTTP server) | `src-tauri/src/bridge.rs` |
 | Utilities | Home directory helper | `src-tauri/src/util.rs` |
@@ -109,14 +122,14 @@ The `/render` endpoint pipeline:
 2. **Markdown conversion** — `AI.toMarkdown()` converts HTML to Markdown
 3. **Caching** — Responses cached for 1 hour via `caches.default`
 
-Security: SSRF prevention validates URLs and blocks private/reserved IP ranges via DNS-over-HTTPS resolution.
+Security: SSRF prevention validates URLs and blocks private/reserved IP ranges via DNS-over-HTTPS resolution. Bridge path validation: All file paths received via MCP bridge are validated through `validate_path()` which canonicalizes and ensures paths are under the user's home directory.
 
 ### MCP Server (`mcp-server-rs/`)
 
 | Component | Role |
 |-----------|------|
 | `main.rs` | Entry point, stdio transport |
-| `tools.rs` | 49 MCP tools (editor, project context, file ops, conversion, crawl, git, tags) |
+| `tools.rs` | 62 MCP tools (editor, project, files, content, conversion, crawl, git, tags, search, publish, batch, windows) |
 | `bridge.rs` | HTTP client to Tauri bridge (auto-discovers port) |
 
 Communication: MCP server (Rust sidecar binary) reads the bridge port from `~/.markupsidedown-bridge-port` and sends HTTP requests to the Tauri backend's axum server.
@@ -129,72 +142,85 @@ See [ai-integration.md](ai-integration.md) for setup and [mcp-server.md](mcp-ser
 
 | Command | Description | Module |
 |---------|-------------|--------|
-| `sync_editor_state` | Sync editor state to Rust (for MCP bridge) | `commands.rs` |
-| `get_mcp_binary_path` | Get path to bundled MCP sidecar binary | `commands.rs` |
-| `create_cowork_workspace` | Create a Cowork workspace folder with MCP config | `commands.rs` |
+| `sync_editor_state` | Sync editor state to Rust (for MCP bridge) | `commands/editor.rs` |
+| `get_mcp_binary_path` | Get path to bundled MCP sidecar binary | `commands/editor.rs` |
+| `create_cowork_workspace` | Create a Cowork workspace folder with MCP config | `commands/editor.rs` |
+| `validate_markdown` | Validate Markdown structure via comrak parser | `commands/editor.rs` |
+| `check_for_update` | Check GitHub for new release | `commands/web.rs` |
 
 ### Worker / Conversion
 
 | Command | Description | Module |
 |---------|-------------|--------|
-| `test_worker_url` | Test Worker health and report capabilities | `commands.rs` |
-| `fetch_url_as_markdown` | Fetch URL with `Accept: text/markdown` header | `commands.rs` |
-| `fetch_url_via_worker` | Fetch URL via Worker `/fetch` (AI.toMarkdown) | `commands.rs` |
-| `fetch_rendered_url_as_markdown` | Fetch JS-rendered page via Worker `/render` | `commands.rs` |
-| `convert_file_to_markdown` | Send file to Worker `/convert` | `commands.rs` |
-| `detect_file_is_image` | Check if file is image (derived from MIME map) | `commands.rs` |
-| `fetch_svg` | Fetch and sanitize remote SVG for inline rendering | `commands.rs` |
-| `crawl_website` | Start website crawl via Worker `/crawl` | `commands.rs` |
-| `crawl_status` | Poll crawl job status and retrieve completed pages | `commands.rs` |
-| `crawl_save` | Save crawled pages as Markdown files to local directory | `commands.rs` |
+| `test_worker_url` | Test Worker health and report capabilities | `commands/web.rs` |
+| `fetch_url_as_markdown` | Fetch URL with `Accept: text/markdown` header | `commands/web.rs` |
+| `fetch_url_via_worker` | Fetch URL via Worker `/fetch` (AI.toMarkdown) | `commands/web.rs` |
+| `fetch_rendered_url_as_markdown` | Fetch JS-rendered page via Worker `/render` | `commands/web.rs` |
+| `convert_file_to_markdown` | Send file to Worker `/convert` | `commands/web.rs` |
+| `detect_file_is_image` | Check if file is image (derived from MIME map) | `commands/web.rs` |
+| `fetch_svg` | Fetch and sanitize remote SVG for inline rendering | `commands/web.rs` |
+| `crawl_website` | Start website crawl via Worker `/crawl` | `commands/crawl.rs` |
+| `crawl_status` | Poll crawl job status and retrieve completed pages | `commands/crawl.rs` |
+| `crawl_save` | Save crawled pages as Markdown files to local directory | `commands/crawl.rs` |
 
 ### Content & Assets
 
 | Command | Description | Module |
 |---------|-------------|--------|
-| `fetch_page_title` | Extract `<title>` from a web page (for auto-link-title) | `commands.rs` |
-| `download_image` | Download image from URL to local file | `commands.rs` |
+| `fetch_page_title` | Extract `<title>` from a web page (for auto-link-title) | `commands/web.rs` |
+| `download_image` | Download image from URL to local file | `commands/web.rs` |
 
 ### File Operations
 
 | Command | Description | Module |
 |---------|-------------|--------|
-| `read_text_file` | Read file content (UTF-8) | `commands.rs` |
-| `list_directory` | List files/folders (respects .gitignore, dirs first) | `commands.rs` |
-| `create_file` | Create empty file | `commands.rs` |
-| `create_directory` | Create directory | `commands.rs` |
-| `rename_entry` | Rename file or folder | `commands.rs` |
-| `delete_entry` | Delete file or folder (recursive for dirs) | `commands.rs` |
-| `copy_entry` | Copy file or folder | `commands.rs` |
-| `duplicate_entry` | Copy with unique name suffix ("file copy.md") | `commands.rs` |
-| `write_file_bytes` | Write raw bytes to file (for drag & drop) | `commands.rs` |
-| `reveal_in_finder` | Open in system file manager | `commands.rs` |
-| `open_in_terminal` | Open terminal at directory | `commands.rs` |
+| `read_text_file` | Read file content (UTF-8) | `commands/files.rs` |
+| `write_text_file` | Write text to file (UTF-8) | `commands/files.rs` |
+| `list_directory` | List files/folders (respects .gitignore, dirs first) | `commands/files.rs` |
+| `create_file` | Create empty file | `commands/files.rs` |
+| `create_directory` | Create directory | `commands/files.rs` |
+| `rename_entry` | Rename file or folder | `commands/files.rs` |
+| `delete_entry` | Delete file or folder (recursive for dirs) | `commands/files.rs` |
+| `copy_entry` | Copy file or folder | `commands/files.rs` |
+| `duplicate_entry` | Copy with unique name suffix ("file copy.md") | `commands/files.rs` |
+| `write_file_bytes` | Write raw bytes to file (for drag & drop) | `commands/files.rs` |
+| `save_image` | Save image bytes to file (creates ./assets/ directory) | `commands/files.rs` |
+| `move_entries` | Move multiple files/directories to target directory | `commands/files.rs` |
+| `reveal_in_finder` | Open in system file manager | `commands/files.rs` |
+| `open_in_terminal` | Open terminal at directory | `commands/files.rs` |
 
 ### Git
 
 | Command | Description | Module |
 |---------|-------------|--------|
-| `git_status` | Get branch + file changes with line diffs | `commands.rs` |
-| `git_stage_all` | Stage all changes (`git add -A`) | `commands.rs` |
-| `git_stage` | Stage specific file | `commands.rs` |
-| `git_unstage` | Unstage specific file (`git reset HEAD`) | `commands.rs` |
-| `git_commit` | Commit with message | `commands.rs` |
-| `git_push` | Push to remote | `commands.rs` |
-| `git_pull` | Pull from remote | `commands.rs` |
-| `git_fetch` | Fetch remote updates | `commands.rs` |
-| `git_diff` | Get diff for a specific file (staged or unstaged) | `commands.rs` |
-| `git_discard` | Discard changes for a specific file | `commands.rs` |
-| `git_discard_all` | Discard all uncommitted changes | `commands.rs` |
-| `git_log` | Get recent commit history | `commands.rs` |
-| `git_revert` | Revert a commit (creates new revert commit) | `commands.rs` |
-| `git_show` | Show diff for a specific commit | `commands.rs` |
+| `git_status` | Get branch + file changes with line diffs | `commands/git.rs` |
+| `git_stage_all` | Stage all changes (`git add -A`) | `commands/git.rs` |
+| `git_stage` | Stage specific file | `commands/git.rs` |
+| `git_unstage` | Unstage specific file (`git reset HEAD`) | `commands/git.rs` |
+| `git_commit` | Commit with message | `commands/git.rs` |
+| `git_push` | Push to remote | `commands/git.rs` |
+| `git_pull` | Pull from remote | `commands/git.rs` |
+| `git_fetch` | Fetch remote updates | `commands/git.rs` |
+| `git_diff` | Get diff for a specific file (staged or unstaged) | `commands/git.rs` |
+| `git_discard` | Discard changes for a specific file | `commands/git.rs` |
+| `git_discard_all` | Discard all uncommitted changes | `commands/git.rs` |
+| `git_log` | Get recent commit history | `commands/git.rs` |
+| `git_revert` | Revert a commit (creates new revert commit) | `commands/git.rs` |
+| `git_show` | Show diff for a specific commit | `commands/git.rs` |
+| `git_init` | Initialize a new git repo | `commands/git.rs` |
 
 ### Clone
 
 | Command | Description | Module |
 |---------|-------------|--------|
-| `git_clone` | Clone a Git repository to a local directory | `commands.rs` |
+| `git_clone` | Clone a Git repository to a local directory | `commands/git.rs` |
+
+### Window
+
+| Command | Description | Module |
+|---------|-------------|--------|
+| `load_window_registry` | Load saved window positions | `commands/editor.rs` |
+| `save_window_registry` | Save window positions | `commands/editor.rs` |
 
 ### Cloudflare / Wrangler
 
@@ -318,6 +344,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | Settings (Worker URL) | Browser localStorage |
 | Tab state | Browser localStorage (debounced writes) |
 | Bridge port discovery | `~/.markupsidedown-bridge-port` file |
+| Error handling | Structured `AppError` enum (`Io`, `Network`, `Git`, `Worker`, `Validation`) with typed JSON bridge responses | `src-tauri/src/error.rs` |
 
 ## Key Dependencies
 
@@ -331,6 +358,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | `serde` + `serde_json` | JSON serialization |
 | `urlencoding` | URL encoding for Worker API calls |
 | `log` | Logging |
+| `regex-lite` | Lightweight regex for wrangler output parsing |
 
 ### Frontend (`ui/package.json`)
 

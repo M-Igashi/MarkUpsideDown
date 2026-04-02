@@ -21,6 +21,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 | **Import documents** | [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/) — PDF, DOCX, XLSX, HTML, CSV, XML |
 | **Import images** | Workers AI OCR — JPG, PNG, WebP, SVG |
 | **Paste / Drop images** | Paste from clipboard or drag & drop — saves to `./assets/` with Markdown link |
+| **Batch import** | Queue-based parallel conversion of multiple files via Worker |
 | **Drag & Drop** | Drop any supported file onto the editor to import |
 
 ### Editor
@@ -31,7 +32,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 - **Command palette** — Fuzzy search over all commands (<kbd>Cmd</kbd>+<kbd>K</kbd>); type `?` to switch to semantic search
 - **Formatting shortcuts** — Bold, italic, strikethrough, inline code, link insertion
 - **Document cleanup** — Normalize headings, tables, list markers, whitespace, CJK emphasis spacing in one click
-- **Markdown linting** — 11 structural checks: heading hierarchy, broken links, table formatting, CommonMark emphasis flanking, code blocks, footnotes, blank lines
+- **Markdown linting** — 11 structural checks + CommonMark validation via comrak: heading hierarchy, broken links, table formatting, emphasis flanking, code blocks, footnotes, blank lines
 - **Code highlighting** — 24 languages via highlight.js (lazy-loaded), copy button on hover
 - **KaTeX math** — Inline `$...$` and display `$$...$$` rendering
 - **Mermaid diagrams** — Flowcharts, sequence diagrams, etc. Click to open zoom/pan viewer with Copy as PNG
@@ -44,6 +45,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 - **Smart typography** — Auto-convert `...` → `…`, `--` → `–`, `---` → `—` as you type
 - **Note refactor** — Extract selected text into a new linked Markdown file
 - **Semantic search** — Natural language search across indexed documents via Vectorize (<kbd>Cmd</kbd>+<kbd>5</kbd> or `?` in command palette); crawled and imported files are auto-indexed
+- **Multi-window** — Open multiple windows with per-window state isolation and session restoration
 - **Auto-save & auto-reload** — File-backed tabs auto-save; external changes detected and reloaded
 - **SVG inlining** — Remote SVG images rendered inline with sanitization
 
@@ -59,6 +61,10 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 - **Copy Markdown** — Copy raw Markdown to clipboard (editor pane)
 - **Copy Mermaid as PNG** — One-click PNG export from Mermaid diagrams (2x Retina)
 - **Copy code blocks** — Hover any code block in the preview for a Copy button
+
+### Publishing
+
+- **Publish to R2** — Share Markdown files via Cloudflare R2 with permanent or time-limited URLs
 
 ### AI Agent Integration
 
