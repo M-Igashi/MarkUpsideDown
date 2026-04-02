@@ -33,7 +33,6 @@ This project is a desktop Markdown editor built with Tauri v2 with a Cloudflare 
 - **External content**: Fetching and rendering remote resources
 - **Cloudflare Worker**: SSRF via `/fetch`, `/render`, `/crawl` endpoints (mitigated by DNS-over-HTTPS validation)
 - **MCP server**: HTTP bridge (port 31415) exposed to localhost — tool invocations from AI agents
-- **Claude panel**: CLI process spawning and streaming output
 - **Clipboard**: Rich text paste handling
 
 ## Out of Scope
