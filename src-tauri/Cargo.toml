@@ -27,4 +27,4 @@ regex-lite = "0.1"
 trash = "5"
 tauri-plugin-store = "2"
 tauri-plugin-single-instance = "2"
-comrak = { version = "0.51", default-features = false }
+comrak = { version = "0.52", default-features = false }
