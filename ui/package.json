@@ -25,7 +25,7 @@
     "idiomorph": "^0.7.4",
     "katex": "^0.16.44",
     "marked": "^17.0.5",
-    "mermaid": "^11.13.0"
+    "mermaid": "^11.14.0"
   },
   "devDependencies": {
     "@types/dompurify": "^3.2.0",
