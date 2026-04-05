@@ -49,6 +49,8 @@ Paste an image from your clipboard or drag and drop an image file onto the edito
 ![](assets/pasted-image-20260403.png)
 ```
 
+![Image paste result with Markdown links inserted](images/editing-features/image-paste.png)
+
 ## Auto Link Title
 
 When you paste a URL into the editor, MarkUpsideDown automatically fetches the page title and formats it as a Markdown link:

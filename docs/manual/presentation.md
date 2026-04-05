@@ -8,6 +8,10 @@ Open the Command Palette (Cmd+K) and run **Presentation Mode**. The app enters f
 
 ![Presentation mode showing a slide](images/presentation/presentation-slide.png)
 
+The first slide displays the document's frontmatter (title, author, date, tags) as a title card:
+
+![Presentation title slide with frontmatter](images/presentation/presentation-first-slide.png)
+
 ## Writing Slides
 
 Separate slides with a horizontal rule (`---`). Each section between rules becomes one slide:

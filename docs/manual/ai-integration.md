@@ -33,6 +33,8 @@ The section shows:
 - **Binary path** — location of the MCP server binary
 - **Config tabs** — configuration JSON for each agent type
 
+![Settings tabs for each agent type](images/ai-integration/settings-mcp-tabs.png)
+
 Select the tab for your agent and click **Copy to clipboard**:
 
 | Tab | Agent | Where to paste |
@@ -71,6 +73,8 @@ The MCP server exposes **62 tools** organized by category:
 | **Markdown lint** | Validate document structure |
 
 The full tool list is visible in Settings → AI Agent Integration (expand the tools section).
+
+![Available tools list expanded](images/ai-integration/settings-mcp-tools.png)
 
 ## Bridge Details
 

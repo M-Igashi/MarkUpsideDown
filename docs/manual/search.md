@@ -20,13 +20,13 @@ There are two ways to search:
 
 Press **Cmd+5** to open the semantic search panel. Type your query and results appear with relevance scores.
 
-<!-- TODO: ![Search panel](images/search/search-panel.png) -->
+![Search panel with relevance scores](images/search/search-panel.png)
 
 ### Command Palette (? prefix)
 
 Open the command palette (Cmd+K) and type `?` followed by your query. Results show document matches with relevance percentages instead of commands.
 
-<!-- TODO: ![Search results](images/search/search-results.png) -->
+![Search results in command palette](images/search/search-results.png)
 
 ## Working with Results
 

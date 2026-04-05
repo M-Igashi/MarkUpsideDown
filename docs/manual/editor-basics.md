@@ -60,6 +60,7 @@ Press **Cmd+K** to open the command palette. Start typing to fuzzy-search throug
 
 Type `?` followed by your query to switch to semantic search mode. Instead of matching command names, this searches your indexed documents by meaning and shows results with relevance percentages.
 
+![Semantic search results in command palette](images/editor-basics/command-palette-search.png)
 
 ## Panel Layout
 
