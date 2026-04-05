@@ -16,7 +16,7 @@
       { "binding": "CONVERT_QUEUE", "queue": "markupsidedown-convert" }
     ],
     "consumers": [
-      { "queue": "markupsidedown-convert", "max_batch_size": 5, "max_retries": 2 }
+      { "queue": "markupsidedown-convert", "max_batch_size": 5, "max_retries": 3 }
     ]
   },
   "vectorize": [

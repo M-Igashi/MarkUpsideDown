@@ -52,7 +52,12 @@ export async function handleJson(request: Request, env: Env): Promise<Response> 
       body: JSON.stringify(jsonBody),
     });
 
+    const status = response.status;
     const data = await response.json<{ success: boolean; result: unknown; errors?: unknown[]; rawAiResponse?: string }>();
+
+    if (!response.ok) {
+      return jsonResponse({ error: `Browser Rendering JSON API error (${status})`, details: data.errors }, status);
+    }
 
     if (data.success && data.result) {
       return jsonResponse({ data: data.result });
@@ -65,10 +70,6 @@ export async function handleJson(request: Request, env: Env): Promise<Response> 
       } catch {
         return jsonResponse({ data: data.rawAiResponse });
       }
-    }
-
-    if (!response.ok) {
-      return jsonResponse({ error: `Browser Rendering JSON API error (${response.status})`, details: data.errors }, response.status);
     }
 
     return jsonResponse({ error: "No data in response", details: data.errors }, 500);

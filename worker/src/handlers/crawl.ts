@@ -87,13 +87,21 @@ export async function handleCrawlStatus(jobId: string, url: URL, env: Env): Prom
     return jsonResponse({ error: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required" }, 500);
   }
 
-  const limit = url.searchParams.get("limit") || "100";
+  const limitRaw = url.searchParams.get("limit") || "100";
+  const limit = Math.max(1, Math.min(Number.parseInt(limitRaw, 10) || 100, 10000));
   const status = url.searchParams.get("status") || "";
   const cursor = url.searchParams.get("cursor") || "";
 
-  let crawlUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering/crawl/${jobId}?limit=${limit}`;
-  if (status) crawlUrl += `&status=${status}`;
-  if (cursor) crawlUrl += `&cursor=${cursor}`;
+  const validStatuses = ["", "completed", "pending", "failed"];
+  if (!validStatuses.includes(status)) {
+    return jsonResponse({ error: `Invalid status filter: ${status}` }, 400);
+  }
+
+  const crawlStatusUrl = new URL(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering/crawl/${jobId}`);
+  crawlStatusUrl.searchParams.set("limit", String(limit));
+  if (status) crawlStatusUrl.searchParams.set("status", status);
+  if (cursor) crawlStatusUrl.searchParams.set("cursor", cursor);
+  const crawlUrl = crawlStatusUrl.toString();
 
   try {
     const response = await fetch(crawlUrl, {

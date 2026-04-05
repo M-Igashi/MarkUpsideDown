@@ -34,18 +34,6 @@ impl BridgeState {
         let _ = self.app.emit(event, payload);
     }
 
-    /// Emit an event to a specific window (or focused if None).
-    #[allow(dead_code)]
-    fn emit_to_window<S: serde::Serialize + Clone>(&self, window: Option<&str>, event: &str, payload: S) {
-        if let Some(label) = window {
-            if let Some(win) = self.app.webview_windows().get(label) {
-                let _ = win.emit(event, payload);
-                return;
-            }
-        }
-        self.emit_to_focused(event, payload);
-    }
-
     /// Get state for a specific window, or fall back to focused.
     fn get_state_for(&self, window: Option<&str>) -> Option<commands::EditorStateInner> {
         if let Some(label) = window {
@@ -289,9 +277,12 @@ struct OpenFileRequest {
 async fn open_file(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<OpenFileRequest>,
-) -> StatusCode {
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    if let Err(e) = commands::validate_path(&body.path) {
+        return Err((StatusCode::BAD_REQUEST, e.to_bridge_json()));
+    }
     state.emit_to_focused("bridge:open-file", &body.path);
-    StatusCode::OK
+    Ok(StatusCode::OK)
 }
 
 #[derive(Deserialize)]
@@ -302,9 +293,14 @@ struct SaveFileRequest {
 async fn save_file(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<SaveFileRequest>,
-) -> StatusCode {
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    if let Some(ref path) = body.path {
+        if let Err(e) = commands::validate_path(path) {
+            return Err((StatusCode::BAD_REQUEST, e.to_bridge_json()));
+        }
+    }
     state.emit_to_focused("bridge:save-file", &body.path);
-    StatusCode::OK
+    Ok(StatusCode::OK)
 }
 
 async fn normalize_document(State(state): State<Arc<BridgeState>>) -> StatusCode {

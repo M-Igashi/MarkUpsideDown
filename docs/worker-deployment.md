@@ -167,7 +167,7 @@ No app-side changes needed — the URL stays the same. Secrets persist across de
 The Worker exposes its version via `GET /health`:
 
 ```json
-{ "status": "ok", "version": 5, "capabilities": { "fetch": true, "convert": true, "render": true, "json": true, "crawl": true, "cache": true, "batch": true, "publish": true, "search": true } }
+{ "status": "ok", "version": 6, "capabilities": { "fetch": true, "convert": true, "render": true, "json": true, "crawl": true, "cache": true, "batch": true, "publish": true, "search": true } }
 ```
 
 The `capabilities` object shows which features are available:

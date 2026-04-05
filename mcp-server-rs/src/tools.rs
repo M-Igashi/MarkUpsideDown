@@ -407,7 +407,7 @@ impl McpTools {
 
     // --- Editor Tools (require running app) ---
 
-    #[tool(name = "get_editor_content", description = "Get current Markdown content from the editor", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "get_editor_content", description = "Get current Markdown content from the editor", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_editor_content(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_editor_content().await {
             Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
@@ -415,7 +415,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "set_editor_content", description = "Replace the editor content with the provided Markdown", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "set_editor_content", description = "Replace the editor content with the provided Markdown", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn set_editor_content(
         &self,
         Parameters(params): Parameters<SetContentParams>,
@@ -426,7 +426,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "insert_text", description = "Insert text at cursor position, start, or end of the editor", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "insert_text", description = "Insert text at cursor position, start, or end of the editor", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn insert_text(
         &self,
         Parameters(params): Parameters<InsertTextParams>,
@@ -439,7 +439,7 @@ impl McpTools {
 
     // --- Conversion Tools (use Worker, no app needed) ---
 
-    #[tool(name = "fetch_markdown", description = "Fetch a URL as Markdown (static only, no JS rendering). Use get_markdown instead for automatic SPA detection.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "fetch_markdown", description = "Fetch a URL as Markdown (static only, no JS rendering). Use get_markdown instead for automatic SPA detection.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn fetch_markdown(
         &self,
         Parameters(params): Parameters<UrlParams>,
@@ -487,7 +487,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "render_markdown", description = "Fetch a JavaScript-rendered page as Markdown via Browser Rendering (explicit). Use get_markdown instead for automatic SPA detection.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "render_markdown", description = "Fetch a JavaScript-rendered page as Markdown via Browser Rendering (explicit). Use get_markdown instead for automatic SPA detection.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn render_markdown(
         &self,
         Parameters(params): Parameters<UrlParams>,
@@ -517,7 +517,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_markdown", description = "Fetch a URL and return its content as Markdown. Automatically detects JavaScript-rendered pages and uses Browser Rendering when available. Recommended over fetch_markdown/render_markdown for most use cases.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "get_markdown", description = "Fetch a URL and return its content as Markdown. Automatically detects JavaScript-rendered pages and uses Browser Rendering when available. Recommended over fetch_markdown/render_markdown for most use cases.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn get_markdown(
         &self,
         Parameters(params): Parameters<UrlParams>,
@@ -607,7 +607,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "convert_to_markdown", description = "Convert a local document (PDF, DOCX, XLSX, HTML, CSV, XML, images) to Markdown via Workers AI", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "convert_to_markdown", description = "Convert a local document (PDF, DOCX, XLSX, HTML, CSV, XML, images) to Markdown via Workers AI", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn convert_to_markdown(
         &self,
         Parameters(params): Parameters<FilePathParams>,
@@ -663,7 +663,7 @@ impl McpTools {
 
     // --- File Tools (require running app) ---
 
-    #[tool(name = "open_file", description = "Open a Markdown file in the editor", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "open_file", description = "Open a Markdown file in the editor", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn open_file(
         &self,
         Parameters(params): Parameters<OpenFileParams>,
@@ -674,7 +674,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "save_file", description = "Save the current editor content to a file", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "save_file", description = "Save the current editor content to a file", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn save_file(
         &self,
         Parameters(params): Parameters<SaveFileParams>,
@@ -691,7 +691,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "normalize_document", description = "Normalize the current editor content: fix heading hierarchy, reformat tables, clean up whitespace, remove broken links, standardize list markers, and add CJK emphasis spacing", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "normalize_document", description = "Normalize the current editor content: fix heading hierarchy, reformat tables, clean up whitespace, remove broken links, standardize list markers, and add CJK emphasis spacing", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn normalize_document(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.normalize_document().await {
             Ok(()) => Ok(CallToolResult::success(vec![Content::text("Document normalized")])),
@@ -699,7 +699,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "lint_document", description = "Run structural lint checks on the current editor content. Returns diagnostics with line number, severity (error/warning/info), and message. Checks: headings, links, tables, frontmatter, lists, emphasis (CommonMark flanking), code blocks, footnotes, HTML comments, blank lines.", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "lint_document", description = "Run structural lint checks on the current editor content. Returns diagnostics with line number, severity (error/warning/info), and message. Checks: headings, links, tables, frontmatter, lists, emphasis (CommonMark flanking), code blocks, footnotes, HTML comments, blank lines.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn lint_document(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.lint_document().await {
             Ok(diagnostics) => {
@@ -714,7 +714,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_document_structure", description = "Get the current document's structural information (heading tree, links, frontmatter, stats) as JSON. More efficient than parsing raw Markdown — reduces token usage for structure-aware operations.", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "get_document_structure", description = "Get the current document's structural information (heading tree, links, frontmatter, stats) as JSON. More efficient than parsing raw Markdown — reduces token usage for structure-aware operations.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_document_structure(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_document_structure().await {
             Ok(structure) => {
@@ -725,7 +725,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_editor_state", description = "Get the current editor state: file path, cursor position (byte offset, line, column), and Worker URL", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "get_editor_state", description = "Get the current editor state: file path, cursor position (byte offset, line, column), and Worker URL", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_editor_state(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_editor_state().await {
             Ok(state) => {
@@ -738,7 +738,7 @@ impl McpTools {
 
     // --- Project Context Tools (require running app) ---
 
-    #[tool(name = "list_directory", description = "List files and directories in the project. Respects .gitignore. Returns name, path, is_dir, extension for each entry.", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "list_directory", description = "List files and directories in the project. Respects .gitignore. Returns name, path, is_dir, extension for each entry.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn list_directory(
         &self,
         Parameters(params): Parameters<ListDirectoryParams>,
@@ -762,7 +762,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_open_tabs", description = "List all open editor tabs with their path, name, and dirty (unsaved) status", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "get_open_tabs", description = "List all open editor tabs with their path, name, and dirty (unsaved) status", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_open_tabs(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_tabs().await {
             Ok(tabs) => {
@@ -773,7 +773,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_project_root", description = "Get the current project root directory path", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "get_project_root", description = "Get the current project root directory path", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_project_root(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_project_root().await {
             Ok(Some(path)) => Ok(CallToolResult::success(vec![Content::text(path)])),
@@ -782,7 +782,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "read_file", description = "Read a text file from the project. Works for any file, not just the active editor tab.", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "read_file", description = "Read a text file from the project. Works for any file, not just the active editor tab.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn read_file(
         &self,
         Parameters(params): Parameters<ReadFileParams>,
@@ -793,7 +793,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_dirty_files", description = "List files with unsaved changes (dirty tabs)", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "get_dirty_files", description = "List files with unsaved changes (dirty tabs)", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_dirty_files(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_dirty_files().await {
             Ok(files) => {
@@ -808,7 +808,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "switch_tab", description = "Switch the active editor tab by file path or tab ID", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "switch_tab", description = "Switch the active editor tab by file path or tab ID", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn switch_tab(
         &self,
         Parameters(params): Parameters<SwitchTabParams>,
@@ -819,7 +819,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_status", description = "Get git status of the project: branch, file changes (staged/unstaged), ahead/behind counts", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "git_status", description = "Get git status of the project: branch, file changes (staged/unstaged), ahead/behind counts", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn git_status(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.git_status().await {
             Ok(status) => {
@@ -830,7 +830,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "search_files", description = "Search file names (not content) in the project by substring match. Does not search file contents. Returns matching file entries with path, name, and metadata.", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "search_files", description = "Search file names (not content) in the project by substring match. Does not search file contents. Returns matching file entries with path, name, and metadata.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn search_files(
         &self,
         Parameters(params): Parameters<SearchFilesParams>,
@@ -894,7 +894,7 @@ impl McpTools {
 
     // --- Crawl Tools (use Worker, no app needed) ---
 
-    #[tool(name = "extract_json", description = "Extract structured JSON data from a web page using AI (Workers AI LLM). Requires at least one of prompt or response_format. Note: uses LLM inference per call.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "extract_json", description = "Extract structured JSON data from a web page using AI (Workers AI LLM). Requires at least one of prompt or response_format. Note: uses LLM inference per call.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn extract_json(
         &self,
         Parameters(params): Parameters<ExtractJsonParams>,
@@ -947,7 +947,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Rendering. Returns a job_id to poll with crawl_status. Supports markdown and/or json output formats.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Rendering. Returns a job_id to poll with crawl_status. Supports markdown and/or json output formats.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn crawl_website(
         &self,
         Parameters(params): Parameters<CrawlWebsiteParams>,
@@ -1013,7 +1013,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "crawl_status", description = "Poll a crawl job's status and retrieve completed pages. Returns status, progress, pages (with markdown and/or json depending on crawl formats), and a cursor for pagination.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "crawl_status", description = "Poll a crawl job's status and retrieve completed pages. Returns status, progress, pages (with markdown and/or json depending on crawl formats), and a cursor for pagination.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn crawl_status(
         &self,
         Parameters(params): Parameters<CrawlStatusParams>,
@@ -1128,7 +1128,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "fetch_page_title", description = "Extract the <title> from a web page. Useful for generating [Title](url) Markdown links.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "fetch_page_title", description = "Extract the <title> from a web page. Useful for generating [Title](url) Markdown links.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn fetch_page_title(
         &self,
         Parameters(params): Parameters<UrlParams>,
@@ -1189,7 +1189,7 @@ impl McpTools {
 
     // --- Git Write Operations ---
 
-    #[tool(name = "git_stage", description = "Stage a file for commit (git add)", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "git_stage", description = "Stage a file for commit (git add)", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn git_stage(
         &self,
         Parameters(params): Parameters<GitFileParams>,
@@ -1200,7 +1200,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_unstage", description = "Unstage a file (git reset HEAD)", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "git_unstage", description = "Unstage a file (git reset HEAD)", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn git_unstage(
         &self,
         Parameters(params): Parameters<GitFileParams>,
@@ -1211,7 +1211,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_commit", description = "Commit staged changes with a message", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "git_commit", description = "Commit staged changes with a message", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn git_commit(
         &self,
         Parameters(params): Parameters<GitCommitParams>,
@@ -1233,7 +1233,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_pull", description = "Pull changes from the remote repository", annotations(read_only_hint = false, open_world_hint = true))]
+    #[tool(name = "git_pull", description = "Pull changes from the remote repository", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
     async fn git_pull(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.git_pull().await {
             Ok(output) => {
@@ -1244,7 +1244,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_fetch", description = "Fetch updates from the remote repository without merging", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "git_fetch", description = "Fetch updates from the remote repository without merging", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn git_fetch(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.git_fetch().await {
             Ok(output) => {
@@ -1255,7 +1255,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_diff", description = "Get the diff for a specific file (staged or unstaged)", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "git_diff", description = "Get the diff for a specific file (staged or unstaged)", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn git_diff(
         &self,
         Parameters(params): Parameters<GitDiffParams>,
@@ -1288,7 +1288,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_log", description = "Get recent commit history", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "git_log", description = "Get recent commit history", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn git_log(
         &self,
         Parameters(params): Parameters<GitLogParams>,
@@ -1307,7 +1307,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_revert", description = "Revert a commit by creating a new revert commit", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "git_revert", description = "Revert a commit by creating a new revert commit", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn git_revert(
         &self,
         Parameters(params): Parameters<GitRevertParams>,
@@ -1323,7 +1323,7 @@ impl McpTools {
 
     // --- Tag Tools (require running app) ---
 
-    #[tool(name = "list_tags", description = "List all tag definitions and file-tag assignments in the project", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "list_tags", description = "List all tag definitions and file-tag assignments in the project", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn list_tags(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_tags().await {
             Ok(data) => {
@@ -1334,7 +1334,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_file_tags", description = "Get the tags assigned to a specific file or directory", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "get_file_tags", description = "Get the tags assigned to a specific file or directory", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_file_tags(
         &self,
         Parameters(params): Parameters<GetFileTagsParams>,
@@ -1360,7 +1360,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "set_file_tags", description = "Set the tags for a specific file or directory (replaces existing tags)", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "set_file_tags", description = "Set the tags for a specific file or directory (replaces existing tags)", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn set_file_tags(
         &self,
         Parameters(params): Parameters<SetFileTagsParams>,
@@ -1405,7 +1405,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "create_tag", description = "Create a new tag definition with a color", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "create_tag", description = "Create a new tag definition with a color", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn create_tag(
         &self,
         Parameters(params): Parameters<CreateTagParams>,
@@ -1491,7 +1491,7 @@ impl McpTools {
 
     // --- Worker-direct Tools (publish, embed, batch) ---
 
-    #[tool(name = "index_documents", description = "Index documents into Vectorize for semantic search. Each document is chunked and embedded automatically. Requires Vectorize binding in the Worker.", annotations(read_only_hint = false, open_world_hint = true))]
+    #[tool(name = "index_documents", description = "Index documents into Vectorize for semantic search. Each document is chunked and embedded automatically. Requires Vectorize binding in the Worker.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
     async fn index_documents(
         &self,
         Parameters(params): Parameters<IndexDocumentsParams>,
@@ -1571,7 +1571,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "publish_document", description = "Publish Markdown content to a public URL via R2 storage. Returns the public URL. Supports permanent or time-limited publishing.", annotations(read_only_hint = false, open_world_hint = true))]
+    #[tool(name = "publish_document", description = "Publish Markdown content to a public URL via R2 storage. Returns the public URL. Supports permanent or time-limited publishing.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
     async fn publish_document(
         &self,
         Parameters(params): Parameters<PublishDocumentParams>,
@@ -1657,7 +1657,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "list_published", description = "List all published documents in R2 storage. Returns key, size, and upload timestamp for each.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "list_published", description = "List all published documents in R2 storage. Returns key, size, and upload timestamp for each.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn list_published(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
             let worker_url = self.resolve_worker_url().await?;
@@ -1696,7 +1696,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "submit_batch", description = "Submit multiple files for parallel batch conversion to Markdown via Queue. Returns a batch_id to poll with get_batch_status. Requires Queue and KV bindings in the Worker.", annotations(read_only_hint = false, open_world_hint = true))]
+    #[tool(name = "submit_batch", description = "Submit multiple files for parallel batch conversion to Markdown via Queue. Returns a batch_id to poll with get_batch_status. Requires Queue and KV bindings in the Worker.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
     async fn submit_batch(
         &self,
         Parameters(params): Parameters<SubmitBatchParams>,
@@ -1737,7 +1737,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_batch_status", description = "Poll the status of a batch conversion job. Returns overall progress and per-file status (queued/done/failed).", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "get_batch_status", description = "Poll the status of a batch conversion job. Returns overall progress and per-file status (queued/done/failed).", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn get_batch_status(
         &self,
         Parameters(params): Parameters<GetBatchStatusParams>,
@@ -1775,7 +1775,7 @@ impl McpTools {
 
     // --- Git Extended Tools ---
 
-    #[tool(name = "git_stage_all", description = "Stage all changes for commit (git add -A). Stages new, modified, and deleted files.", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "git_stage_all", description = "Stage all changes for commit (git add -A). Stages new, modified, and deleted files.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn git_stage_all(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.git_stage_all().await {
             Ok(()) => Ok(CallToolResult::success(vec![Content::text("All changes staged")])),
@@ -1783,7 +1783,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_show", description = "Show the patch (diff) for a specific commit", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "git_show", description = "Show the patch (diff) for a specific commit", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn git_show(
         &self,
         Parameters(params): Parameters<GitShowParams>,
@@ -1797,7 +1797,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_clone", description = "Clone a git repository to a local directory", annotations(read_only_hint = false, open_world_hint = true))]
+    #[tool(name = "git_clone", description = "Clone a git repository to a local directory", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
     async fn git_clone(
         &self,
         Parameters(params): Parameters<GitCloneParams>,
@@ -1811,7 +1811,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "git_init", description = "Initialize a new git repository in the specified directory", annotations(read_only_hint = false, open_world_hint = false))]
+    #[tool(name = "git_init", description = "Initialize a new git repository in the specified directory", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn git_init(
         &self,
         Parameters(params): Parameters<GitInitParams>,
@@ -1827,7 +1827,7 @@ impl McpTools {
 
     // --- Semantic Search ---
 
-    #[tool(name = "semantic_search", description = "Search across indexed Markdown documents using natural language. Returns ranked results with file paths and relevance scores. Requires Vectorize to be configured in the Worker.", annotations(read_only_hint = true, open_world_hint = true))]
+    #[tool(name = "semantic_search", description = "Search across indexed Markdown documents using natural language. Returns ranked results with file paths and relevance scores. Requires Vectorize to be configured in the Worker.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn semantic_search(
         &self,
         Parameters(params): Parameters<SemanticSearchParams>,
@@ -1887,7 +1887,7 @@ impl McpTools {
 
     // --- Window Tools ---
 
-    #[tool(name = "list_windows", description = "List all open MarkUpsideDown windows with their labels and project root paths. Shows which window is currently focused. Useful for multi-window workflows.", annotations(read_only_hint = true, open_world_hint = false))]
+    #[tool(name = "list_windows", description = "List all open MarkUpsideDown windows with their labels and project root paths. Shows which window is currently focused. Useful for multi-window workflows.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn list_windows(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.list_windows().await {
             Ok((windows, focused)) => {

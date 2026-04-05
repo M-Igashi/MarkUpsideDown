@@ -6,7 +6,7 @@ use crate::error::{AppError, Result};
 
 /// Validate and sanitize a user-provided path to prevent path traversal attacks.
 /// Ensures the resolved path is under the user's home directory.
-pub(crate) fn validate_path(path: &str) -> Result<std::path::PathBuf> {
+pub fn validate_path(path: &str) -> Result<std::path::PathBuf> {
     let p = std::path::Path::new(path);
 
     // Try to canonicalize the full path first; if the file doesn't exist yet,
