@@ -16,15 +16,13 @@ Publishing requires the **PUBLISH_BUCKET** R2 binding in your Cloudflare Worker.
    - **24 hours**
    - **7 days**
 
-<!-- TODO: ![Publish context menu](images/publishing/publish-context-menu.png) -->
+![Publish context menu with expiry options](images/publishing/publish-context-menu.png)
 
 The file is uploaded to R2 and you receive a shareable URL. The URL format is `https://your-worker.workers.dev/p/:key`.
 
 ## Published File Indicator
 
 Published files show an indicator in the sidebar, so you can see at a glance which files have been shared.
-
-<!-- TODO: ![Publish indicator](images/publishing/publish-indicator.png) -->
 
 ## Unpublishing
 

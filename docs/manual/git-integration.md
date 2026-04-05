@@ -6,7 +6,7 @@ MarkUpsideDown has a built-in Git panel for common version control operations. Y
 
 Click the **Git** icon in the sidebar's bottom navigation bar, or switch from the Files panel. The Git panel appears in the sidebar.
 
-<!-- TODO: ![Git panel](images/git-integration/git-panel.png) -->
+![Git panel showing staged and unstaged files](images/git-integration/git-panel.png)
 
 If no folder is open, the panel shows "Open a folder to see git status." If the folder is not a Git repository, it offers an **Initialize Repository** button.
 
@@ -36,8 +36,6 @@ At the top, **"Stage All"** and **"⟲ Discard All"** buttons operate on all uns
 
 Click any file row to expand an inline diff view below it. The diff shows added lines in green and removed lines in red, with hunk headers in gray.
 
-<!-- TODO: ![Inline diff](images/git-integration/git-inline-diff.png) -->
-
 ## Committing
 
 At the bottom of the Git panel:
@@ -45,8 +43,6 @@ At the bottom of the Git panel:
 1. Type your commit message in the textarea (a timestamp is pre-filled as a default)
 2. Click **Commit** to commit staged files, or **Commit All** to stage and commit everything
 3. Use **Cmd+Enter** as a shortcut while the commit message textarea is focused
-
-<!-- TODO: ![Commit area](images/git-integration/git-commit.png) -->
 
 A status message appears briefly after a successful commit (green) or an error (red).
 
@@ -59,8 +55,6 @@ The bottom bar shows:
 - **↓ Pull** button — pull changes (shows a count badge when behind remote)
 - **↑ Push** button — push changes (shows a count badge when ahead of remote)
 
-<!-- TODO: ![Push/Pull buttons](images/git-integration/git-commit.png) -->
-
 ## Recent Commits
 
 Below the file list, the **Recent Commits** section shows recent commit history:
@@ -72,10 +66,7 @@ Below the file list, the **Recent Commits** section shows recent commit history:
 
 Click a commit row to expand a multi-file inline diff of that commit.
 
-<!-- TODO: ![Recent commits](images/git-integration/git-recent-commits.png) -->
-
 ## Cloning a Repository
 
 Switch to the **Clone** panel in the sidebar (clone icon in the bottom nav). Enter a repository URL (HTTPS or SSH) and click Clone. The repository is cloned and opened in the editor.
 
-<!-- TODO: ![Clone panel](images/git-integration/clone-panel.png) -->

@@ -26,14 +26,12 @@ If you haven't already, set up the Cloudflare Worker (see [Installation & Setup]
 
 Open **Settings → AI Agent Integration**.
 
-<!-- TODO: ![MCP settings](images/ai-integration/settings-mcp.png) -->
+![Settings AI Agent Integration panel](images/ai-integration/settings-mcp.png)
 
 The section shows:
 - **Bridge status** — whether the local HTTP bridge is running
 - **Binary path** — location of the MCP server binary
 - **Config tabs** — configuration JSON for each agent type
-
-<!-- TODO: ![MCP config tabs](images/ai-integration/settings-mcp-tabs.png) -->
 
 Select the tab for your agent and click **Copy to clipboard**:
 
@@ -57,8 +55,6 @@ Once connected, ask your AI agent to work with your Markdown. Examples:
 ## Available Tools
 
 The MCP server exposes **62 tools** organized by category:
-
-<!-- TODO: ![MCP tools list](images/ai-integration/settings-mcp-tools.png) -->
 
 | Category | Examples |
 |----------|---------|

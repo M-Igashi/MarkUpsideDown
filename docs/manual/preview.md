@@ -2,7 +2,7 @@
 
 The preview pane renders your Markdown in real time as you type. It sits on the right side of the split-pane layout and supports rich content including diagrams, math formulas, and syntax-highlighted code.
 
-<!-- TODO: ![Preview pane](images/preview/preview-pane.png) -->
+![Live preview pane](images/preview/preview-pane.png)
 
 ## Basics
 
@@ -28,7 +28,7 @@ graph TD
 ```
 ````
 
-<!-- TODO: ![Mermaid diagram](images/preview/mermaid-preview.png) -->
+![Mermaid diagram rendered in preview](images/preview/mermaid-preview.png)
 
 Mermaid is lazy-loaded — the library is only fetched when a diagram is first encountered.
 
@@ -41,7 +41,7 @@ Click any Mermaid diagram in the preview to open the fullscreen viewer. The view
 - **Fit** — press F or click "Fit" to fit the diagram to the viewport
 - **Copy as PNG** — export the diagram as a 2x Retina PNG image
 
-<!-- TODO: ![Mermaid viewer](images/preview/mermaid-viewer.png) -->
+![Mermaid viewer with zoom and pan controls](images/preview/mermaid-viewer.png)
 
 See [Keyboard Shortcuts](keyboard-shortcuts.md) for all viewer shortcuts.
 
@@ -58,7 +58,7 @@ $$
 $$
 ```
 
-<!-- TODO: ![KaTeX math](images/preview/katex-preview.png) -->
+![KaTeX math rendering](images/preview/katex-preview.png)
 
 KaTeX is lazy-loaded on first use.
 
@@ -73,7 +73,7 @@ def greet(name: str) -> str:
 ```
 ````
 
-<!-- TODO: ![Code highlighting](images/preview/code-highlight.png) -->
+![Syntax-highlighted code block](images/preview/code-highlight.png)
 
 highlight.js is lazy-loaded on first use.
 

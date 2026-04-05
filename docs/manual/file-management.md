@@ -10,7 +10,7 @@ Toggle the sidebar with **Cmd+1**. The sidebar has three panels, selectable from
 - **Git** — Git panel (see [Git Integration](git-integration.md))
 - **Clone** — Clone a repository (see [Git Integration](git-integration.md))
 
-<!-- TODO: ![Sidebar](images/file-management/sidebar-files.png) -->
+![Sidebar file browser](images/file-management/sidebar-files.png)
 
 ### Opening a Folder
 
@@ -49,7 +49,7 @@ You can also filter files to a specific folder (shown as a "in: FolderName" badg
 - Publish (see [Publishing](publishing.md))
 - Tag (see [Tags & Organization](tags.md))
 
-<!-- TODO: ![Context menu](images/file-management/file-context-menu.png) -->
+![File context menu](images/file-management/file-context-menu.png)
 
 ### Multi-Select
 
@@ -68,7 +68,7 @@ Selected files can be cut (Cmd+X), copied (Cmd+C), and pasted (Cmd+V) to move or
 
 Each open file gets its own tab at the top of the editor pane.
 
-<!-- TODO: ![Tabs](images/file-management/tabs.png) -->
+![Editor tabs](images/file-management/tabs.png)
 
 | Action | How |
 |--------|-----|
@@ -82,7 +82,6 @@ Tab state — which files are open and their scroll positions — is persisted a
 
 When collapsed, the sidebar becomes a narrow strip. Click the collapse button (chevron) in the sidebar header, or use **Cmd+1** to toggle.
 
-<!-- TODO: ![Collapsed sidebar](images/file-management/sidebar-collapsed.png) -->
 
 ## Auto-Save
 

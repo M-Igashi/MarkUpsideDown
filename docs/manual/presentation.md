@@ -6,7 +6,7 @@ MarkUpsideDown can turn any Markdown document into a fullscreen slide presentati
 
 Open the Command Palette (Cmd+K) and run **Presentation Mode**. The app enters fullscreen and displays the first slide.
 
-<!-- TODO: ![Presentation slide](images/presentation/presentation-slide.png) -->
+![Presentation mode showing a slide](images/presentation/presentation-slide.png)
 
 ## Writing Slides
 
@@ -55,8 +55,6 @@ All standard Markdown features work in slides: headings, lists, code blocks, ima
 | Exit presentation | Escape |
 
 A slide counter at the bottom shows your current position (e.g., "3 / 12").
-
-<!-- TODO: ![First slide](images/presentation/presentation-first-slide.png) -->
 
 ## Tips
 

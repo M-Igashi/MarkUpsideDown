@@ -2,7 +2,7 @@
 
 MarkUpsideDown uses a split-pane layout: the editor on the left, the live preview on the right, and an optional sidebar for file browsing. This chapter covers the editor pane and the tools around it.
 
-<!-- TODO: ![Editor pane](images/editor-basics/editor-pane.png) -->
+![Editor pane with syntax highlighting](images/editor-basics/editor-pane.png)
 
 ## The Toolbar
 
@@ -17,7 +17,6 @@ The toolbar at the top of the window provides quick access to common actions:
 | **Cleanup** | Normalize the document (headings, tables, whitespace, CJK emphasis spacing) |
 | **Settings** | Open the settings dialog |
 
-<!-- TODO: ![Toolbar](images/editor-basics/formatting-toolbar.png) -->
 
 ## The URL Bar
 
@@ -55,13 +54,12 @@ If no text is selected, the shortcut inserts the formatting markers and places t
 
 Press **Cmd+K** to open the command palette. Start typing to fuzzy-search through all available commands. Each command shows its keyboard shortcut (if any) on the right.
 
-<!-- TODO: ![Command palette](images/editor-basics/command-palette.png) -->
+![Command palette with fuzzy search](images/editor-basics/command-palette.png)
 
 ### Semantic Search in the Command Palette
 
 Type `?` followed by your query to switch to semantic search mode. Instead of matching command names, this searches your indexed documents by meaning and shows results with relevance percentages.
 
-<!-- TODO: ![Semantic search mode](images/editor-basics/command-palette-search.png) -->
 
 ## Panel Layout
 

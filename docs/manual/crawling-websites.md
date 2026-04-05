@@ -8,7 +8,7 @@ MarkUpsideDown can crawl an entire website and save each page as a Markdown file
 2. Click **Crawl** (or right-click a link in the preview and select "Crawl")
 3. The crawl dialog opens with configuration options
 
-<!-- TODO: ![Crawl dialog](images/crawling-websites/crawl-dialog.png) -->
+![Crawl dialog with configuration options](images/crawling-websites/crawl-dialog.png)
 
 ## Crawl Options
 
@@ -29,13 +29,9 @@ After clicking **Start Crawl**:
 - A **[Cancel]** link in the status bar lets you stop the crawl at any time
 - Pages are saved as they are converted — you don't have to wait for the full crawl to finish
 
-<!-- TODO: ![Crawl progress](images/crawling-websites/crawl-progress.png) -->
-
 ## Results
 
 Crawled pages are saved as individual `.md` files in the target directory. The file tree in the sidebar updates to show the new files.
-
-<!-- TODO: ![Crawl results](images/crawling-websites/crawl-result.png) -->
 
 ## Requirements
 

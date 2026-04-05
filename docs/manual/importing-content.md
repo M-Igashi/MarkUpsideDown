@@ -8,11 +8,11 @@ MarkUpsideDown can convert a wide range of content into Markdown: web pages, doc
 
 Type a URL into the URL bar and click **Get**. The page is fetched and converted to Markdown using Cloudflare's Markdown for Agents / `AI.toMarkdown()`.
 
-<!-- TODO: ![URL bar](images/importing-content/url-bar.png) -->
+![URL bar with Get and Render options](images/importing-content/url-bar.png)
 
 This works well for most web pages — articles, documentation, blog posts. Results are cached in KV to avoid redundant conversions.
 
-<!-- TODO: ![Fetch result](images/importing-content/fetch-result.png) -->
+![Fetch result showing converted Markdown](images/importing-content/fetch-result.png)
 
 ### JavaScript-Rendered Pages (Render)
 
@@ -35,8 +35,6 @@ Right-click any link in the preview pane to get a context menu with quick action
 ## Importing Files
 
 Click the **Import** button in the toolbar to open a file picker. Select a document to convert it to Markdown.
-
-<!-- TODO: ![Import dialog](images/importing-content/import-dialog.png) -->
 
 ### Supported Formats
 

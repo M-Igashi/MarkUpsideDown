@@ -13,7 +13,7 @@ The table editor provides a spreadsheet-like interface for creating and editing 
 
 If your cursor is inside an existing Markdown table, the table editor opens with that table's data. Otherwise, it creates a new empty table.
 
-<!-- TODO: ![Table editor](images/editing-features/table-editor.png) -->
+![Table editor with spreadsheet-like interface](images/editing-features/table-editor.png)
 
 ### Editing
 
@@ -41,8 +41,6 @@ Paste TSV or CSV data from a spreadsheet to populate multiple cells at once.
 - **Cmd+Z** to undo
 - **Cmd+Shift+Z** or **Cmd+Y** to redo
 
-<!-- TODO: ![Table editing](images/editing-features/table-editor-editing.png) -->
-
 ## Image Paste
 
 Paste an image from your clipboard or drag and drop an image file onto the editor. The image is saved to `./assets/` relative to the current file, and a Markdown image link is inserted:
@@ -69,8 +67,6 @@ Right-click any link in the preview pane to see a context menu with:
 - **Fetch** — convert the linked page to Markdown (static)
 - **Render** — convert using Browser Rendering (JavaScript-heavy pages)
 - **Crawl** — start a website crawl from that URL
-
-<!-- TODO: ![Link context menu](images/editing-features/link-context-menu.png) -->
 
 ## Smart Typography
 
@@ -100,7 +96,7 @@ If your Markdown file has YAML frontmatter, a collapsible **Frontmatter** panel 
 
 If the YAML is invalid, an "Invalid YAML" warning badge appears.
 
-<!-- TODO: ![Frontmatter panel](images/editing-features/frontmatter-panel.png) -->
+![Frontmatter panel showing YAML key-value pairs](images/editing-features/frontmatter-panel.png)
 
 ## Table of Contents Panel
 
@@ -110,7 +106,7 @@ Click any heading to scroll the editor to that position.
 
 The panel is hidden when the document has no headings.
 
-<!-- TODO: ![TOC panel](images/editing-features/toc-panel.png) -->
+![Table of Contents panel with heading tree](images/editing-features/toc-panel.png)
 
 ## Note Refactor
 

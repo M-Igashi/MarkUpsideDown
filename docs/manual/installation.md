@@ -26,7 +26,7 @@ Download the latest `.dmg` from the [Releases page](https://github.com/M-Igashi/
 
 When you open MarkUpsideDown for the first time, you'll see an empty editor. The app works immediately for local Markdown editing — no setup required for basic use.
 
-<!-- TODO: ![First launch](images/installation/first-launch.png) -->
+![First launch with empty editor](images/installation/first-launch.png)
 
 To unlock conversion features (importing documents, fetching URLs, crawling websites), you need to set up a Cloudflare Worker.
 
@@ -34,13 +34,12 @@ To unlock conversion features (importing documents, fetching URLs, crawling webs
 
 Click **Settings** in the toolbar to open the Settings dialog.
 
-<!-- TODO: ![Settings dialog](images/installation/settings-dialog.png) -->
+![Settings dialog](images/installation/settings-dialog.png)
 
 ### Auto Setup (Recommended)
 
 Click **"Setup with Cloudflare"** to start the automated setup wizard. It walks through 6 steps:
 
-<!-- TODO: ![Auto setup](images/installation/cloudflare-setup.png) -->
 
 | Step | What it does |
 |------|-------------|
@@ -51,11 +50,9 @@ Click **"Setup with Cloudflare"** to start the automated setup wizard. It walks 
 | 5. Configure secrets | Creates a scoped API token and sets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as Worker secrets |
 | 6. Verify | Tests the deployed Worker and confirms which features are available |
 
-<!-- TODO: ![Setup progress](images/installation/cloudflare-setup-progress.png) -->
 
 Each step shows its status: pending (○), running (●), done (✓), error (✗), or skipped (—).
 
-<!-- TODO: ![Setup complete](images/installation/cloudflare-setup-done.png) -->
 
 > **If step 5 fails:** A fallback form appears asking you to paste a manually-created API token. You can also click "Skip for now" — the Worker will still work for document import, but Render JS, Crawl, and Extract JSON won't be available until you add secrets later.
 
@@ -81,7 +78,7 @@ After setup, the **Test** button sends a health check to your Worker and reports
 
 The Feature Status section shows a green checkmark or amber dot for each capability:
 
-<!-- TODO: ![Feature status](images/installation/feature-status.png) -->
+![Feature status indicators](images/installation/feature-status.png)
 
 | Feature | Requires |
 |---------|----------|

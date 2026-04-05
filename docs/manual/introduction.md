@@ -2,7 +2,7 @@
 
 MarkUpsideDown is a Markdown editor that turns any markup into Markdown — websites, PDFs, Office documents, and images. Everything ships in a single ~15 MB desktop app: live preview, file browser, Git integration, website crawling, document import, and AI agent integration. No plugins or extensions needed.
 
-<!-- TODO: ![Main window](images/introduction/main-layout.png) -->
+![Main window layout with editor, preview, and sidebar](images/introduction/main-layout.png)
 
 ## Who Is This For?
 
