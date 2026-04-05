@@ -351,8 +351,10 @@ pub async fn git_discard(repo_path: String, file_path: String) -> Result<()> {
 #[tauri::command]
 pub async fn git_discard_all(repo_path: String) -> Result<()> {
     spawn_blocking(move || {
+        // Unstage everything first (handles staged deletions)
+        let _ = run_git(&repo_path, &["reset", "HEAD", "--", "."]);
         // Restore all tracked files
-        run_git(&repo_path, &["checkout", "--", "."])?;
+        let _ = run_git(&repo_path, &["checkout", "--", "."]);
         // Remove all untracked files and directories
         run_git(&repo_path, &["clean", "-fd"])?;
         Ok(())
