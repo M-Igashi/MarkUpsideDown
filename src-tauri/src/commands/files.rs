@@ -4,15 +4,11 @@ use crate::error::{AppError, Result};
 
 // --- Path Validation ---
 
-/// Validate and sanitize a user-provided path to prevent path traversal attacks.
-/// Ensures the resolved path is under the user's home directory.
-pub fn validate_path(path: &str) -> Result<std::path::PathBuf> {
+/// Canonicalize a path without restricting to a specific directory.
+fn resolve_path(path: &str) -> Result<std::path::PathBuf> {
     let p = std::path::Path::new(path);
-
-    // Try to canonicalize the full path first; if the file doesn't exist yet,
-    // canonicalize the parent directory and append the file name.
-    let resolved = match p.canonicalize() {
-        Ok(canonical) => canonical,
+    match p.canonicalize() {
+        Ok(canonical) => Ok(canonical),
         Err(_) => {
             let parent = p
                 .parent()
@@ -23,9 +19,15 @@ pub fn validate_path(path: &str) -> Result<std::path::PathBuf> {
             let canonical_parent = parent
                 .canonicalize()
                 .map_err(|e| AppError::Io(format!("Invalid parent path: {e}")))?;
-            canonical_parent.join(file_name)
+            Ok(canonical_parent.join(file_name))
         }
-    };
+    }
+}
+
+/// Validate and sanitize a user-provided path to prevent path traversal attacks.
+/// Ensures the resolved path is under the user's home directory.
+pub fn validate_path(path: &str) -> Result<std::path::PathBuf> {
+    let resolved = resolve_path(path)?;
 
     let home =
         crate::util::home_dir().ok_or_else(|| AppError::Io("Cannot determine home directory".into()))?;
@@ -37,6 +39,12 @@ pub fn validate_path(path: &str) -> Result<std::path::PathBuf> {
     }
 
     Ok(resolved)
+}
+
+/// Validate a path for read-only access. Allows any location since the user
+/// explicitly chose the file (e.g. via the native file dialog).
+pub fn validate_read_path(path: &str) -> Result<std::path::PathBuf> {
+    resolve_path(path)
 }
 
 // --- File Tree ---
@@ -52,7 +60,7 @@ pub struct FileEntry {
 
 #[tauri::command]
 pub async fn read_text_file(path: String) -> Result<String> {
-    let path = validate_path(&path)?;
+    let path = validate_read_path(&path)?;
     tokio::fs::read_to_string(&path)
         .await
         .map_err(|e| AppError::Io(format!("Failed to read file: {e}")))

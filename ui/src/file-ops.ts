@@ -11,7 +11,7 @@ import { suppressNext } from "./file-watcher.ts";
 import { writeTextFile } from "./html-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
-const { open, save, confirm } = window.__TAURI__.dialog;
+const { open, save, confirm, message } = window.__TAURI__.dialog;
 
 export interface ConvertResult {
   markdown: string;
@@ -157,9 +157,12 @@ export async function openFile() {
   const path = await open({
     filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx"] }],
   });
-  if (path) {
-    const content = await invoke<string>("read_text_file", { path: path });
+  if (!path) return;
+  try {
+    const content = await invoke<string>("read_text_file", { path });
     loadContentAsTab(content, path);
+  } catch (e) {
+    message(`Failed to open file: ${e}`, { title: "Error", kind: "error" });
   }
 }
 
