@@ -1,0 +1,9 @@
+extensions:
+  - addsTo:
+      pack: codeql/rust-all
+      extensible: barrierModel
+    data:
+      # validate_path: canonicalizes path and restricts to home directory
+      - ["markupsidedown::commands::files::validate_path", "ReturnValue", "path-injection", "manual"]
+      # validate_read_path: canonicalizes path (read-only, user-initiated)
+      - ["markupsidedown::commands::files::validate_read_path", "ReturnValue", "path-injection", "manual"]
