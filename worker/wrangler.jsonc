@@ -6,7 +6,7 @@
     "binding": "AI"
   },
   "kv_namespaces": [
-    { "binding": "CACHE", "id": "" }
+    { "binding": "CACHE" }
   ],
   "r2_buckets": [
     { "binding": "PUBLISH_BUCKET", "bucket_name": "markupsidedown-publish" }

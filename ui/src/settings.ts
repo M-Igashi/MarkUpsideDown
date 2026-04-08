@@ -129,7 +129,7 @@ function featureRows(status: WorkerStatus | null) {
     {
       name: "Conversion Cache (KV)",
       ok: hasCache,
-      hint: hasCache ? "Ready" : hasWorker ? "Needs KV namespace" : "Needs Worker URL + KV",
+      hint: hasCache ? "Ready" : hasWorker ? "Auto-provisioned on deploy" : "Needs Worker URL",
     },
     {
       name: "Batch Import (Queue)",
@@ -137,7 +137,7 @@ function featureRows(status: WorkerStatus | null) {
       hint: status?.batch_available
         ? "Ready"
         : hasWorker
-          ? "Needs Queue + KV"
+          ? "Needs Queue"
           : "Needs Worker URL + Queue",
     },
     {
@@ -179,7 +179,6 @@ function renderFeatureList(container: HTMLElement | null, status: WorkerStatus |
 // --- Auto Setup ---
 
 interface ResourceFlags {
-  kv_namespace_id: string | null;
   r2_bucket: boolean;
   queue: boolean;
   vectorize: boolean;
@@ -187,7 +186,6 @@ interface ResourceFlags {
 
 interface ResourceSetupResult {
   resources: ResourceFlags;
-  kv_error: string | null;
   r2_error: string | null;
   queue_error: string | null;
   vectorize_error: string | null;
@@ -196,7 +194,7 @@ interface ResourceSetupResult {
 const SETUP_STEPS = [
   { id: "wrangler", label: "Check wrangler" },
   { id: "login", label: "Cloudflare login" },
-  { id: "resources", label: "Create resources (KV, R2, Queue, Vectorize)" },
+  { id: "resources", label: "Create resources (R2, Queue, Vectorize)" },
   { id: "deploy", label: "Deploy Worker" },
   { id: "secrets", label: "Configure secrets (via OAuth)" },
   { id: "verify", label: "Verify" },
@@ -301,10 +299,9 @@ async function startAutoSetup(
   // Generate a stable, non-guessable Worker name (e.g. "markupsidedown-a3f8k2xp7m9qb")
   const workerName = `markupsidedown-${getWorkerSuffix()}`;
 
-  // Step 3: Create resources (KV, R2, Queue, Vectorize) — all optional, failures are non-fatal
+  // Step 3: Create resources (R2, Queue, Vectorize) — KV is auto-provisioned by wrangler v4
   update("resources", "running");
   let resourceFlags: ResourceFlags = {
-    kv_namespace_id: null,
     r2_bucket: false,
     queue: false,
     vectorize: false,
@@ -313,11 +310,10 @@ async function startAutoSetup(
     const result = await invoke<ResourceSetupResult>("setup_cloudflare_resources", { accountId });
     resourceFlags = result.resources;
     const failed: string[] = [];
-    if (result.kv_error) failed.push(`KV: ${result.kv_error}`);
     if (result.r2_error) failed.push(`R2: ${result.r2_error}`);
     if (result.queue_error) failed.push(`Queue: ${result.queue_error}`);
     if (result.vectorize_error) failed.push(`Vectorize: ${result.vectorize_error}`);
-    if (failed.length === 4) {
+    if (failed.length === 3) {
       update("resources", "error");
       showSetupMessage(
         progressContainer,
@@ -839,8 +835,8 @@ export function showSettings({
 
     try {
       // Re-create resources before re-deploy to ensure bindings are valid
+      // KV is auto-provisioned by wrangler v4 on deploy
       let updateResources: ResourceFlags = {
-        kv_namespace_id: null,
         r2_bucket: false,
         queue: false,
         vectorize: false,
@@ -852,7 +848,6 @@ export function showSettings({
           });
           updateResources = res.resources;
           const failed: string[] = [];
-          if (res.kv_error) failed.push(`KV: ${res.kv_error}`);
           if (res.r2_error) failed.push(`R2: ${res.r2_error}`);
           if (res.queue_error) failed.push(`Queue: ${res.queue_error}`);
           if (res.vectorize_error) failed.push(`Vectorize: ${res.vectorize_error}`);

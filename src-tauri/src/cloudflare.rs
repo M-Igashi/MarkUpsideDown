@@ -219,16 +219,7 @@ fn build_wrangler_config(resources: &ResourceFlags, worker_name: Option<&str>) -
         config["name"] = serde_json::Value::String(name.to_string());
     }
 
-    // Patch KV namespace ID or remove binding entirely
-    if let Some(ref id) = resources.kv_namespace_id {
-        if let Some(arr) = config.get_mut("kv_namespaces").and_then(|v| v.as_array_mut()) {
-            if let Some(first) = arr.first_mut() {
-                first["id"] = serde_json::Value::String(id.clone());
-            }
-        }
-    } else {
-        config.as_object_mut().map(|o| o.remove("kv_namespaces"));
-    }
+    // KV binding has no id — wrangler v4 auto-provisions on deploy
 
     // Remove R2 binding if bucket not created
     if !resources.r2_bucket {
@@ -352,7 +343,6 @@ fn write_temp_worker_files(
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct ResourceFlags {
-    pub kv_namespace_id: Option<String>,
     pub r2_bucket: bool,
     pub queue: bool,
     pub vectorize: bool,
@@ -361,61 +351,9 @@ pub struct ResourceFlags {
 #[derive(Serialize)]
 pub struct ResourceSetupResult {
     pub resources: ResourceFlags,
-    pub kv_error: Option<String>,
     pub r2_error: Option<String>,
     pub queue_error: Option<String>,
     pub vectorize_error: Option<String>,
-}
-
-fn create_kv_namespace(account_id: &str) -> Result<String, String> {
-    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
-    match run_wrangler(
-        &["kv", "namespace", "create", "markupsidedown-cache"],
-        None, 30, &env,
-    ) {
-        Ok(output) => parse_kv_namespace_id(&output)
-            .ok_or_else(|| format!("Created KV namespace but could not parse ID from:\n{output}")),
-        Err(e) if e.contains("already exists") || e.contains("already being used") => {
-            // Namespace exists — find its ID by listing
-            find_existing_kv_namespace(account_id)
-        }
-        Err(e) => Err(e),
-    }
-}
-
-fn parse_kv_namespace_id(output: &str) -> Option<String> {
-    // Match id = "..." or "id": "..."
-    let re_toml = regex_lite::Regex::new(r#"id\s*=\s*"([0-9a-f]{32})""#).ok()?;
-    let re_json = regex_lite::Regex::new(r#""id"\s*:\s*"([0-9a-f]{32})""#).ok()?;
-    re_toml
-        .captures(output)
-        .or_else(|| re_json.captures(output))
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-}
-
-fn find_existing_kv_namespace(account_id: &str) -> Result<String, String> {
-    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
-    let output = run_wrangler(&["kv", "namespace", "list"], None, 15, &env)?;
-
-    // Output may contain banner lines before JSON. Find the JSON array.
-    let json_str = output
-        .find('[')
-        .and_then(|start| output.rfind(']').map(|end| &output[start..=end]))
-        .ok_or_else(|| format!("No JSON array found in KV list output:\n{output}"))?;
-
-    let namespaces: Vec<serde_json::Value> =
-        serde_json::from_str(json_str).map_err(|e| format!("Failed to parse KV list: {e}"))?;
-
-    for ns in &namespaces {
-        let title = ns["title"].as_str().unwrap_or("");
-        if title.contains("markupsidedown") {
-            if let Some(id) = ns["id"].as_str() {
-                return Ok(id.to_string());
-            }
-        }
-    }
-    Err("KV namespace exists but could not find its ID in namespace list".to_string())
 }
 
 fn create_r2_bucket(account_id: &str) -> Result<(), String> {
@@ -459,23 +397,17 @@ fn create_vectorize_index(account_id: &str) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn setup_cloudflare_resources(account_id: String) -> ResourceSetupResult {
+    // KV is auto-provisioned by wrangler v4 on deploy — no manual creation needed.
     let a1 = account_id.clone();
     let a2 = account_id.clone();
-    let a3 = account_id.clone();
-    let a4 = account_id.clone();
+    let a3 = account_id;
 
-    let (kv, r2, queue, vectorize) = tokio::join!(
-        tokio::task::spawn_blocking(move || create_kv_namespace(&a1)),
-        tokio::task::spawn_blocking(move || create_r2_bucket(&a2)),
-        tokio::task::spawn_blocking(move || create_queue(&a3)),
-        tokio::task::spawn_blocking(move || create_vectorize_index(&a4)),
+    let (r2, queue, vectorize) = tokio::join!(
+        tokio::task::spawn_blocking(move || create_r2_bucket(&a1)),
+        tokio::task::spawn_blocking(move || create_queue(&a2)),
+        tokio::task::spawn_blocking(move || create_vectorize_index(&a3)),
     );
 
-    let (kv_id, kv_err) = match kv {
-        Ok(Ok(id)) => (Some(id), None),
-        Ok(Err(e)) => (None, Some(e)),
-        Err(e) => (None, Some(format!("Task error: {e}"))),
-    };
     let (r2_ok, r2_err) = match r2 {
         Ok(Ok(())) => (true, None),
         Ok(Err(e)) => (false, Some(e)),
@@ -494,12 +426,10 @@ pub async fn setup_cloudflare_resources(account_id: String) -> ResourceSetupResu
 
     ResourceSetupResult {
         resources: ResourceFlags {
-            kv_namespace_id: kv_id,
             r2_bucket: r2_ok,
             queue: queue_ok,
             vectorize: vec_ok,
         },
-        kv_error: kv_err,
         r2_error: r2_err,
         queue_error: queue_err,
         vectorize_error: vec_err,
