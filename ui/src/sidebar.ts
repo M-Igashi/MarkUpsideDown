@@ -821,10 +821,22 @@ export async function refreshTree() {
   // Stale render — discard
   if (gen !== refreshGeneration) return;
 
+  // Remember focused item path before swap
+  const focusedPath = treeEl.querySelector(".sidebar-tree-item:focus")?.getAttribute("data-path");
+
   // Atomic swap: replace old tree element with new one.
   attachTreeListeners(newTree);
   treeEl.replaceWith(newTree);
   treeEl = newTree;
+
+  // Restore focus to the same path in the new DOM
+  if (focusedPath) {
+    const el = newTree.querySelector(`.sidebar-tree-item[data-path="${CSS.escape(focusedPath)}"]`) as HTMLElement | null;
+    if (el) {
+      el.focus();
+      el.scrollIntoView({ block: "nearest" });
+    }
+  }
 
   updateTagChipBar();
 }
