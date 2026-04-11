@@ -1,6 +1,6 @@
 [package]
 name = "markupsidedown"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2024"
 description = "AI-era Markdown editor with live preview, Cloudflare Markdown for Agents, GitHub, and Claude Code integration"
 license = "AGPL-3.0-or-later"
