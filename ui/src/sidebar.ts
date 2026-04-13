@@ -821,22 +821,27 @@ export async function refreshTree() {
   // Stale render — discard
   if (gen !== refreshGeneration) return;
 
-  // Remember focused item path before swap
+  // Remember focused item path and scroll position before swap.
+  // .sidebar-tree itself is the scroll container (overflow-y: auto),
+  // so we must save treeEl.scrollTop — not the parent's.
   const focusedPath = treeEl.querySelector(".sidebar-tree-item:focus")?.getAttribute("data-path");
+  const savedScrollTop = treeEl.scrollTop;
 
   // Atomic swap: replace old tree element with new one.
   attachTreeListeners(newTree);
   treeEl.replaceWith(newTree);
   treeEl = newTree;
 
-  // Restore focus to the same path in the new DOM
+  // Restore scroll position on the new tree element
+  newTree.scrollTop = savedScrollTop;
+
+  // Restore focus without scrolling
   if (focusedPath) {
     const el = newTree.querySelector(
       `.sidebar-tree-item[data-path="${CSS.escape(focusedPath)}"]`,
     ) as HTMLElement | null;
     if (el) {
-      el.focus();
-      el.scrollIntoView({ block: "nearest" });
+      el.focus({ preventScroll: true });
     }
   }
 
