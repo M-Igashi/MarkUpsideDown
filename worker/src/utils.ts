@@ -93,11 +93,18 @@ export function detectSpa(html: string): boolean {
   const noscript = html.match(/<noscript[^>]*>([\s\S]*?)<\/noscript>/i);
   if (noscript && /javascript|enable|activate/i.test(noscript[1])) return true;
 
-  // Low text content ratio: strip tags, check visible text length
-  const stripped = html
-    .replace(/<script\b[^<]*(?:(?!<\/script[\s>])<[^<]*)*<\/script\b[^>]*>/gi, "")
-    .replace(/<style\b[^<]*(?:(?!<\/style[\s>])<[^<]*)*<\/style\b[^>]*>/gi, "")
-    .replace(/<[^>]+>/g, "");
+  // Low text content ratio: strip tags, check visible text length.
+  // Loop until stable — nested fragments like <scr<script>ipt> can
+  // reform a tag after a single replacement pass.
+  let stripped = html;
+  let prev: string;
+  do {
+    prev = stripped;
+    stripped = stripped
+      .replace(/<script\b[^<]*(?:(?!<\/script[\s>])<[^<]*)*<\/script\b[^>]*>/gi, "")
+      .replace(/<style\b[^<]*(?:(?!<\/style[\s>])<[^<]*)*<\/style\b[^>]*>/gi, "")
+      .replace(/<[^>]+>/g, "");
+  } while (stripped !== prev);
   const textContent = stripped.replace(/\s+/g, " ").trim();
   if (html.length > 5000 && textContent.length < 200) return true;
 
