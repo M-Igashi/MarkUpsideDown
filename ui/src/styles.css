@@ -2103,6 +2103,7 @@ body {
   margin: 1.2em 0;
   border: 1px solid var(--border);
   tab-size: 4;
+  hanging-punctuation: none;
 }
 
 #preview-pane pre .code-copy-btn {
