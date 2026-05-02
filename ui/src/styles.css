@@ -1977,10 +1977,6 @@ body {
 
 .cm-editor .cm-scroller {
   overflow: auto;
-  /* Force compositing layer — fixes WebKit hit-test bug where clicks
-     inside a scrolled overflow:auto container are dispatched to the
-     wrong coordinates, causing spurious text selections. */
-  transform: translateZ(0);
 }
 
 .cm-editor.cm-focused {
