@@ -32,6 +32,13 @@ jobs:
       - name: Install frontend dependencies
         run: cd ui && npm ci
 
+      - name: Build MCP sidecar
+        run: |
+          cargo build -p markupsidedown-mcp --release --target aarch64-apple-darwin
+          cp target/aarch64-apple-darwin/release/markupsidedown-mcp \
+             src-tauri/binaries/markupsidedown-mcp-aarch64-apple-darwin
+          ./src-tauri/binaries/markupsidedown-mcp-aarch64-apple-darwin --version
+
       - name: Get version
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
