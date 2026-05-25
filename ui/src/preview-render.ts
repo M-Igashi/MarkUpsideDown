@@ -9,8 +9,40 @@ import {
 } from "./scroll-sync.ts";
 import { escapeHtml, copySvgAsPng } from "./html-utils.ts";
 import { open as openMermaidViewer } from "./mermaid-viewer.ts";
+import { dirname } from "./path-utils.ts";
 
-const { invoke } = window.__TAURI__.core;
+const { invoke, convertFileSrc } = window.__TAURI__.core;
+
+// --- Local image path resolution ---
+
+let getFilePath: (() => string | null) | null = null;
+
+export function setFilePathGetter(getter: () => string | null) {
+  getFilePath = getter;
+}
+
+function resolveLocalImageSrc(href: string): string {
+  if (!href) return href;
+  if (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("data:")) {
+    return href;
+  }
+  let absolute: string;
+  if (href.startsWith("/")) {
+    absolute = href;
+  } else {
+    const filePath = getFilePath?.();
+    if (!filePath) return href;
+    const base = dirname(filePath);
+    if (!base) return href;
+    try {
+      const resolved = new URL(href, `file://${base}/`);
+      absolute = decodeURIComponent(resolved.pathname);
+    } catch {
+      return href;
+    }
+  }
+  return convertFileSrc(absolute);
+}
 
 // --- Lazy-loaded modules ---
 
@@ -155,7 +187,7 @@ const figureExtension = {
       },
       renderer(token: { alt: string; src: string; caption: string }) {
         const altAttr = escapeHtml(token.alt);
-        const srcAttr = escapeHtml(token.src);
+        const srcAttr = escapeHtml(resolveLocalImageSrc(token.src));
         const captionHtml = escapeHtml(token.caption);
         return `<figure><img src="${srcAttr}" alt="${altAttr}" loading="lazy"><figcaption>${captionHtml}</figcaption></figure>\n`;
       },
@@ -312,6 +344,13 @@ marked.use({
     html({ text, _sourceLine }: any) {
       return _sourceLine ? text.replace(/^<(\w+)/, `<$1${slAttr(_sourceLine)}`) : text;
     },
+    image({ href, title, text }: any) {
+      const resolved = resolveLocalImageSrc(href ?? "");
+      const srcAttr = escapeHtml(resolved);
+      const altAttr = escapeHtml(text ?? "");
+      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+      return `<img src="${srcAttr}" alt="${altAttr}"${titleAttr}>`;
+    },
   },
 });
 
@@ -331,6 +370,8 @@ async function inlineSvgImages(container: HTMLElement) {
   const tasks = Array.from(imgs).map(async (img) => {
     const url = (img as HTMLImageElement).src;
     if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return;
+    if (url.startsWith("https://asset.localhost/") || url.startsWith("http://asset.localhost/"))
+      return;
 
     try {
       let svgText: string | undefined;

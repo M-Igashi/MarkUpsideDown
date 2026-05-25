@@ -78,7 +78,7 @@ import {
   buildScrollAnchors,
   preservePreviewScroll,
 } from "./scroll-sync.ts";
-import { initPreview, renderPreview, getMermaid } from "./preview-render.ts";
+import { initPreview, renderPreview, getMermaid, setFilePathGetter } from "./preview-render.ts";
 import {
   initFileOps,
   saveFile,
@@ -245,6 +245,7 @@ const statusEl = document.getElementById("status")!;
 
 initScrollSync(editor, previewPane, cmScroller);
 initPreview(previewPane);
+setFilePathGetter(getCurrentFilePath);
 initClipboard(editor, previewPane, statusEl);
 
 // --- Orchestration functions ---
