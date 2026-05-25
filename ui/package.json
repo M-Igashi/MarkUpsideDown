@@ -20,7 +20,7 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-store": "^2.4.3",
-    "dompurify": "^3.4.4",
+    "dompurify": "^3.4.5",
     "highlight.js": "^11.11.1",
     "idiomorph": "^0.7.4",
     "katex": "^0.16.47",
