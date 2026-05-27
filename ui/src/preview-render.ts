@@ -437,6 +437,11 @@ export async function renderPreview(source: string) {
   const sanitizedHtml = DOMPurify.sanitize(
     `<article class="preview-page" lang="en">${html}</article>`,
     {
+      // Allow Tauri's `asset:` scheme so local images survive sanitization
+      // (convertFileSrc returns asset://localhost/... on macOS/Linux). Mirrors
+      // DOMPurify's default ALLOWED_URI_REGEXP with `asset` added to the allowlist.
+      ALLOWED_URI_REGEXP:
+        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|asset):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
       ADD_TAGS: ["foreignObject"],
       ADD_ATTR: [
         "data-mermaid-source",
