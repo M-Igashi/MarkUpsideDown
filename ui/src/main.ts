@@ -28,6 +28,7 @@ import {
   updateGitChangeCount,
   refreshTree,
   stopDirWatcher,
+  getActivePanel,
   SIDEBAR_IMAGE_MIME,
 } from "./sidebar.ts";
 import {
@@ -330,6 +331,19 @@ async function refreshGitAndSyncNow() {
   await doGitRefresh();
 }
 
+/** Git refresh after an autosave. An already-modified (unstaged) file stays
+ * modified after another save — only the line counts shown inside the git
+ * panel change — so skip the git process spawns while the panel is hidden. */
+function refreshGitAfterAutoSave(path: string) {
+  if (getActivePanel() !== "git") {
+    const root = getRootPath();
+    const rel = root && path.startsWith(root + "/") ? path.slice(root.length + 1) : path;
+    const entry = getStatusMap().get(rel);
+    if (entry && !entry.staged) return;
+  }
+  refreshGitAndSync();
+}
+
 /** Reload all open file-backed tabs from disk (after git ops that modify files). */
 async function reloadAllOpenTabs() {
   const fileTabs = getTabs().filter((t) => t.path);
@@ -359,6 +373,7 @@ initFileOps({
   getCurrentFilePath,
   loadContentAsTab,
   refreshGitAndSync,
+  refreshGitAfterAutoSave,
 });
 
 initCrawl({
@@ -730,6 +745,7 @@ if (gitPanelEl) {
       updateGitChangeCount(getChangeCount());
     },
     onFilesChanged: () => reloadAllOpenTabs(),
+    isVisible: () => getActivePanel() === "git",
   });
 }
 

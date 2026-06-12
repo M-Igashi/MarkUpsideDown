@@ -649,7 +649,7 @@ async fn git_status(State(state): State<Arc<BridgeState>>) -> Json<serde_json::V
         return not_found_json("No project root available");
     };
 
-    match commands::git_status(repo_path).await {
+    match commands::git_status(repo_path, None).await {
         Ok(status) => Json(serde_json::json!(status)),
         Err(e) => e.to_bridge_json(),
     }

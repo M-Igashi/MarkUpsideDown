@@ -111,14 +111,23 @@ pub struct GitStatus {
 }
 
 #[tauri::command]
-pub async fn git_status(repo_path: String) -> Result<GitStatus> {
+pub async fn git_status(repo_path: String, include_stats: Option<bool>) -> Result<GitStatus> {
+    let include_stats = include_stats.unwrap_or(true);
     spawn_blocking(move || {
-        // Hold lock for all three commands to avoid racing with multi-step
+        // Hold lock for all commands to avoid racing with multi-step
         // operations like git_revert (stash -> revert -> pop).
         let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let status_result = run_git_unlocked(&repo_path, &["status", "-b", "--porcelain=v1"]).ok();
-        let unstaged_raw = run_git_unlocked(&repo_path, &["diff", "--numstat"]).ok();
-        let staged_raw = run_git_unlocked(&repo_path, &["diff", "--cached", "--numstat"]).ok();
+        // The per-file line counts are only shown in the git panel, so
+        // callers can skip the two diff processes when it is hidden.
+        let (unstaged_raw, staged_raw) = if include_stats {
+            (
+                run_git_unlocked(&repo_path, &["diff", "--numstat"]).ok(),
+                run_git_unlocked(&repo_path, &["diff", "--cached", "--numstat"]).ok(),
+            )
+        } else {
+            (None, None)
+        };
 
         let output = match status_result {
             Some(o) => o,

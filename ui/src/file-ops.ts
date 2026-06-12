@@ -48,6 +48,7 @@ let statusEl: HTMLElement;
 let getCurrentFilePath: () => string | null;
 let loadContentAsTab: (content: string, filePath?: string, tabName?: string) => void;
 let refreshGitAndSync: () => void;
+let refreshGitAfterAutoSave: (path: string) => void;
 
 export function initFileOps(deps: {
   editor: EditorView;
@@ -55,12 +56,14 @@ export function initFileOps(deps: {
   getCurrentFilePath: () => string | null;
   loadContentAsTab: (content: string, filePath?: string, tabName?: string) => void;
   refreshGitAndSync: () => void;
+  refreshGitAfterAutoSave?: (path: string) => void;
 }) {
   editor = deps.editor;
   statusEl = deps.statusEl;
   getCurrentFilePath = deps.getCurrentFilePath;
   loadContentAsTab = deps.loadContentAsTab;
   refreshGitAndSync = deps.refreshGitAndSync;
+  refreshGitAfterAutoSave = deps.refreshGitAfterAutoSave ?? deps.refreshGitAndSync;
 }
 
 // --- Title extraction ---
@@ -149,7 +152,7 @@ export async function autoSave() {
     suppressNext(currentFilePath);
     await writeTextFile(currentFilePath, content);
     markTabSaved(tab.id);
-    if (getRootPath()) refreshGitAndSync();
+    if (getRootPath()) refreshGitAfterAutoSave(currentFilePath);
   } catch (e) {
     statusEl.textContent = `Auto-save failed: ${e}`;
   }
