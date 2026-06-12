@@ -81,6 +81,33 @@ impl BridgeClient {
         }
     }
 
+    /// Send a request and surface the bridge's `error` field as Err.
+    async fn request_json(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        let json = self.request(method, path, body).await?.unwrap_or_default();
+        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+            return Err(err.to_string());
+        }
+        Ok(json)
+    }
+
+    /// Like `request_json`, extracting a single string field from the response
+    /// (missing field -> empty string).
+    async fn request_str(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<serde_json::Value>,
+        field: &str,
+    ) -> Result<String, String> {
+        let json = self.request_json(method, path, body).await?;
+        Ok(json.get(field).and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
     pub async fn get_editor_content(&self) -> Result<String, String> {
         #[derive(Deserialize)]
         struct Resp {
@@ -128,12 +155,7 @@ impl BridgeClient {
     }
 
     pub async fn get_document_structure(&self) -> Result<serde_json::Value, String> {
-        let val = self.request("GET", "/editor/structure", None).await?;
-        let json = val.unwrap_or_default();
-        if json.get("error").is_some() {
-            return Err(json["error"].as_str().unwrap_or("Unknown error").to_string());
-        }
-        Ok(json)
+        self.request_json("GET", "/editor/structure", None).await
     }
 
     pub async fn get_tabs(&self) -> Result<Vec<TabInfo>, String> {
@@ -173,11 +195,7 @@ impl BridgeClient {
         if recursive {
             query.push_str("recursive=true");
         }
-        let val = self.request("GET", &query, None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
+        let json = self.request_json("GET", &query, None).await?;
         #[derive(Deserialize)]
         struct Resp { entries: Vec<FileEntry> }
         let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
@@ -186,12 +204,7 @@ impl BridgeClient {
 
     pub async fn read_file(&self, path: &str) -> Result<String, String> {
         let query = format!("/files/read?path={}", urlencoding::encode(path));
-        let val = self.request("GET", &query, None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        self.request_str("GET", &query, None, "content").await
     }
 
     pub async fn search_files(&self, query_str: &str, path: Option<&str>) -> Result<Vec<FileEntry>, String> {
@@ -199,11 +212,7 @@ impl BridgeClient {
         if let Some(p) = path {
             query.push_str(&format!("&path={}", urlencoding::encode(p)));
         }
-        let val = self.request("GET", &query, None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
+        let json = self.request_json("GET", &query, None).await?;
         #[derive(Deserialize)]
         struct Resp { matches: Vec<FileEntry> }
         let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
@@ -211,22 +220,12 @@ impl BridgeClient {
     }
 
     pub async fn git_status(&self) -> Result<GitStatus, String> {
-        let val = self.request("GET", "/git/status", None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
+        let json = self.request_json("GET", "/git/status", None).await?;
         serde_json::from_value(json).map_err(|e| e.to_string())
     }
 
     async fn post_check_error(&self, path: &str, body: serde_json::Value) -> Result<(), String> {
-        let val = self.request("POST", path, Some(body)).await?;
-        if let Some(json) = val {
-            if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-                return Err(err.to_string());
-            }
-        }
-        Ok(())
+        self.request_json("POST", path, Some(body)).await.map(|_| ())
     }
 
     pub async fn create_file(&self, path: &str) -> Result<(), String> {
@@ -246,21 +245,11 @@ impl BridgeClient {
     }
 
     pub async fn copy_entry(&self, from: &str, to_dir: &str) -> Result<String, String> {
-        let val = self.request("POST", "/files/copy", Some(serde_json::json!({ "from": from, "to_dir": to_dir }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        self.request_str("POST", "/files/copy", Some(serde_json::json!({ "from": from, "to_dir": to_dir })), "path").await
     }
 
     pub async fn duplicate_entry(&self, path: &str) -> Result<String, String> {
-        let val = self.request("POST", "/files/duplicate", Some(serde_json::json!({ "path": path }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        self.request_str("POST", "/files/duplicate", Some(serde_json::json!({ "path": path })), "path").await
     }
 
     // --- Git write operations ---
@@ -274,42 +263,24 @@ impl BridgeClient {
     }
 
     pub async fn git_commit(&self, message: &str) -> Result<String, String> {
-        let val = self.request("POST", "/git/commit", Some(serde_json::json!({ "message": message }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
-    }
-
-    async fn git_remote_op(&self, endpoint: &str) -> Result<String, String> {
-        let val = self.request("POST", endpoint, None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        self.request_str("POST", "/git/commit", Some(serde_json::json!({ "message": message })), "output").await
     }
 
     pub async fn git_push(&self) -> Result<String, String> {
-        self.git_remote_op("/git/push").await
+        self.request_str("POST", "/git/push", None, "output").await
     }
 
     pub async fn git_pull(&self) -> Result<String, String> {
-        self.git_remote_op("/git/pull").await
+        self.request_str("POST", "/git/pull", None, "output").await
     }
 
     pub async fn git_fetch(&self) -> Result<String, String> {
-        self.git_remote_op("/git/fetch").await
+        self.request_str("POST", "/git/fetch", None, "output").await
     }
 
     pub async fn git_diff(&self, path: &str, staged: bool) -> Result<String, String> {
-        let val = self.request("GET", &format!("/git/diff?path={}&staged={}", urlencoding::encode(path), staged), None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("diff").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        let query = format!("/git/diff?path={}&staged={}", urlencoding::encode(path), staged);
+        self.request_str("GET", &query, None, "diff").await
     }
 
     pub async fn git_discard(&self, path: &str) -> Result<(), String> {
@@ -325,11 +296,7 @@ impl BridgeClient {
             Some(l) => format!("/git/log?limit={}", l),
             None => "/git/log".to_string(),
         };
-        let val = self.request("GET", &query, None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
+        let json = self.request_json("GET", &query, None).await?;
         #[derive(Deserialize)]
         struct Resp { entries: Vec<GitLogEntry> }
         let resp: Resp = serde_json::from_value(json).map_err(|e| e.to_string())?;
@@ -337,72 +304,39 @@ impl BridgeClient {
     }
 
     pub async fn git_revert(&self, commit_hash: &str) -> Result<String, String> {
-        let val = self.request("POST", "/git/revert", Some(serde_json::json!({ "commit_hash": commit_hash }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        self.request_str("POST", "/git/revert", Some(serde_json::json!({ "commit_hash": commit_hash })), "output").await
     }
 
     // --- Crawl save ---
 
     pub async fn crawl_save(&self, pages: &[CrawlSavePage], base_dir: &str) -> Result<CrawlSaveResult, String> {
-        let val = self.request("POST", "/crawl/save", Some(serde_json::json!({
+        let json = self.request_json("POST", "/crawl/save", Some(serde_json::json!({
             "pages": pages,
             "base_dir": base_dir,
         }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
         serde_json::from_value(json).map_err(|e| e.to_string())
     }
 
     // --- Content & assets ---
 
     pub async fn download_image(&self, url: &str, dest_path: &str) -> Result<String, String> {
-        let val = self.request("POST", "/content/download-image", Some(serde_json::json!({
-            "url": url,
-            "dest_path": dest_path,
-        }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        let body = serde_json::json!({ "url": url, "dest_path": dest_path });
+        self.request_str("POST", "/content/download-image", Some(body), "path").await
     }
 
     pub async fn fetch_page_title(&self, url: &str) -> Result<String, String> {
-        let val = self.request("POST", "/content/fetch-title", Some(serde_json::json!({
-            "url": url,
-        }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        let body = serde_json::json!({ "url": url });
+        self.request_str("POST", "/content/fetch-title", Some(body), "title").await
     }
 
     // --- Tags ---
 
     pub async fn get_tags(&self) -> Result<serde_json::Value, String> {
-        let val = self.request("GET", "/tags/list", None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json)
+        self.request_json("GET", "/tags/list", None).await
     }
 
     pub async fn set_tags(&self, data: &serde_json::Value) -> Result<(), String> {
-        let val = self.request("POST", "/tags/set", Some(serde_json::json!({ "tags": data }))).await?;
-        if let Some(json) = val {
-            if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-                return Err(err.to_string());
-            }
-        }
-        Ok(())
+        self.request_json("POST", "/tags/set", Some(serde_json::json!({ "tags": data }))).await.map(|_| ())
     }
 
     // --- Git extended operations ---
@@ -412,30 +346,17 @@ impl BridgeClient {
     }
 
     pub async fn git_show(&self, commit_hash: &str) -> Result<String, String> {
-        let val = self.request("GET", &format!("/git/show?commit_hash={}", urlencoding::encode(commit_hash)), None).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        let query = format!("/git/show?commit_hash={}", urlencoding::encode(commit_hash));
+        self.request_str("GET", &query, None, "output").await
     }
 
     pub async fn git_clone(&self, url: &str, dest: &str) -> Result<String, String> {
-        let val = self.request("POST", "/git/clone", Some(serde_json::json!({ "url": url, "dest": dest }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        let body = serde_json::json!({ "url": url, "dest": dest });
+        self.request_str("POST", "/git/clone", Some(body), "output").await
     }
 
     pub async fn git_init(&self, path: &str) -> Result<String, String> {
-        let val = self.request("POST", "/git/init", Some(serde_json::json!({ "path": path }))).await?;
-        let json = val.unwrap_or_default();
-        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-            return Err(err.to_string());
-        }
-        Ok(json.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        self.request_str("POST", "/git/init", Some(serde_json::json!({ "path": path })), "output").await
     }
 
     // --- Window management ---

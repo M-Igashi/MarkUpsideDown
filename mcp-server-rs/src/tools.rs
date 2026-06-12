@@ -423,6 +423,80 @@ impl McpTools {
         Ok(url)
     }
 
+    /// Call a Worker endpoint: resolve the URL, send the request, and surface
+    /// the Worker's `error` field on non-success status. Tolerates empty or
+    /// non-JSON bodies (e.g. DELETE responses) by returning Null.
+    async fn worker_call(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+        timeout_secs: u64,
+    ) -> Result<serde_json::Value, String> {
+        let worker_url = self.resolve_worker_url().await?;
+        let url = format!("{}{path}", worker_url.trim_end_matches('/'));
+        let mut req = self
+            .http
+            .request(method, &url)
+            .timeout(std::time::Duration::from_secs(timeout_secs));
+        if let Some(body) = body {
+            req = req.json(&body);
+        }
+        let response = req.send().await.map_err(|e| format!("Request failed: {e}"))?;
+        let status = response.status();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read response: {e}"))?;
+        let data: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+        if !status.is_success() {
+            let err = data["error"].as_str().unwrap_or("Unknown error");
+            return Err(format!("Worker returned {status}: {err}"));
+        }
+        Ok(data)
+    }
+
+    /// Resolve an absolute path to a path relative to the project root
+    /// (used by the tag tools, which key files by relative path).
+    async fn resolve_rel_path(&self, path: &str) -> String {
+        let root = self.bridge.get_project_root().await.ok().flatten().unwrap_or_default();
+        if !root.is_empty() && path.starts_with(&root) {
+            path[root.len()..].trim_start_matches('/').to_string()
+        } else {
+            path.to_string()
+        }
+    }
+
+    /// GET a URL with `Accept: text/markdown` (Markdown for Agents).
+    /// Returns (content_type, x-markdown-tokens header, body).
+    async fn fetch_with_markdown_accept(
+        &self,
+        url: &str,
+    ) -> Result<(String, Option<String>, String), String> {
+        let response = self
+            .http
+            .get(url)
+            .header("Accept", "text/markdown")
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let tokens = response
+            .headers()
+            .get("x-markdown-tokens")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let body = response.text().await.map_err(|e| e.to_string())?;
+        Ok((content_type, tokens, body))
+    }
+
     // --- Editor Tools (require running app) ---
 
     #[tool(name = "get_editor_content", description = "Get current Markdown content from the editor", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
@@ -463,27 +537,7 @@ impl McpTools {
         Parameters(params): Parameters<UrlParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let response = self
-                .http
-                .get(&params.url)
-                .header("Accept", "text/markdown")
-                .timeout(std::time::Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-
-            let content_type = response
-                .headers()
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("")
-                .to_string();
-            let tokens = response
-                .headers()
-                .get("x-markdown-tokens")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string());
-            let body = response.text().await.map_err(|e| e.to_string())?;
+            let (content_type, tokens, body) = self.fetch_with_markdown_accept(&params.url).await?;
 
             let is_markdown = content_type.contains("text/markdown");
             let mut info = if is_markdown {
@@ -542,22 +596,7 @@ impl McpTools {
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
             // 1. Try Markdown for Agents (direct fetch)
-            let response = self
-                .http
-                .get(&params.url)
-                .header("Accept", "text/markdown")
-                .timeout(std::time::Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-
-            let content_type = response
-                .headers()
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("")
-                .to_string();
-            let body = response.text().await.map_err(|e| e.to_string())?;
+            let (content_type, _, body) = self.fetch_with_markdown_accept(&params.url).await?;
 
             if content_type.contains("text/markdown") {
                 return Ok(format!("--- Markdown for Agents ---\n\n{body}"));
@@ -1355,13 +1394,7 @@ impl McpTools {
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         match self.bridge.get_tags().await {
             Ok(data) => {
-                // Resolve relative path from project root
-                let root = self.bridge.get_project_root().await.ok().flatten().unwrap_or_default();
-                let rel_path = if !root.is_empty() && params.path.starts_with(&root) {
-                    params.path[root.len()..].trim_start_matches('/').to_string()
-                } else {
-                    params.path.clone()
-                };
+                let rel_path = self.resolve_rel_path(&params.path).await;
                 let tags = data.get("files")
                     .and_then(|f| f.get(&rel_path))
                     .cloned()
@@ -1385,12 +1418,7 @@ impl McpTools {
             Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
 
-        let root = self.bridge.get_project_root().await.ok().flatten().unwrap_or_default();
-        let rel_path = if !root.is_empty() && params.path.starts_with(&root) {
-            params.path[root.len()..].trim_start_matches('/').to_string()
-        } else {
-            params.path.clone()
-        };
+        let rel_path = self.resolve_rel_path(&params.path).await;
 
         // Validate that all tags exist
         if let Some(tag_defs) = data.get("tags").and_then(|t| t.as_object()) {
@@ -1511,9 +1539,6 @@ impl McpTools {
         Parameters(params): Parameters<IndexDocumentsParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let embed_url = format!("{}/embed", worker_url.trim_end_matches('/'));
-
             let documents: Vec<serde_json::Value> = params.documents.iter().map(|d| {
                 let mut doc = serde_json::json!({ "id": d.id, "content": d.content });
                 if let Some(ref meta) = d.metadata {
@@ -1522,26 +1547,13 @@ impl McpTools {
                 doc
             }).collect();
 
-            let response = self
-                .http
-                .post(&embed_url)
-                .timeout(std::time::Duration::from_secs(60))
-                .json(&serde_json::json!({ "documents": documents }))
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
-
-            if !status.is_success() {
-                let err = data["error"].as_str().unwrap_or("Unknown error");
-                return Err(format!("Worker returned {status}: {err}"));
-            }
+            let data = self
+                .worker_call(reqwest::Method::POST, "/embed", Some(serde_json::json!({ "documents": documents })), 60)
+                .await?;
 
             let indexed = data["indexed"].as_u64().unwrap_or(0);
             let chunks = data["chunks"].as_u64().unwrap_or(0);
-            Ok(format!("Indexed {indexed} documents ({chunks} chunks)"))
+            Ok::<_, String>(format!("Indexed {indexed} documents ({chunks} chunks)"))
         }
         .await;
 
@@ -1557,25 +1569,9 @@ impl McpTools {
         Parameters(params): Parameters<RemoveDocumentParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let delete_url = format!("{}/embed/{}", worker_url.trim_end_matches('/'), urlencoding::encode(&params.id));
-
-            let response = self
-                .http
-                .delete(&delete_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            if !status.is_success() {
-                let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-                let err = data["error"].as_str().unwrap_or("Unknown error");
-                return Err(format!("Worker returned {status}: {err}"));
-            }
-
-            Ok(format!("Removed document: {}", params.id))
+            let path = format!("/embed/{}", urlencoding::encode(&params.id));
+            self.worker_call(reqwest::Method::DELETE, &path, None, 30).await?;
+            Ok::<_, String>(format!("Removed document: {}", params.id))
         }
         .await;
 
@@ -1591,9 +1587,6 @@ impl McpTools {
         Parameters(params): Parameters<PublishDocumentParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let publish_url = format!("{}/publish", worker_url.trim_end_matches('/'));
-
             let mut body = serde_json::json!({
                 "key": params.key,
                 "content": params.content,
@@ -1605,27 +1598,12 @@ impl McpTools {
                 }
             }
 
-            let response = self
-                .http
-                .put(&publish_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
-
-            if !status.is_success() {
-                let err = data["error"].as_str().unwrap_or("Unknown error");
-                return Err(format!("Worker returned {status}: {err}"));
-            }
+            let data = self.worker_call(reqwest::Method::PUT, "/publish", Some(body), 30).await?;
 
             let url = data["url"].as_str().unwrap_or("unknown");
             let expires = data["expiresAt"].as_str();
             match expires {
-                Some(exp) => Ok(format!("Published: {url}\nExpires: {exp}")),
+                Some(exp) => Ok::<_, String>(format!("Published: {url}\nExpires: {exp}")),
                 None => Ok(format!("Published (permanent): {url}")),
             }
         }
@@ -1643,25 +1621,9 @@ impl McpTools {
         Parameters(params): Parameters<UnpublishDocumentParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let delete_url = format!("{}/publish/{}", worker_url.trim_end_matches('/'), urlencoding::encode(&params.key));
-
-            let response = self
-                .http
-                .delete(&delete_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            if !status.is_success() {
-                let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-                let err = data["error"].as_str().unwrap_or("Unknown error");
-                return Err(format!("Worker returned {status}: {err}"));
-            }
-
-            Ok(format!("Unpublished: {}", params.key))
+            let path = format!("/publish/{}", urlencoding::encode(&params.key));
+            self.worker_call(reqwest::Method::DELETE, &path, None, 30).await?;
+            Ok::<_, String>(format!("Unpublished: {}", params.key))
         }
         .await;
 
@@ -1674,30 +1636,13 @@ impl McpTools {
     #[tool(name = "list_published", description = "List all published documents in R2 storage. Returns key, size, and upload timestamp for each.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn list_published(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let list_url = format!("{}/published", worker_url.trim_end_matches('/'));
-
-            let response = self
-                .http
-                .get(&list_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
-
-            if !status.is_success() {
-                let err = data["error"].as_str().unwrap_or("Unknown error");
-                return Err(format!("Worker returned {status}: {err}"));
-            }
+            let data = self.worker_call(reqwest::Method::GET, "/published", None, 30).await?;
 
             let files = data["files"].as_array();
             match files {
                 Some(arr) if !arr.is_empty() => {
                     let json = serde_json::to_string_pretty(&data["files"]).unwrap_or_default();
-                    Ok(format!("{} published documents\n\n{json}", arr.len()))
+                    Ok::<_, String>(format!("{} published documents\n\n{json}", arr.len()))
                 }
                 _ => Ok("No published documents.".to_string()),
             }
@@ -1716,32 +1661,16 @@ impl McpTools {
         Parameters(params): Parameters<SubmitBatchParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let batch_url = format!("{}/batch", worker_url.trim_end_matches('/'));
-
             let files: Vec<serde_json::Value> = params.files.iter().map(|f| {
                 serde_json::json!({ "name": f.name, "content": f.content })
             }).collect();
 
-            let response = self
-                .http
-                .post(&batch_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .json(&serde_json::json!({ "files": files }))
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
-
-            if !status.is_success() {
-                let err = data["error"].as_str().unwrap_or("Unknown error");
-                return Err(format!("Worker returned {status}: {err}"));
-            }
+            let data = self
+                .worker_call(reqwest::Method::POST, "/batch", Some(serde_json::json!({ "files": files })), 30)
+                .await?;
 
             let batch_id = data["batch_id"].as_str().unwrap_or("unknown");
-            Ok(format!("Batch submitted. batch_id: {batch_id}\n\nUse get_batch_status with this batch_id to poll for results."))
+            Ok::<_, String>(format!("Batch submitted. batch_id: {batch_id}\n\nUse get_batch_status with this batch_id to poll for results."))
         }
         .await;
 
@@ -1757,27 +1686,9 @@ impl McpTools {
         Parameters(params): Parameters<GetBatchStatusParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let status_url = format!("{}/batch/{}", worker_url.trim_end_matches('/'), params.batch_id);
-
-            let response = self
-                .http
-                .get(&status_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            let data: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
-
-            if !status.is_success() {
-                let err = data["error"].as_str().unwrap_or("Unknown error");
-                return Err(format!("Worker returned {status}: {err}"));
-            }
-
-            let json = serde_json::to_string_pretty(&data).unwrap_or_default();
-            Ok(json)
+            let path = format!("/batch/{}", params.batch_id);
+            let data = self.worker_call(reqwest::Method::GET, &path, None, 30).await?;
+            Ok::<_, String>(serde_json::to_string_pretty(&data).unwrap_or_default())
         }
         .await;
 
@@ -1847,33 +1758,12 @@ impl McpTools {
         Parameters(params): Parameters<SemanticSearchParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let search_url = format!("{}/search", worker_url.trim_end_matches('/'));
-
             let body = serde_json::json!({
                 "query": params.query,
                 "limit": params.limit.unwrap_or(10),
             });
 
-            let response = self
-                .http
-                .post(&search_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            let data: serde_json::Value = response
-                .json()
-                .await
-                .map_err(|e| format!("Failed to parse response: {e}"))?;
-
-            if !status.is_success() {
-                let err = data["error"].as_str().unwrap_or("Unknown error");
-                return Err(format!("Worker returned {status}: {err}"));
-            }
+            let data = self.worker_call(reqwest::Method::POST, "/search", Some(body), 30).await?;
 
             let results = data["results"].as_array();
             match results {
@@ -1886,7 +1776,7 @@ impl McpTools {
                         let score = r["score"].as_f64().unwrap_or(0.0);
                         output.push_str(&format!("- **{}** (score: {:.2})\n", doc_id, score));
                     }
-                    Ok(output)
+                    Ok::<_, String>(output)
                 }
                 _ => Ok("No results found.".to_string()),
             }
