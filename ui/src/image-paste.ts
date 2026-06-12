@@ -43,7 +43,7 @@ async function saveAndInsert(data: Uint8Array, filename: string, pos: number) {
   const destPath = `${assetsDir}/${filename}`;
 
   try {
-    await invoke("save_image", { path: destPath, data: Array.from(data) });
+    await invoke("save_image", data, { headers: { path: encodeURIComponent(destPath) } });
   } catch (e) {
     deps.statusEl.textContent = `Failed to save image: ${e}`;
     return;

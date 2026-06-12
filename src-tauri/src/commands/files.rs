@@ -97,11 +97,31 @@ pub async fn copy_to_clipboard(text: String) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn read_file_bytes(path: String) -> Result<Vec<u8>> {
+pub async fn read_file_bytes(path: String) -> Result<tauri::ipc::Response> {
     let path = validate_path(&path)?;
-    tokio::fs::read(&path)
+    let data = tokio::fs::read(&path)
         .await
-        .map_err(|e| AppError::Io(format!("Failed to read file: {e}")))
+        .map_err(|e| AppError::Io(format!("Failed to read file: {e}")))?;
+    // Raw IPC response — the frontend receives an ArrayBuffer instead of a
+    // JSON number array.
+    Ok(tauri::ipc::Response::new(data))
+}
+
+/// Extract the percent-encoded `path` header and raw binary body from a
+/// raw-IPC request (used by commands that receive file bytes from JS).
+fn raw_request_parts<'a>(request: &'a tauri::ipc::Request<'_>) -> Result<(String, &'a [u8])> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err(AppError::Validation("Expected raw binary request body".into()));
+    };
+    let encoded = request
+        .headers()
+        .get("path")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| AppError::Validation("Missing path header".into()))?;
+    let path = urlencoding::decode(encoded)
+        .map_err(|e| AppError::Validation(format!("Invalid path header: {e}")))?
+        .into_owned();
+    Ok((path, data.as_slice()))
 }
 
 #[tauri::command]
@@ -200,7 +220,8 @@ pub async fn rename_entry(from: String, to: String) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn write_file_bytes(path: String, data: Vec<u8>) -> Result<()> {
+pub async fn write_file_bytes(request: tauri::ipc::Request<'_>) -> Result<()> {
+    let (path, data) = raw_request_parts(&request)?;
     let dest = validate_path(&path)?;
     if dest.exists() {
         return Err(AppError::Io(format!(
@@ -210,20 +231,21 @@ pub async fn write_file_bytes(path: String, data: Vec<u8>) -> Result<()> {
                 .unwrap_or_default()
         )));
     }
-    tokio::fs::write(&dest, &data)
+    tokio::fs::write(&dest, data)
         .await
         .map_err(|e| AppError::Io(format!("Failed to write file: {e}")))
 }
 
 #[tauri::command]
-pub async fn save_image(path: String, data: Vec<u8>) -> Result<()> {
+pub async fn save_image(request: tauri::ipc::Request<'_>) -> Result<()> {
+    let (path, data) = raw_request_parts(&request)?;
     let dest = validate_path(&path)?;
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|e| AppError::Io(format!("Failed to create directory: {e}")))?;
     }
-    tokio::fs::write(&dest, &data)
+    tokio::fs::write(&dest, data)
         .await
         .map_err(|e| AppError::Io(format!("Failed to save image: {e}")))
 }

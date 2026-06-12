@@ -51,9 +51,8 @@ export async function submitBatch(
 ): Promise<{ batchId: string; total: number }> {
   const files: BatchFile[] = await Promise.all(
     filePaths.map(async (fp) => {
-      const bytes = await invoke<number[]>("read_file_bytes", { path: fp });
-      const b64 = arrayBufferToBase64(new Uint8Array(bytes).buffer);
-      return { name: basename(fp), content: b64 };
+      const bytes = await invoke<ArrayBuffer>("read_file_bytes", { path: fp });
+      return { name: basename(fp), content: arrayBufferToBase64(bytes) };
     }),
   );
 
