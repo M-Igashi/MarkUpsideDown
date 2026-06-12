@@ -53,6 +53,7 @@ import {
   isTabDirty,
   markTabSaved,
   updateTabPath,
+  type Tab,
   closeTabsByPath,
   closeTabsUnderDir,
   setTabsProjectRoot,
@@ -333,21 +334,7 @@ async function refreshGitAndSyncNow() {
 /** Reload all open file-backed tabs from disk (after git ops that modify files). */
 async function reloadAllOpenTabs() {
   const fileTabs = getTabs().filter((t) => t.path);
-  const results = await Promise.allSettled(
-    fileTabs.map((tab) => invoke<string>("read_text_file", { path: tab.path! })),
-  );
-  const activeId = getActiveTab()?.id;
-  for (let i = 0; i < fileTabs.length; i++) {
-    const r = results[i];
-    if (r.status !== "fulfilled") continue;
-    const tab = fileTabs[i];
-    tab.content = r.value;
-    tab.savedContent = r.value;
-    markTabSaved(tab.id);
-    if (tab.id === activeId) {
-      loadContent(r.value, tab.path);
-    }
-  }
+  await Promise.allSettled(fileTabs.map((tab) => reloadTabFromDisk(tab.path!)));
   refreshTree();
 }
 
@@ -382,10 +369,8 @@ initMcpSync({
   refreshTree,
 });
 
-// --- Initial render ---
-
-renderPreview(editor.state.doc.toString()).catch(() => {});
-updateStatus(editor.state);
+// Initial render of the welcome document happens after initTabs() below —
+// when a tab is restored, its activation renders instead.
 
 // --- Toolbar Actions ---
 
@@ -717,14 +702,7 @@ initSidebar(sidebarEl, {
 const gitPanelEl = getGitPanelEl();
 if (gitPanelEl) {
   initGitPanel(gitPanelEl, {
-    onOpen: async (filePath: string) => {
-      try {
-        const content = await invoke<string>("read_text_file", { path: filePath });
-        loadContentAsTab(content, filePath);
-      } catch (e) {
-        statusEl.textContent = `Open failed: ${e}`;
-      }
-    },
+    onOpen: openFileByPath,
     onRefresh: () => {
       setGitStatus(getStatusMap());
       updateGitChangeCount(getChangeCount());
@@ -865,16 +843,20 @@ const tabBarEl = document.getElementById("tab-bar")!;
 
 const { confirm: confirmDialog } = window.__TAURI__.dialog;
 
-async function reloadTabFromDisk(path: string) {
-  const content = await invoke<string>("read_text_file", { path });
-  const tab = getTabByPath(path);
-  if (!tab) return;
+/** Apply freshly-read disk content to a tab (and the editor when active). */
+function applyDiskContent(tab: Tab, content: string) {
   tab.content = content;
   tab.savedContent = content;
   markTabSaved(tab.id);
   if (tab.id === getActiveTab()?.id) {
-    loadContent(content, path);
+    loadContent(content, tab.path);
   }
+}
+
+async function reloadTabFromDisk(path: string) {
+  const content = await invoke<string>("read_text_file", { path });
+  const tab = getTabByPath(path);
+  if (tab) applyDiskContent(tab, content);
 }
 
 initFileWatcher({
@@ -912,12 +894,7 @@ async function reloadTab(tab: { content: string; path: string | null; id: string
 }
 
 initTabs(tabBarEl, {
-  onSwitch: (tab: {
-    content: string;
-    path: string | null;
-    id: string;
-    savedContent: string | null;
-  }) => {
+  onSwitch: (tab: Tab) => {
     autoSave();
     loadContent(tab.content, tab.path);
     // Check if file changed on disk since last load (catches missed watcher events)
@@ -925,10 +902,7 @@ initTabs(tabBarEl, {
       invoke<string>("read_text_file", { path: tab.path })
         .then((diskContent) => {
           if (diskContent !== tab.savedContent && tab.id === getActiveTab()?.id) {
-            tab.content = diskContent;
-            tab.savedContent = diskContent;
-            markTabSaved(tab.id);
-            loadContent(diskContent, tab.path);
+            applyDiskContent(tab, diskContent);
           }
         })
         .catch(() => {});
@@ -950,6 +924,13 @@ initTabs(tabBarEl, {
 // Start watching all previously open file-backed tabs
 for (const tab of getTabs()) {
   if (tab.path) startWatching(tab.path);
+}
+
+// Initial render — when a tab was restored above its activation already
+// rendered, so only the welcome document needs an explicit first render.
+if (!getActiveTab()) {
+  renderPreview(editor.state.doc.toString()).catch(() => {});
+  updateStatus(editor.state);
 }
 
 // Append editor fold button to editor-header (stays at right edge)

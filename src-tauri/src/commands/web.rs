@@ -54,7 +54,7 @@ pub(crate) async fn worker_request<T: DeserializeOwned + HasWorkerError>(
 /// Must match WORKER_VERSION in worker/src/config.ts.
 const EXPECTED_WORKER_VERSION: u32 = 9;
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct WorkerStatus {
     pub reachable: bool,
     pub convert_available: bool,
@@ -73,23 +73,13 @@ pub struct WorkerStatus {
 impl WorkerStatus {
     fn unreachable(error: String) -> Self {
         Self {
-            reachable: false,
-            convert_available: false,
-            render_available: false,
-            json_available: false,
-            crawl_available: false,
-            cache_available: false,
-            batch_available: false,
-            publish_available: false,
-            search_available: false,
-            worker_version: None,
-            update_available: false,
             error: Some(error),
+            ..Default::default()
         }
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct HealthCapabilities {
     convert: Option<bool>,
     render: Option<bool>,
@@ -119,16 +109,7 @@ pub async fn test_worker_url(
         Ok(resp) if resp.status().is_success() => {
             match resp.json::<HealthResponse>().await {
                 Ok(body) => {
-                    let caps = body.capabilities.unwrap_or(HealthCapabilities {
-                        convert: None,
-                        render: None,
-                        json: None,
-                        crawl: None,
-                        cache: None,
-                        batch: None,
-                        publish: None,
-                        search: None,
-                    });
+                    let caps = body.capabilities.unwrap_or_default();
                     let version = body.version;
                     let update_available = match version {
                         Some(v) => v < EXPECTED_WORKER_VERSION,
@@ -151,33 +132,16 @@ pub async fn test_worker_url(
                 }
                 Err(e) => WorkerStatus {
                     reachable: true,
-                    convert_available: false,
-                    render_available: false,
-                    json_available: false,
-                    crawl_available: false,
-                    cache_available: false,
-                    batch_available: false,
-                    publish_available: false,
-                    search_available: false,
-                    worker_version: None,
                     update_available: true,
                     error: Some(format!("Unexpected response format: {e}")),
+                    ..Default::default()
                 }
             }
         }
         Ok(resp) => WorkerStatus {
             reachable: true,
-            convert_available: false,
-            render_available: false,
-            json_available: false,
-            crawl_available: false,
-            cache_available: false,
-            batch_available: false,
-            publish_available: false,
-            search_available: false,
-            worker_version: None,
-            update_available: false,
             error: Some(format!("Worker returned status {}", resp.status())),
+            ..Default::default()
         },
         Err(e) => WorkerStatus::unreachable(format!("Cannot reach worker: {e}")),
     })
@@ -510,6 +474,7 @@ pub fn detect_file_is_image(file_path: String) -> Result<bool> {
     Ok(mime_from_extension(ext).is_some_and(|m| m.starts_with("image/")))
 }
 
+/// MIME map (sync with mcp-server-rs/src/tools.rs and worker SUPPORTED_TYPES)
 fn mime_from_extension(ext: &str) -> Option<&'static str> {
     match ext.to_lowercase().as_str() {
         "pdf" => Some("application/pdf"),
