@@ -1,11 +1,13 @@
 use serde_json::json;
-use tauri::menu::{Menu, MenuEvent, MenuItem, SubmenuBuilder};
+use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_store::StoreExt;
 
 const STORE_FILE: &str = "recent-files.json";
 const STORE_KEY: &str = "recent";
 const MAX_RECENT: usize = 10;
+const FILE_MENU_ID: &str = "file_menu";
+const RECENT_SUBMENU_ID: &str = "open_recent";
 
 pub fn build(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let recent_files = get_recent_files(handle);
@@ -24,42 +26,12 @@ pub fn build(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .build()?;
 
     // Open Recent submenu
-    let mut recent_builder = SubmenuBuilder::new(handle, "Open Recent");
-    if recent_files.is_empty() {
-        recent_builder = recent_builder.item(&MenuItem::with_id(
-            handle,
-            "no_recent",
-            "No Recent Files",
-            false,
-            None::<&str>,
-        )?);
-    } else {
-        for (i, path) in recent_files.iter().enumerate() {
-            let label = std::path::Path::new(path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.clone());
-            recent_builder = recent_builder.item(&MenuItem::with_id(
-                handle,
-                format!("recent_{i}"),
-                label.as_str(),
-                true,
-                None::<&str>,
-            )?);
-        }
-        recent_builder = recent_builder.separator();
-        recent_builder = recent_builder.item(&MenuItem::with_id(
-            handle,
-            "clear_recent",
-            "Clear Recent",
-            true,
-            None::<&str>,
-        )?);
-    }
-    let recent_submenu = recent_builder.build()?;
+    let recent_submenu =
+        SubmenuBuilder::with_id(handle, RECENT_SUBMENU_ID, "Open Recent").build()?;
+    populate_recent_submenu(handle, &recent_submenu, &recent_files)?;
 
     // File menu
-    let file_menu = SubmenuBuilder::new(handle, "File")
+    let file_menu = SubmenuBuilder::with_id(handle, FILE_MENU_ID, "File")
         .item(&MenuItem::with_id(
             handle,
             "new_window",
@@ -87,6 +59,49 @@ pub fn build(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
     Menu::with_items(handle, &[&app_menu, &file_menu, &edit_menu])
 }
 
+/// Replace the contents of the "Open Recent" submenu with `files`.
+fn populate_recent_submenu(
+    handle: &AppHandle,
+    submenu: &Submenu<Wry>,
+    files: &[String],
+) -> tauri::Result<()> {
+    while matches!(submenu.remove_at(0), Ok(Some(_))) {}
+
+    if files.is_empty() {
+        submenu.append(&MenuItem::with_id(
+            handle,
+            "no_recent",
+            "No Recent Files",
+            false,
+            None::<&str>,
+        )?)?;
+        return Ok(());
+    }
+
+    for (i, path) in files.iter().enumerate() {
+        let label = std::path::Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        submenu.append(&MenuItem::with_id(
+            handle,
+            format!("recent_{i}"),
+            label.as_str(),
+            true,
+            None::<&str>,
+        )?)?;
+    }
+    submenu.append(&PredefinedMenuItem::separator(handle)?)?;
+    submenu.append(&MenuItem::with_id(
+        handle,
+        "clear_recent",
+        "Clear Recent",
+        true,
+        None::<&str>,
+    )?)?;
+    Ok(())
+}
+
 fn get_recent_files(handle: &AppHandle) -> Vec<String> {
     let Ok(store) = handle.store(STORE_FILE) else {
         return vec![];
@@ -101,6 +116,18 @@ fn update_recent(handle: &AppHandle, files: &[String]) {
     if let Ok(store) = handle.store(STORE_FILE) {
         store.set(STORE_KEY, json!(files));
     }
+    // Update just the Open Recent submenu instead of rebuilding and
+    // replacing the entire native menu on every file open.
+    let recent_submenu = handle
+        .menu()
+        .and_then(|m| m.get(FILE_MENU_ID))
+        .and_then(|file| file.as_submenu().and_then(|f| f.get(RECENT_SUBMENU_ID)))
+        .and_then(|kind| kind.as_submenu().cloned());
+    if let Some(submenu) = recent_submenu {
+        let _ = populate_recent_submenu(handle, &submenu, files);
+        return;
+    }
+    // Fallback: rebuild the whole menu
     if let Ok(menu) = build(handle) {
         let _ = handle.set_menu(menu);
     }

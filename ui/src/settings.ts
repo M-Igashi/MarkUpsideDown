@@ -231,6 +231,18 @@ function renderSetupProgress(container: HTMLElement, stepStates: Record<string, 
   }).join("");
 }
 
+/** Create optional Cloudflare resources and aggregate per-resource errors. */
+async function setupResources(
+  accountId: string,
+): Promise<{ resources: ResourceFlags; failed: string[] }> {
+  const result = await invoke<ResourceSetupResult>("setup_cloudflare_resources", { accountId });
+  const failed: string[] = [];
+  if (result.r2_error) failed.push(`R2: ${result.r2_error}`);
+  if (result.queue_error) failed.push(`Queue: ${result.queue_error}`);
+  if (result.vectorize_error) failed.push(`Vectorize: ${result.vectorize_error}`);
+  return { resources: result.resources, failed };
+}
+
 async function startAutoSetup(
   progressContainer: HTMLElement,
   urlInput: HTMLInputElement,
@@ -307,12 +319,8 @@ async function startAutoSetup(
     vectorize: false,
   };
   try {
-    const result = await invoke<ResourceSetupResult>("setup_cloudflare_resources", { accountId });
-    resourceFlags = result.resources;
-    const failed: string[] = [];
-    if (result.r2_error) failed.push(`R2: ${result.r2_error}`);
-    if (result.queue_error) failed.push(`Queue: ${result.queue_error}`);
-    if (result.vectorize_error) failed.push(`Vectorize: ${result.vectorize_error}`);
+    const { resources, failed } = await setupResources(accountId);
+    resourceFlags = resources;
     if (failed.length === 3) {
       update("resources", "error");
       showSetupMessage(
@@ -844,14 +852,8 @@ export function showSettings({
       };
       if (resolvedAccountId) {
         try {
-          const res = await invoke<ResourceSetupResult>("setup_cloudflare_resources", {
-            accountId: resolvedAccountId,
-          });
-          updateResources = res.resources;
-          const failed: string[] = [];
-          if (res.r2_error) failed.push(`R2: ${res.r2_error}`);
-          if (res.queue_error) failed.push(`Queue: ${res.queue_error}`);
-          if (res.vectorize_error) failed.push(`Vectorize: ${res.vectorize_error}`);
+          const { resources, failed } = await setupResources(resolvedAccountId);
+          updateResources = resources;
           if (failed.length > 0) {
             updateResult.className = "settings-test-result test-warn";
             updateResult.textContent = `Some resources failed: ${failed.join(", ")}`;
@@ -1059,17 +1061,7 @@ function renderClaudeDesktopCodeTab(container: HTMLElement, binaryPath: string, 
       ⚠ The config contains your secret Worker URL. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
     </div>
   `;
-  for (const btn of container.querySelectorAll<HTMLButtonElement>(".settings-mcp-copy-btn")) {
-    btn.addEventListener("click", async () => {
-      const text = btn.dataset.copyText || "";
-      await navigator.clipboard.writeText(text);
-      const original = btn.textContent;
-      btn.textContent = "Copied!";
-      setTimeout(() => {
-        btn.textContent = original;
-      }, 1500);
-    });
-  }
+  attachCopyHandler(container);
 }
 
 function renderClaudeCodeTerminalTab(
@@ -1197,17 +1189,17 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
 }
 
 function attachCopyHandler(container: HTMLElement) {
-  const btn = container.querySelector<HTMLButtonElement>(".settings-mcp-copy-btn");
-  if (!btn) return;
-  btn.addEventListener("click", async () => {
-    const text = btn.dataset.copyText || "";
-    await navigator.clipboard.writeText(text);
-    const original = btn.textContent;
-    btn.textContent = "Copied!";
-    setTimeout(() => {
-      btn.textContent = original;
-    }, 1500);
-  });
+  for (const btn of container.querySelectorAll<HTMLButtonElement>(".settings-mcp-copy-btn")) {
+    btn.addEventListener("click", async () => {
+      const text = btn.dataset.copyText || "";
+      await navigator.clipboard.writeText(text);
+      const original = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(() => {
+        btn.textContent = original;
+      }, 1500);
+    });
+  }
 }
 
 async function initMcpSection() {

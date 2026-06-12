@@ -296,17 +296,7 @@ function saveState() {
 
 export async function openFolder() {
   const path = await openDialog({ directory: true });
-  if (!path) return;
-  rootPath = path;
-  expandedDirs.clear();
-  expandedDirs.add(rootPath);
-  tagFilter = null;
-  saveState();
-  await loadTags(rootPath);
-  render();
-  refreshTree();
-  startDirWatcher();
-  onFolderChange?.(rootPath);
+  if (path) await openFolderByPath(path);
 }
 
 // --- Render ---

@@ -680,7 +680,6 @@ async fn git_commit(
 }
 
 async fn git_remote_op(
-    _state: &BridgeState,
     op: impl std::future::Future<Output = crate::error::Result<String>>,
 ) -> Json<serde_json::Value> {
     match op.await {
@@ -694,7 +693,7 @@ async fn git_push(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Val
         Ok(p) => p,
         Err(e) => return e,
     };
-    git_remote_op(&state, commands::git_push(repo_path)).await
+    git_remote_op(commands::git_push(repo_path)).await
 }
 
 async fn git_pull(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
@@ -702,7 +701,7 @@ async fn git_pull(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Val
         Ok(p) => p,
         Err(e) => return e,
     };
-    git_remote_op(&state, commands::git_pull(repo_path)).await
+    git_remote_op(commands::git_pull(repo_path)).await
 }
 
 async fn git_fetch(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
@@ -710,7 +709,7 @@ async fn git_fetch(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Va
         Ok(p) => p,
         Err(e) => return e,
     };
-    git_remote_op(&state, commands::git_fetch(repo_path)).await
+    git_remote_op(commands::git_fetch(repo_path)).await
 }
 
 // --- Git diff/discard/log/revert handlers ---

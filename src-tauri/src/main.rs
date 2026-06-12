@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_cli::CliExt;
-use tauri_plugin_store::StoreExt;
 
 /// Resolve file path strings to absolute paths, filtering to files that exist.
 fn resolve_file_paths<'a>(
@@ -89,20 +88,16 @@ fn main() {
             bridge::start(app.handle().clone(), editor_states.clone());
 
             // Restore additional windows from session registry
-            if let Ok(store) = app.handle().store("window-registry.json") {
-                if let Some(val) = store.get("windows") {
-                    if let Ok(entries) = serde_json::from_value::<Vec<commands::WindowRegistryEntry>>(val.clone()) {
-                        for entry in entries.iter().filter(|e| e.label != "main") {
-                            let url = WebviewUrl::App("index.html".into());
-                            let mut builder = WebviewWindowBuilder::new(app, &entry.label, url)
-                                .title("MarkUpsideDown")
-                                .inner_size(entry.width, entry.height);
-                            if let (Some(x), Some(y)) = (entry.x, entry.y) {
-                                builder = builder.position(x, y);
-                            }
-                            let _ = builder.build();
-                        }
+            if let Ok(entries) = commands::load_window_registry(app.handle().clone()) {
+                for entry in entries.iter().filter(|e| e.label != "main") {
+                    let url = WebviewUrl::App("index.html".into());
+                    let mut builder = WebviewWindowBuilder::new(app, &entry.label, url)
+                        .title("MarkUpsideDown")
+                        .inner_size(entry.width, entry.height);
+                    if let (Some(x), Some(y)) = (entry.x, entry.y) {
+                        builder = builder.position(x, y);
                     }
+                    let _ = builder.build();
                 }
             }
 
@@ -209,15 +204,10 @@ fn main() {
                     // Remove closed window from registry (if app stays open)
                     if remaining > 1 {
                         let label = window.label().to_string();
-                        if let Ok(store) = window.app_handle().store("window-registry.json") {
-                            if let Some(val) = store.get("windows") {
-                                if let Ok(mut entries) = serde_json::from_value::<Vec<commands::WindowRegistryEntry>>(val.clone()) {
-                                    entries.retain(|e| e.label != label);
-                                    if let Ok(json) = serde_json::to_value(&entries) {
-                                        store.set("windows", json);
-                                    }
-                                }
-                            }
+                        let handle = window.app_handle().clone();
+                        if let Ok(mut entries) = commands::load_window_registry(handle.clone()) {
+                            entries.retain(|e| e.label != label);
+                            let _ = commands::save_window_registry(handle, entries);
                         }
                     }
 
