@@ -154,6 +154,7 @@ fn main() {
             commands::copy_to_clipboard,
             commands::read_file_bytes,
             commands::list_directory,
+            commands::list_directory_recursive,
             commands::create_file,
             commands::create_directory,
             commands::rename_entry,

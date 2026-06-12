@@ -441,49 +441,16 @@ async fn list_files(
     }
 
     if query.recursive.unwrap_or(false) {
-        match list_recursive(&path).await {
+        match commands::list_recursive(&path).await {
             Ok(entries) => Json(serde_json::json!({ "entries": entries })),
             Err(e) => e.to_bridge_json(),
         }
     } else {
-        match commands::list_directory(path.clone()).await {
+        match commands::list_directory(path.clone(), None).await {
             Ok(entries) => Json(serde_json::json!({ "entries": entries })),
             Err(e) => e.to_bridge_json(),
         }
     }
-}
-
-/// Walk a directory tree recursively, filtering hidden files and git-ignored entries.
-/// Limits: max 20 levels deep, max 10 000 entries, skips `.git/`.
-async fn list_recursive(root: &str) -> Result<Vec<commands::FileEntry>, String> {
-    const MAX_DEPTH: usize = 20;
-    const MAX_ENTRIES: usize = 10_000;
-
-    let mut result = Vec::new();
-    // (path, depth)
-    let mut stack: Vec<(String, usize)> = vec![(root.to_string(), 0)];
-
-    while let Some((dir, depth)) = stack.pop() {
-        let entries = commands::list_directory(dir)
-            .await
-            .map_err(|e| e.to_string())?;
-        for entry in entries {
-            if entry.is_dir {
-                let name = entry.name.as_str();
-                if name == ".git" || name == "__pycache__" {
-                    continue;
-                }
-                if depth < MAX_DEPTH {
-                    stack.push((entry.path.clone(), depth + 1));
-                }
-            }
-            result.push(entry);
-            if result.len() >= MAX_ENTRIES {
-                return Ok(result);
-            }
-        }
-    }
-    Ok(result)
 }
 
 #[derive(Deserialize)]
@@ -522,7 +489,7 @@ async fn search_files(
     }
 
     // Fallback: recursive directory walk for non-git directories
-    match list_recursive(&search_path).await {
+    match commands::list_recursive(&search_path).await {
         Ok(entries) => {
             let query_lower = query.query.to_lowercase();
             let matches: Vec<&commands::FileEntry> = entries
@@ -579,6 +546,7 @@ async fn git_search_files(search_path: &str, query: &str) -> Option<Vec<commands
                     is_dir: false,
                     extension,
                     modified_at: None,
+                    fold_chain: None,
                 }
             })
             .collect();
