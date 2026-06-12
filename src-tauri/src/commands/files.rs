@@ -101,6 +101,32 @@ pub async fn copy_to_clipboard(text: String) -> Result<()> {
     .await?
 }
 
+#[derive(Serialize)]
+pub struct FileStat {
+    pub mtime_ms: u64,
+    pub size: u64,
+}
+
+/// Lightweight metadata check used by the frontend poll fallbacks, so the
+/// active file / project root is only re-read when something changed.
+#[tauri::command]
+pub async fn stat_file(path: String) -> Result<FileStat> {
+    let path = validate_read_path(&path)?;
+    let meta = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| AppError::Io(format!("Failed to stat file: {e}")))?;
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    Ok(FileStat {
+        mtime_ms,
+        size: meta.len(),
+    })
+}
+
 #[tauri::command]
 pub async fn read_file_bytes(path: String) -> Result<tauri::ipc::Response> {
     let path = validate_path(&path)?;

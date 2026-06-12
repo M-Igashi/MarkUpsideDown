@@ -153,6 +153,7 @@ fn main() {
             commands::write_text_file,
             commands::copy_to_clipboard,
             commands::read_file_bytes,
+            commands::stat_file,
             commands::list_directory,
             commands::list_directory_recursive,
             commands::create_file,

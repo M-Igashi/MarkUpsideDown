@@ -17,12 +17,17 @@ const reloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const RELOAD_DEBOUNCE_MS = 800;
 
 // Poll fallback: macOS FSEvents can miss events for individual file watches,
-// especially with atomic writes (write temp → rename). Periodic content polling
+// especially with atomic writes (write temp → rename). Periodic metadata polling
 // catches changes the watcher misses.
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 const POLL_INTERVAL_MS = 3000;
 let lastPolledPath: string | null = null;
-let lastPolledContent: string | null = null;
+let lastPolledStat: string | null = null;
+
+interface FileStat {
+  mtime_ms: number;
+  size: number;
+}
 
 // Dependencies injected via init
 let deps: {
@@ -110,10 +115,10 @@ function onFileChanged(event: WatchEvent) {
   }
 }
 
-// Poll active tab's file by reading content and comparing with savedContent.
-// Uses read_text_file (Tauri command) which has proper fs permissions,
-// unlike stat() which may lack fs:allow-stat permission.
-// Caches last-read disk content to avoid triggering reload when nothing changed.
+// Poll active tab's file via a cheap (mtime, size) metadata check; the
+// content is only read and compared when the metadata changed.
+// Uses stat_file (Tauri command) which has proper fs permissions,
+// unlike plugin-fs stat() which may lack fs:allow-stat permission.
 function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(async () => {
@@ -124,11 +129,13 @@ function startPolling() {
     if (isRecentlySuppressed(path)) return;
 
     try {
-      const diskContent = await invoke<string>("read_text_file", { path });
-      // Skip if disk content hasn't changed since last poll
-      if (path === lastPolledPath && diskContent === lastPolledContent) return;
+      const stat = await invoke<FileStat>("stat_file", { path });
+      const statKey = `${stat.mtime_ms}:${stat.size}`;
+      // Skip the full read when the file metadata hasn't changed
+      if (path === lastPolledPath && statKey === lastPolledStat) return;
       lastPolledPath = path;
-      lastPolledContent = diskContent;
+      lastPolledStat = statKey;
+      const diskContent = await invoke<string>("read_text_file", { path });
       if (activeTab.savedContent !== null && diskContent !== activeTab.savedContent) {
         await reloadPath(path);
       }
