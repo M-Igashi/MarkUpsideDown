@@ -11,6 +11,11 @@ function base64ToBlob(b64: string, name: string): Blob {
   return new Blob([bytes], { type: mime });
 }
 
+interface BatchFileStatus {
+  status: string;
+  error?: string;
+}
+
 async function updateBatchFileStatus(
   env: Env,
   statusKey: string,
@@ -19,7 +24,12 @@ async function updateBatchFileStatus(
 ): Promise<void> {
   if (!env.CACHE) return;
   const value = JSON.stringify({ status, ...(error ? { error } : {}) });
-  await env.CACHE.put(statusKey, value, { expirationTtl: BATCH_TTL });
+  // The status also lives in the key's metadata so the poll path can read
+  // every file's state with a single list() call instead of one get() per
+  // file. Metadata is capped at 1024 bytes, so the error is truncated;
+  // the value keeps the full message.
+  const metadata: BatchFileStatus = { status, ...(error ? { error: error.slice(0, 200) } : {}) };
+  await env.CACHE.put(statusKey, value, { expirationTtl: BATCH_TTL, metadata });
 }
 
 export async function handleBatchSubmit(request: Request, env: Env): Promise<Response> {
@@ -42,7 +52,10 @@ export async function handleBatchSubmit(request: Request, env: Env): Promise<Res
   await Promise.all(
     body.files.flatMap((f, i) => [
       env.CACHE!.put(`batch:${batchId}:data:${i}`, f.content, { expirationTtl: BATCH_TTL, metadata: { name: f.name } }),
-      env.CACHE!.put(`batch:${batchId}:status:${i}`, JSON.stringify({ status: "queued" }), { expirationTtl: BATCH_TTL }),
+      env.CACHE!.put(`batch:${batchId}:status:${i}`, JSON.stringify({ status: "queued" }), {
+        expirationTtl: BATCH_TTL,
+        metadata: { status: "queued" } satisfies BatchFileStatus,
+      }),
     ]),
   );
 
@@ -69,16 +82,39 @@ export async function handleBatchStatus(batchId: string, env: Env): Promise<Resp
 
   const jobMeta: { total: number; files: string[] } = JSON.parse(raw);
 
-  const statusPromises = jobMeta.files.map((_, i) => env.CACHE!.get(`batch:${batchId}:status:${i}`));
-  const statuses = await Promise.all(statusPromises);
+  // Read all per-file statuses from key metadata with list() calls
+  // (1 per 1000 files) instead of one get() per file per poll.
+  const prefix = `batch:${batchId}:status:`;
+  const statusByIndex = new Map<number, BatchFileStatus>();
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await env.CACHE.list<BatchFileStatus>({ prefix, cursor });
+    for (const key of page.keys) {
+      const idx = Number(key.name.slice(prefix.length));
+      if (Number.isInteger(idx) && key.metadata?.status) {
+        statusByIndex.set(idx, key.metadata);
+      }
+    }
+    if (page.list_complete) break;
+    cursor = page.cursor;
+  }
+
+  // Fallback for keys without status metadata (written by an older worker)
+  const missing = jobMeta.files.map((_, i) => i).filter((i) => !statusByIndex.has(i));
+  if (missing.length > 0) {
+    const values = await Promise.all(missing.map((i) => env.CACHE!.get(`${prefix}${i}`)));
+    missing.forEach((i, j) => {
+      statusByIndex.set(i, values[j] ? JSON.parse(values[j]!) : { status: "queued" });
+    });
+  }
 
   let completed = 0;
   let failed = 0;
   const files = jobMeta.files.map((name, i) => {
-    const s = statuses[i] ? JSON.parse(statuses[i]!) : { status: "queued" };
+    const s = statusByIndex.get(i) ?? { status: "queued" };
     if (s.status === "done") completed++;
     if (s.status === "failed") failed++;
-    return { index: i, name, status: s.status as string, error: s.error as string | undefined };
+    return { index: i, name, status: s.status, error: s.error };
   });
 
   return jsonResponse({ batch_id: batchId, total: jobMeta.total, completed, failed, files });
