@@ -78,6 +78,7 @@ interface DirEntry {
   is_dir: boolean;
   extension: string | null;
   modified_at: number | null;
+  fold_chain?: string[];
 }
 
 interface GitStatus {
@@ -103,6 +104,11 @@ let gitStatusMap: Map<string, GitStatus> = new Map();
 let refreshGeneration = 0; // guards against concurrent refreshTree() races
 let filterQuery = "";
 let filterScope: string | null = null; // null = global, path = scoped to folder
+// Recursive listing cache (parent dir -> entries) used while filtering, so
+// each keystroke renders from one recursive IPC call instead of walking the
+// tree with per-directory list_directory calls.
+let filterCache: Map<string, DirEntry[]> | null = null;
+let reuseFilterCache = false;
 let dragSourcePaths = new Set<string>();
 let clipboardPaths = new Set<string>();
 let clipboardMode: "cut" | "copy" | null = null;
@@ -472,6 +478,7 @@ function render() {
     if (filterTimeout) clearTimeout(filterTimeout);
     filterTimeout = setTimeout(() => {
       filterQuery = searchInput.value.trim().toLowerCase();
+      reuseFilterCache = true;
       refreshTree();
     }, 150);
   });
@@ -804,6 +811,23 @@ export async function refreshTree() {
 
   const gen = ++refreshGeneration;
 
+  // While filtering, render from one recursive listing instead of walking
+  // the tree with per-directory IPC calls. The cache is reused only between
+  // filter keystrokes (reuseFilterCache); any other trigger rebuilds it.
+  if (filterQuery || tagFilter) {
+    if (!filterCache || !reuseFilterCache) {
+      try {
+        filterCache = await buildFilterCache(rootPath);
+      } catch {
+        filterCache = null; // fall back to per-directory listing
+      }
+      if (gen !== refreshGeneration) return;
+    }
+  } else {
+    filterCache = null;
+  }
+  reuseFilterCache = false;
+
   // Build a completely new tree element off-DOM
   const newTree = document.createElement("div");
   newTree.className = "sidebar-tree";
@@ -848,15 +872,27 @@ export async function refreshTree() {
   updateTagChipBar();
 }
 
+async function buildFilterCache(root: string): Promise<Map<string, DirEntry[]>> {
+  const entries = await invoke<DirEntry[]>("list_directory_recursive", { path: root });
+  const byDir = new Map<string, DirEntry[]>();
+  for (const e of entries) {
+    const parent = dirname(e.path);
+    const siblings = byDir.get(parent);
+    if (siblings) siblings.push(e);
+    else byDir.set(parent, [e]);
+  }
+  return byDir;
+}
+
 async function renderDirectory(
   dirPath: string,
   container: HTMLElement,
   depth: number,
   gen: number,
 ): Promise<boolean> {
-  const entries = await invoke<DirEntry[]>("list_directory", {
-    path: dirPath,
-  });
+  const entries = filterCache
+    ? (filterCache.get(dirPath) ?? [])
+    : await invoke<DirEntry[]>("list_directory", { path: dirPath, foldInfo: true });
   if (gen !== refreshGeneration) return false;
 
   // Sort entries by user preference (directories always first)
@@ -907,30 +943,21 @@ async function renderDirectory(
     if (!showDotfiles && entry.name.startsWith(".")) continue;
 
     if (entry.is_dir) {
-      // Auto-fold: detect chain of single-child directories
+      // Auto-fold: collapse chains of single-child directories.
+      // The chain is computed Rust-side (fold_chain) — no extra IPC calls.
       let foldedEntry = entry;
       let displayName = entry.name;
 
-      if (!isFiltering && !isTagFiltering) {
-        let folding = true;
-        while (folding) {
-          const subEntries = await invoke<DirEntry[]>("list_directory", {
-            path: foldedEntry.path,
-          });
-          if (gen !== refreshGeneration) return false;
-          const subDirs = subEntries.filter((e) => e.is_dir);
-          const subFiles = subEntries.filter((e) => !e.is_dir);
-          if (subDirs.length === 1 && subFiles.length === 0) {
-            // Migrate expanded state from intermediate path to final path
-            if (expandedDirs.has(foldedEntry.path) && !expandedDirs.has(subDirs[0].path)) {
-              expandedDirs.add(subDirs[0].path);
-              expandedDirs.delete(foldedEntry.path);
-            }
-            displayName += "/" + subDirs[0].name;
-            foldedEntry = subDirs[0];
-          } else {
-            folding = false;
+      if (!isFiltering && !isTagFiltering && entry.fold_chain) {
+        for (const childPath of entry.fold_chain) {
+          // Migrate expanded state from intermediate path to final path
+          if (expandedDirs.has(foldedEntry.path) && !expandedDirs.has(childPath)) {
+            expandedDirs.add(childPath);
+            expandedDirs.delete(foldedEntry.path);
           }
+          const childName = basename(childPath);
+          displayName += "/" + childName;
+          foldedEntry = { ...foldedEntry, path: childPath, name: childName };
         }
       }
 
