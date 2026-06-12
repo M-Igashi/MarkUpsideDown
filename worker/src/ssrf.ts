@@ -46,8 +46,8 @@ function isPrivateIp(ip: string): boolean {
   return ip.includes(":") ? isPrivateIpv6(ip) : isPrivateIpv4(ip);
 }
 
-async function resolveHostname(hostname: string): Promise<string[]> {
-  const dohUrl = `https://1.1.1.1/dns-query?name=${encodeURIComponent(hostname)}&type=A`;
+async function resolveRecords(hostname: string, type: "A" | "AAAA"): Promise<string[]> {
+  const dohUrl = `https://1.1.1.1/dns-query?name=${encodeURIComponent(hostname)}&type=${type}`;
   const response = await fetch(dohUrl, {
     headers: { Accept: "application/dns-json" },
   });
@@ -55,6 +55,14 @@ async function resolveHostname(hostname: string): Promise<string[]> {
   const data = await response.json<{ Answer?: Array<{ type: number; data: string }> }>();
   if (!data.Answer) return [];
   return data.Answer.filter((a) => a.type === 1 || a.type === 28).map((a) => a.data);
+}
+
+async function resolveHostname(hostname: string): Promise<string[]> {
+  const [v4, v6] = await Promise.all([
+    resolveRecords(hostname, "A"),
+    resolveRecords(hostname, "AAAA"),
+  ]);
+  return [...v4, ...v6];
 }
 
 export async function validateUrlForSsrf(input: string): Promise<string | null> {

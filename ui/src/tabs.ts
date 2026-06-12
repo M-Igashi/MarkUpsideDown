@@ -24,6 +24,16 @@ let onTabClose: ((tab: Tab) => void) | null = null;
 
 let nextId = 1;
 let currentProjectRoot: string | null = null;
+let contentFlusher: (() => void) | null = null;
+
+/**
+ * Register a callback that flushes any pending editor→tab content sync.
+ * Called before tab content is read or snapshotted (switch, save, dirty check)
+ * so the debounced content update in main.ts cannot be observed stale.
+ */
+export function setTabContentFlusher(fn: () => void): void {
+  contentFlusher = fn;
+}
 
 function genId(): string {
   return `tab-${nextId++}`;
@@ -126,6 +136,7 @@ export function setTabsProjectRoot(root: string | null): void {
  */
 export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void): void {
   // Save current tabs under the current project key
+  contentFlusher?.();
   saveState();
 
   // Carry over untitled (non-file-backed) tabs to the new project
@@ -176,6 +187,7 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
 }
 
 export function openTab(path: string | null, name: string, content: string): Tab {
+  contentFlusher?.();
   // If file already open, switch to it
   if (path) {
     const existing = tabs.find((t) => t.path === path);
@@ -216,6 +228,7 @@ export function switchTab(id: string): void {
     renderTabs();
     return;
   }
+  contentFlusher?.();
   activeTabId = id;
   saveState();
   renderTabs();
@@ -309,10 +322,12 @@ export function getTabs(): Tab[] {
 }
 
 export function isTabDirty(tab: Tab): boolean {
+  contentFlusher?.();
   return tab.path !== null && tab.savedContent !== null && tab.content !== tab.savedContent;
 }
 
 export function markTabSaved(id: string): void {
+  contentFlusher?.();
   const tab = tabs.find((t) => t.id === id);
   if (tab) {
     tab.savedContent = tab.content;

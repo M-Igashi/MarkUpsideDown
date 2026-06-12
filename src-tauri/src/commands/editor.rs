@@ -8,7 +8,7 @@ use crate::error::{AppError, Result};
 #[tauri::command]
 pub fn sync_editor_state(
     window: tauri::Window,
-    content: String,
+    content: Option<String>,
     file_path: Option<String>,
     cursor_pos: Option<usize>,
     cursor_line: Option<usize>,
@@ -23,7 +23,9 @@ pub fn sync_editor_state(
     let label = window.label().to_string();
     let mut map = state.map.lock().unwrap_or_else(|e| e.into_inner());
     let s = map.entry(label).or_default();
-    s.content = content;
+    if let Some(c) = content {
+        s.content = c;
+    }
     s.file_path = file_path;
     if let Some(pos) = cursor_pos {
         s.cursor_pos = pos;
@@ -34,7 +36,9 @@ pub fn sync_editor_state(
     if let Some(col) = cursor_column {
         s.cursor_column = col;
     }
-    s.worker_url = worker_url;
+    if let Some(wu) = worker_url {
+        s.worker_url = Some(wu);
+    }
     if let Some(ds) = document_structure {
         s.document_structure = Some(ds);
     }

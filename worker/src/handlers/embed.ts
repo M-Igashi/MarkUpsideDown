@@ -58,26 +58,28 @@ export async function handleEmbed(request: Request, env: Env): Promise<Response>
     return jsonResponse({ error: "Missing 'documents' array" }, 400);
   }
 
-  let totalChunks = 0;
-  for (const doc of body.documents) {
-    const chunks = chunkDocument(doc.id, doc.content);
-    const texts = chunks.map((c) => c.text);
-    const embeddings = await getEmbeddings(texts, env);
+  const chunkCounts = await Promise.all(
+    body.documents.map(async (doc) => {
+      const chunks = chunkDocument(doc.id, doc.content);
+      const texts = chunks.map((c) => c.text);
+      const embeddings = await getEmbeddings(texts, env);
 
-    const vectors = chunks.map((c, i) => ({
-      id: c.chunkId,
-      values: embeddings[i],
-      metadata: {
-        docId: doc.id,
-        ...(doc.metadata ?? {}),
-      },
-    }));
+      const vectors = chunks.map((c, i) => ({
+        id: c.chunkId,
+        values: embeddings[i],
+        metadata: {
+          docId: doc.id,
+          ...(doc.metadata ?? {}),
+        },
+      }));
 
-    for (let i = 0; i < vectors.length; i += VECTORIZE_UPSERT_MAX) {
-      await env.VECTORS.upsert(vectors.slice(i, i + VECTORIZE_UPSERT_MAX));
-    }
-    totalChunks += chunks.length;
-  }
+      for (let i = 0; i < vectors.length; i += VECTORIZE_UPSERT_MAX) {
+        await env.VECTORS!.upsert(vectors.slice(i, i + VECTORIZE_UPSERT_MAX));
+      }
+      return chunks.length;
+    }),
+  );
+  const totalChunks = chunkCounts.reduce((a, b) => a + b, 0);
 
   return jsonResponse({ indexed: body.documents.length, chunks: totalChunks });
 }
@@ -114,11 +116,16 @@ export async function handleEmbedDelete(docId: string, env: Env): Promise<Respon
     return jsonResponse({ error: "Vectorize index not configured" }, 500);
   }
 
-  const ids: string[] = [];
-  for (let i = 0; i < EMBED_DELETE_MAX_CHUNKS; i++) {
-    ids.push(`${docId}#${i}`);
+  // Chunk IDs are sequential; delete in batches, probing past each batch so
+  // documents larger than one batch are fully removed.
+  let start = 0;
+  for (;;) {
+    const ids = Array.from({ length: EMBED_DELETE_MAX_CHUNKS }, (_, i) => `${docId}#${start + i}`);
+    await env.VECTORS.deleteByIds(ids);
+    start += EMBED_DELETE_MAX_CHUNKS;
+    const probe = await env.VECTORS.getByIds([`${docId}#${start}`]);
+    if (probe.length === 0) break;
   }
-  await env.VECTORS.deleteByIds(ids);
 
   return jsonResponse({ deleted: docId });
 }

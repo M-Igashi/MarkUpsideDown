@@ -24,6 +24,14 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
     }
 }
 
+/// Truncate to at most `max` characters, respecting UTF-8 char boundaries.
+fn truncate_chars(s: &str, max: usize) -> &str {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => &s[..i],
+        None => s,
+    }
+}
+
 fn get_worker_url(env_url: Option<&str>, bridge_url: Option<&str>) -> Result<String, String> {
     env_url
         .or(bridge_url)
@@ -1092,17 +1100,17 @@ impl McpTools {
                     if let Some(ref url) = r.url {
                         output.push_str(&format!("\n\n## {url}"));
                         if let Some(ref md) = r.markdown {
-                            let preview_len = md.len().min(200);
-                            output.push_str(&format!("\n{}", &md[..preview_len]));
-                            if md.len() > 200 {
+                            let preview = truncate_chars(md, 200);
+                            output.push_str(&format!("\n{preview}"));
+                            if preview.len() < md.len() {
                                 output.push_str("...");
                             }
                         }
                         if let Some(ref json) = r.json {
                             let json_str = serde_json::to_string_pretty(json).unwrap_or_else(|_| json.to_string());
-                            let preview_len = json_str.len().min(500);
-                            output.push_str(&format!("\n```json\n{}", &json_str[..preview_len]));
-                            if json_str.len() > 500 {
+                            let preview = truncate_chars(&json_str, 500);
+                            output.push_str(&format!("\n```json\n{preview}"));
+                            if preview.len() < json_str.len() {
                                 output.push_str("...");
                             }
                             output.push_str("\n```");

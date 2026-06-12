@@ -1298,6 +1298,3 @@ export function checkFirstRun() {
     showSettings();
   }
 }
-
-// Re-exported from html-utils.ts for backward compatibility
-export { escapeHtml } from "./html-utils.ts";

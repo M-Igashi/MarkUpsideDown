@@ -247,9 +247,15 @@ fn url_to_filepath(url: &str, base_dir: &str) -> String {
 }
 
 fn sanitize_filename(name: &str) -> String {
-    name.chars()
+    let cleaned = name
+        .chars()
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
         .collect::<String>()
         .trim_matches('_')
-        .to_string()
+        .to_string();
+    // Reject dot-only segments ("." / "..") to prevent path traversal
+    if cleaned.chars().all(|c| c == '.') {
+        return String::new();
+    }
+    cleaned
 }

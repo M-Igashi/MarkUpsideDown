@@ -58,6 +58,7 @@ import {
   setTabsProjectRoot,
   switchProjectTabs,
   getDirtyFileTabs,
+  setTabContentFlusher,
 } from "./tabs.ts";
 import {
   initFileWatcher,
@@ -176,20 +177,36 @@ function getCurrentFilePath() {
 
 // --- CodeMirror Editor ---
 
+// Latest doc state with a not-yet-flushed tab content update. Materializing
+// doc.toString() on every keystroke is O(doc size), so it is deferred to the
+// debounced callback below; tabs.ts flushes it early when tab content is read.
+let pendingDocState: EditorState | null = null;
+
+function flushPendingContent(): string | null {
+  if (!pendingDocState) return null;
+  const content = pendingDocState.doc.toString();
+  pendingDocState = null;
+  updateActiveTab({ content });
+  return content;
+}
+
+setTabContentFlusher(flushPendingContent);
+
 const updatePreviewListener = EditorView.updateListener.of((update) => {
   if (update.docChanged) {
     scrollState.pendingRender = true;
-    const content = update.state.doc.toString();
+    pendingDocState = update.state;
     if (previewTimeout) clearTimeout(previewTimeout);
     previewTimeout = setTimeout(() => {
+      previewTimeout = null;
+      const content = flushPendingContent() ?? editor.state.doc.toString();
       renderPreview(content);
       updateFrontmatterPanel(content);
       updateTocPanel(content);
-      updateStatus(update.state);
+      updateStatus(editor.state);
     }, 100);
-    updateActiveTab({ content });
     scheduleAutoSave();
-    syncEditorState(content);
+    syncEditorState();
   }
   if (update.selectionSet && !update.docChanged && !scrollState.pendingRender) {
     scrollState.activeSide = "editor";
@@ -268,6 +285,9 @@ function loadContent(content: string, filePath?: string | null) {
     clearTimeout(previewTimeout);
     previewTimeout = null;
   }
+  // Callers of loadContent set tab.content themselves, so the pending
+  // editor→tab sync from the dispatch above must not fire later.
+  pendingDocState = null;
   scrollState.pendingRender = false;
   updateStatus(editor.state);
 }

@@ -73,7 +73,6 @@ export function syncEditorState(cachedContent?: string) {
       // Cursor-only change: send lightweight update without content/structure/tabs
       const cursorLineObj = editor.state.doc.lineAt(cursorPos);
       invoke("sync_editor_state", {
-        content: lastSyncedContent,
         filePath: currentFilePath,
         cursorPos,
         cursorLine: cursorLineObj.number,

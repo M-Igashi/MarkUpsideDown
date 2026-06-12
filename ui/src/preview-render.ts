@@ -359,10 +359,6 @@ marked.use({
 const SVG_CACHE_MAX = 50;
 const svgCache = new Map<string, string>();
 
-export function clearSvgCache() {
-  svgCache.clear();
-}
-
 async function inlineSvgImages(container: HTMLElement) {
   const imgs = container.querySelectorAll('img[src$=".svg"]');
   if (imgs.length === 0) return false;

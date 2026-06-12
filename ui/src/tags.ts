@@ -48,11 +48,6 @@ export async function loadTags(rootPath: string): Promise<void> {
   }
 }
 
-export function clearTags(): void {
-  currentRootPath = null;
-  data = { tags: {}, files: {} };
-}
-
 export async function reloadTags(): Promise<void> {
   if (currentRootPath) await loadTags(currentRootPath);
 }
@@ -90,10 +85,6 @@ export function getTagDef(tagName: string): TagDef | undefined {
 
 export function getAllTagNames(): string[] {
   return Object.keys(data.tags);
-}
-
-export function hasAnyTags(): boolean {
-  return Object.keys(data.tags).length > 0;
 }
 
 async function createTag(name: string, color: string): Promise<void> {

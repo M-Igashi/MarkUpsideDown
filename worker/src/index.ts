@@ -98,4 +98,4 @@ export default {
   async queue(batch: MessageBatch<ConvertMessage>, env: Env): Promise<void> {
     await processBatchQueue(batch, env);
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env, ConvertMessage>;

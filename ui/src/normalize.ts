@@ -39,21 +39,23 @@ export function normalizeMarkdown(input: string): string {
 // --- Frontmatter cleanup ---
 
 function stripMalformedFrontmatter(text: string): string {
-  if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) return text;
+  const open = text.match(/^---\r?\n/);
+  if (!open) return text;
 
-  const endIdx = text.indexOf("\n---", 3);
-  if (endIdx === -1) return text;
+  const rest = text.slice(open[0].length);
+  const close = rest.match(/^---[ \t\r]*$/m);
+  if (!close || close.index === undefined) return text;
 
-  const fmBody = text.slice(4, endIdx);
-  const lines = fmBody.split("\n");
+  const fmBody = rest.slice(0, close.index);
+  const lines = fmBody.split(/\r?\n/);
 
   const valid = lines.every(isValidYamlLine);
 
   if (valid) return text;
 
   // Strip malformed frontmatter
-  const afterFm = text.slice(endIdx + 4); // skip \n---
-  return afterFm.replace(/^\n+/, "");
+  const afterFm = rest.slice(close.index + close[0].length);
+  return afterFm.replace(/^[\r\n]+/, "");
 }
 
 // --- Heading hierarchy fix ---
@@ -149,13 +151,6 @@ function normalizeListMarkers(text: string): string {
   }
 
   return lines.join("\n");
-}
-
-// --- Escaping utilities ---
-
-/** Escape a character only if not already escaped (idempotent). */
-export function escapeOnce(s: string, char: string): string {
-  return s.replace(new RegExp(`(?<!\\\\)\\${char}`, "g"), `\\${char}`);
 }
 
 // --- Table reformatting ---

@@ -493,25 +493,29 @@ pub async fn deploy_worker(
     worker_name: Option<String>,
 ) -> crate::error::Result<String> {
     use crate::error::AppError;
-    let temp_dir = std::env::temp_dir().join("markupsidedown-worker-deploy");
-    // Clean up any previous temp dir
-    let _ = std::fs::remove_dir_all(&temp_dir);
+    let result = tokio::task::spawn_blocking(move || {
+        let temp_dir = std::env::temp_dir().join("markupsidedown-worker-deploy");
+        // Clean up any previous temp dir
+        let _ = std::fs::remove_dir_all(&temp_dir);
 
-    let flags = resources.unwrap_or_default();
+        let flags = resources.unwrap_or_default();
 
-    let result = (|| {
-        write_temp_worker_files(&temp_dir, &flags, worker_name.as_deref())?;
+        let result = (|| {
+            write_temp_worker_files(&temp_dir, &flags, worker_name.as_deref())?;
 
-        if let Some(id) = account_id.as_deref() {
-            let env = [("CLOUDFLARE_ACCOUNT_ID", id)];
-            run_wrangler(&["deploy"], Some(&temp_dir), 120, &env)
-        } else {
-            run_wrangler(&["deploy"], Some(&temp_dir), 120, &[])
-        }
-    })();
+            if let Some(id) = account_id.as_deref() {
+                let env = [("CLOUDFLARE_ACCOUNT_ID", id)];
+                run_wrangler(&["deploy"], Some(&temp_dir), 120, &env)
+            } else {
+                run_wrangler(&["deploy"], Some(&temp_dir), 120, &[])
+            }
+        })();
 
-    // Always clean up temp dir
-    let _ = std::fs::remove_dir_all(&temp_dir);
+        // Always clean up temp dir
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        result
+    })
+    .await?;
 
     let output = result.map_err(AppError::Wrangler)?;
     parse_worker_url(&output)

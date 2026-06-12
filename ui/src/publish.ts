@@ -137,11 +137,3 @@ export function isPublished(relativePath: string): boolean {
 export function getPublishUrl(relativePath: string): string | null {
   return state.files[relativePath]?.url ?? null;
 }
-
-export function getPublishEntry(relativePath: string): PublishEntry | null {
-  return state.files[relativePath] ?? null;
-}
-
-export function getAllPublished(): Record<string, PublishEntry> {
-  return { ...state.files };
-}

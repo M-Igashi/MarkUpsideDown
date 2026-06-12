@@ -1,10 +1,7 @@
 // Semantic search via Worker's /embed and /search endpoints (Vectorize).
 
 import { escapeHtml } from "./html-utils.ts";
-import { basename, dirname } from "./path-utils.ts";
 import { workerFetch } from "./worker-fetch.ts";
-
-const { invoke } = window.__TAURI__.core;
 
 // --- Index ---
 
@@ -28,10 +25,6 @@ export async function indexDocuments(
   });
 }
 
-export async function removeDocument(docId: string): Promise<void> {
-  await workerFetch(`/embed/${encodeURIComponent(docId)}`, { method: "DELETE" });
-}
-
 // --- Search ---
 
 export interface SearchResult {
@@ -46,40 +39,6 @@ export async function semanticSearch(query: string, limit = 10): Promise<SearchR
     body: JSON.stringify({ query, limit }),
   });
   return resp.results;
-}
-
-// --- Bulk index from file tree ---
-
-export async function indexProjectFiles(
-  rootPath: string,
-  filePaths: string[],
-  onProgress?: (done: number, total: number) => void,
-): Promise<number> {
-  const batchSize = 10;
-  let indexed = 0;
-
-  for (let i = 0; i < filePaths.length; i += batchSize) {
-    const batch = filePaths.slice(i, i + batchSize);
-    const docs = await Promise.all(
-      batch.map(async (fp) => {
-        const content = await invoke<string>("read_text_file", { path: fp });
-        const relativePath = fp.startsWith(rootPath) ? fp.slice(rootPath.length + 1) : fp;
-        return {
-          id: relativePath,
-          content,
-          metadata: {
-            filename: basename(relativePath),
-            dir: dirname(relativePath),
-          },
-        };
-      }),
-    );
-    await indexDocuments(docs);
-    indexed += docs.length;
-    onProgress?.(indexed, filePaths.length);
-  }
-
-  return indexed;
 }
 
 // --- Search UI (standalone overlay, can be triggered from command palette) ---

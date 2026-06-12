@@ -141,9 +141,13 @@ export async function autoSave() {
   if (!currentFilePath) return;
   const tab = getActiveTab();
   if (!tab || !tab.path || !isTabDirty(tab)) return;
+  // During a tab switch the editor may still show the previous tab's
+  // document; writing it to the new tab's file would corrupt it.
+  const content = editor.state.doc.toString();
+  if (content !== tab.content) return;
   try {
     suppressNext(currentFilePath);
-    await writeTextFile(currentFilePath, editor.state.doc.toString());
+    await writeTextFile(currentFilePath, content);
     markTabSaved(tab.id);
     if (getRootPath()) refreshGitAndSync();
   } catch (e) {
