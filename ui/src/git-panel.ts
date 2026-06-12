@@ -35,6 +35,7 @@ let logEntries: GitLogEntry[] = [];
 let onFileClick: ((path: string) => void) | null = null;
 let onRefreshCb: (() => void) | null = null;
 let onFilesChangedCb: (() => void) | null = null;
+let isVisibleCb: (() => boolean) | null = null;
 let commitMessage = generateDefaultMessage();
 
 // Track which file's diff is currently expanded (by path or commit hash)
@@ -54,12 +55,19 @@ export function initGitPanel(
     onOpen,
     onRefresh,
     onFilesChanged,
-  }: { onOpen: (path: string) => void; onRefresh?: () => void; onFilesChanged?: () => void },
+    isVisible,
+  }: {
+    onOpen: (path: string) => void;
+    onRefresh?: () => void;
+    onFilesChanged?: () => void;
+    isVisible?: () => boolean;
+  },
 ) {
   panelEl = el;
   onFileClick = onOpen;
   onRefreshCb = onRefresh ?? null;
   onFilesChangedCb = onFilesChanged ?? null;
+  isVisibleCb = isVisible ?? null;
   render();
 }
 
@@ -76,9 +84,14 @@ export function setRepoPath(path: string | null, skipRefresh = false) {
 
 export async function refresh() {
   if (!repoPath) return;
+  // Per-file line counts (two extra git diff processes) and the commit log
+  // are only rendered inside the panel — skip them while it is hidden.
+  const visible = isVisibleCb?.() ?? true;
   const [statusResult, logResult] = await Promise.allSettled([
-    invoke<GitData>("git_status", { repoPath }),
-    invoke<GitLogEntry[]>("git_log", { repoPath, limit: 10 }),
+    invoke<GitData>("git_status", { repoPath, includeStats: visible }),
+    visible
+      ? invoke<GitLogEntry[]>("git_log", { repoPath, limit: 10 })
+      : Promise.resolve(logEntries),
   ]);
   gitData = statusResult.status === "fulfilled" ? statusResult.value : null;
   logEntries = logResult.status === "fulfilled" ? logResult.value : [];

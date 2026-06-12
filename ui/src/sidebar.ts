@@ -1,4 +1,4 @@
-import { createGitBadge, applyGitNameStyle } from "./git-panel.ts";
+import { createGitBadge, applyGitNameStyle, refresh as refreshGitPanel } from "./git-panel.ts";
 import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
 import { submitBatch, pollBatch, saveBatchResults } from "./batch-import.ts";
 import {
@@ -620,9 +620,16 @@ function createNavButton(panel: SidebarPanel, label: string, svgIcon: string): H
   return btn;
 }
 
+export function getActivePanel(): SidebarPanel {
+  return activePanel;
+}
+
 export function switchPanel(panel: SidebarPanel) {
+  const wasActive = activePanel === panel;
   activePanel = panel;
   localStorage.setItem(windowKey(KEY_SIDEBAR_PANEL), panel);
+  // Stats and log are skipped while the git panel is hidden — refresh on open
+  if (panel === "git" && !wasActive) refreshGitPanel();
   // Update header title
   const titleEl = sidebarEl?.querySelector(".sidebar-title");
   if (titleEl) titleEl.textContent = panelTitle();
