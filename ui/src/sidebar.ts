@@ -674,9 +674,16 @@ export async function openFolderByPath(path: string) {
   onFolderChange?.(rootPath);
 }
 
-// Snapshot of the last-known top-level directory listing.
-// Used by the poll fallback to detect changes cheaply.
+// Last-known (mtime, size) of the root directory.
+// Used by the poll fallback to detect changes cheaply — a directory's mtime
+// changes when direct children are created, deleted, or renamed, which is
+// the same coverage as the previous top-level listing snapshot.
 let lastDirSnapshot = "";
+
+async function statSnapshot(path: string): Promise<string> {
+  const stat = await invoke<{ mtime_ms: number; size: number }>("stat_file", { path });
+  return `${stat.mtime_ms}:${stat.size}`;
+}
 
 async function startDirWatcher() {
   stopDirWatcher();
@@ -700,16 +707,13 @@ async function startDirWatcher() {
   }
 
   // Poll fallback: macOS FSEvents can miss new-file-creation events from
-  // external processes. Compare a lightweight snapshot of the root directory
-  // to detect changes the watcher missed (mirrors file-watcher.ts design).
+  // external processes. Compare the root directory's (mtime, size) to detect
+  // changes the watcher missed (mirrors file-watcher.ts design).
   const watchRoot = rootPath;
   dirPollTimer = setInterval(async () => {
     if (!rootPath || rootPath !== watchRoot || document.hidden) return;
     try {
-      const entries = await invoke<DirEntry[]>("list_directory", {
-        path: rootPath,
-      });
-      const snapshot = entries.map((e) => `${e.name}:${e.is_dir}`).join("|");
+      const snapshot = await statSnapshot(rootPath);
       if (lastDirSnapshot && snapshot !== lastDirSnapshot) {
         refreshTree();
         onExternalChange?.();
@@ -722,10 +726,7 @@ async function startDirWatcher() {
 
   // Capture initial snapshot
   try {
-    const entries = await invoke<DirEntry[]>("list_directory", {
-      path: rootPath,
-    });
-    lastDirSnapshot = entries.map((e) => `${e.name}:${e.is_dir}`).join("|");
+    lastDirSnapshot = await statSnapshot(rootPath);
   } catch {
     // ignore
   }
