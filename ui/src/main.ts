@@ -121,6 +121,7 @@ import {
 } from "./storage-keys.ts";
 import {
   registerCommands,
+  open as openCommandPalette,
   toggle as toggleCommandPalette,
   setSemanticSearchHandler,
 } from "./command-palette.ts";
@@ -140,7 +141,6 @@ import {
 } from "./toc-panel.ts";
 import { startPresentation } from "./presentation.ts";
 import { setPublishProjectRoot, loadPublishState } from "./publish.ts";
-import { openSearchUI } from "./semantic-search.ts";
 // --- Window label (must run before any state restoration) ---
 initWindowLabel();
 const isFreshWindow = new URLSearchParams(window.location.search).has("fresh");
@@ -999,7 +999,7 @@ document.addEventListener("keydown", (e) => {
     toggleTocPanel();
   } else if (e.key === "5") {
     e.preventDefault();
-    openSearchUI(openSearchResult);
+    openCommandPalette("?");
   } else if (e.key === "c") {
     // Cmd+C with no selection: copy entire content from focused pane
     const active = document.activeElement;
@@ -1175,7 +1175,7 @@ registerCommands([
     label: "Semantic Search",
     shortcut: "⌘5",
     category: "Search",
-    run: () => openSearchUI(openSearchResult),
+    run: () => openCommandPalette("?"),
   },
   {
     id: "app.settings",

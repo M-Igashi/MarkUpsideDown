@@ -94,7 +94,7 @@ function scrollSelectedIntoView(list: HTMLElement) {
   if (sel) sel.scrollIntoView({ block: "nearest" });
 }
 
-export function open() {
+export function open(initialQuery = "") {
   if (overlay) return;
 
   selectedIndex = 0;
@@ -224,6 +224,12 @@ export function open() {
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) close();
   });
+
+  // Preset query (e.g. "?" opens directly in semantic search mode)
+  if (initialQuery) {
+    input.value = initialQuery;
+    input.dispatchEvent(new Event("input"));
+  }
 }
 
 export function close() {
