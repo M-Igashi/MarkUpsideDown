@@ -56,17 +56,29 @@ impl Default for EditorStates {
 }
 
 impl EditorStates {
-    /// Get a clone of the focused window's state, or the first available window's state.
-    pub fn get_focused_state(&self) -> Option<EditorStateInner> {
+    /// Run `f` against the state for `label` (when given and present),
+    /// falling back to the focused window, then any window. Lets callers
+    /// extract just the fields they need without cloning the entire
+    /// EditorStateInner (content + structure/lint JSON can be several MB).
+    pub fn with_state<T>(
+        &self,
+        label: Option<&str>,
+        f: impl FnOnce(&EditorStateInner) -> T,
+    ) -> Option<T> {
         let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(label) = label {
+            if let Some(state) = map.get(label) {
+                return Some(f(state));
+            }
+        }
         let focused = self.focused.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(label) = focused.as_ref() {
             if let Some(state) = map.get(label) {
-                return Some(state.clone());
+                return Some(f(state));
             }
         }
-        // Fallback: return first available window's state
-        map.values().next().cloned()
+        // Fallback: first available window's state
+        map.values().next().map(f)
     }
 
     /// Remove a window's state entry.
@@ -90,26 +102,8 @@ impl EditorStates {
             .clone()
     }
 
-    /// Get a single field from the focused window's state without cloning the entire struct.
-    fn get_focused_field<T>(&self, f: impl FnOnce(&EditorStateInner) -> T) -> Option<T> {
-        let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        let focused = self.focused.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(label) = focused.as_ref() {
-            if let Some(state) = map.get(label) {
-                return Some(f(state));
-            }
-        }
-        map.values().next().map(f)
-    }
-
     pub fn get_focused_root_path(&self) -> Option<String> {
-        self.get_focused_field(|s| s.root_path.clone()).flatten()
-    }
-
-    /// Get the state for a specific window by label.
-    pub fn get_window_state(&self, label: &str) -> Option<EditorStateInner> {
-        let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(label).cloned()
+        self.with_state(None, |s| s.root_path.clone()).flatten()
     }
 
     /// Get all window labels and their root paths.

@@ -34,20 +34,6 @@ impl BridgeState {
         let _ = self.app.emit(event, payload);
     }
 
-    /// Get state for a specific window, or fall back to focused.
-    fn get_state_for(&self, window: Option<&str>) -> Option<commands::EditorStateInner> {
-        if let Some(label) = window {
-            if let Some(state) = self.editor.get_window_state(label) {
-                return Some(state);
-            }
-        }
-        self.editor.get_focused_state()
-    }
-
-    /// Get root path for a specific window, or fall back to focused.
-    fn get_root_for(&self, window: Option<&str>) -> Option<String> {
-        self.get_state_for(window).and_then(|s| s.root_path)
-    }
 }
 
 fn port_file_path() -> PathBuf {
@@ -197,8 +183,8 @@ async fn get_content(
     Query(wq): Query<WindowQuery>,
 ) -> Json<serde_json::Value> {
     let content = state
-        .get_state_for(wq.window.as_deref())
-        .map(|s| s.content)
+        .editor
+        .with_state(wq.window.as_deref(), |s| s.content.clone())
         .unwrap_or_default();
     Json(serde_json::json!({ "content": content }))
 }
@@ -246,7 +232,7 @@ async fn insert_text(
     StatusCode::OK
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct EditorStateResponse {
     file_path: Option<String>,
     worker_url: Option<String>,
@@ -259,14 +245,17 @@ async fn get_state(
     State(state): State<Arc<BridgeState>>,
     Query(wq): Query<WindowQuery>,
 ) -> Json<EditorStateResponse> {
-    let s = state.get_state_for(wq.window.as_deref()).unwrap_or_default();
-    Json(EditorStateResponse {
-        file_path: s.file_path,
-        worker_url: s.worker_url,
-        cursor_pos: s.cursor_pos,
-        cursor_line: s.cursor_line,
-        cursor_column: s.cursor_column,
-    })
+    let resp = state
+        .editor
+        .with_state(wq.window.as_deref(), |s| EditorStateResponse {
+            file_path: s.file_path.clone(),
+            worker_url: s.worker_url.clone(),
+            cursor_pos: s.cursor_pos,
+            cursor_line: s.cursor_line,
+            cursor_column: s.cursor_column,
+        })
+        .unwrap_or_default();
+    Json(resp)
 }
 
 #[derive(Deserialize)]
@@ -312,8 +301,10 @@ async fn get_lint(
     State(state): State<Arc<BridgeState>>,
     Query(wq): Query<WindowQuery>,
 ) -> Json<serde_json::Value> {
-    let s = state.get_state_for(wq.window.as_deref());
-    match s.and_then(|s| s.lint_diagnostics) {
+    let s = state
+        .editor
+        .with_state(wq.window.as_deref(), |s| s.lint_diagnostics.clone());
+    match s.flatten() {
         Some(json_str) => {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 Json(serde_json::json!({ "diagnostics": val }))
@@ -329,8 +320,10 @@ async fn get_structure(
     State(state): State<Arc<BridgeState>>,
     Query(wq): Query<WindowQuery>,
 ) -> Json<serde_json::Value> {
-    let s = state.get_state_for(wq.window.as_deref());
-    match s.and_then(|s| s.document_structure) {
+    let s = state
+        .editor
+        .with_state(wq.window.as_deref(), |s| s.document_structure.clone());
+    match s.flatten() {
         Some(json_str) => {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 Json(val)
@@ -349,8 +342,8 @@ async fn get_tabs(
     Query(wq): Query<WindowQuery>,
 ) -> Json<serde_json::Value> {
     let tabs: Vec<serde_json::Value> = state
-        .get_state_for(wq.window.as_deref())
-        .map(|s| {
+        .editor
+        .with_state(wq.window.as_deref(), |s| {
             s.tabs
                 .iter()
                 .map(|t| {
@@ -371,7 +364,11 @@ async fn get_root(
     State(state): State<Arc<BridgeState>>,
     Query(wq): Query<WindowQuery>,
 ) -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "root_path": state.get_root_for(wq.window.as_deref()) }))
+    let root_path = state
+        .editor
+        .with_state(wq.window.as_deref(), |s| s.root_path.clone())
+        .flatten();
+    Json(serde_json::json!({ "root_path": root_path }))
 }
 
 async fn get_dirty_files(
@@ -379,8 +376,8 @@ async fn get_dirty_files(
     Query(wq): Query<WindowQuery>,
 ) -> Json<serde_json::Value> {
     let dirty: Vec<serde_json::Value> = state
-        .get_state_for(wq.window.as_deref())
-        .map(|s| {
+        .editor
+        .with_state(wq.window.as_deref(), |s| {
             s.tabs
                 .iter()
                 .filter(|t| t.is_dirty)
