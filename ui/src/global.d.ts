@@ -1,6 +1,10 @@
 // Tauri global API (withGlobalTauri: true)
 interface TauriCore {
-  invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T>;
+  invoke<T = unknown>(
+    cmd: string,
+    args?: Record<string, unknown> | ArrayBuffer | Uint8Array,
+    options?: { headers?: Record<string, string> },
+  ): Promise<T>;
   convertFileSrc(filePath: string, protocol?: string): string;
 }
 

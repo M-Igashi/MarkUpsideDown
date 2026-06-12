@@ -1298,8 +1298,9 @@ async function handleExternalFileDrop(files: FileList, targetDir: string) {
 
     try {
       const buffer = await file.arrayBuffer();
-      const data = Array.from(new Uint8Array(buffer));
-      await invoke("write_file_bytes", { path: targetPath, data });
+      await invoke("write_file_bytes", new Uint8Array(buffer), {
+        headers: { path: encodeURIComponent(targetPath) },
+      });
       copiedCount++;
 
       if (MD_EXTENSIONS.has(ext)) {

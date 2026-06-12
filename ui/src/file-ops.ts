@@ -341,8 +341,9 @@ export function initDragDrop(appEl: HTMLElement) {
       const targetPath = `${root}/${file.name}`;
       try {
         const buffer = await file.arrayBuffer();
-        const data = Array.from(new Uint8Array(buffer));
-        await invoke("write_file_bytes", { path: targetPath, data });
+        await invoke("write_file_bytes", new Uint8Array(buffer), {
+          headers: { path: encodeURIComponent(targetPath) },
+        });
         if (MD_EXTENSIONS.has(ext)) {
           const content = await invoke<string>("read_text_file", { path: targetPath });
           loadContentAsTab(content, targetPath);
