@@ -52,7 +52,7 @@ pub(crate) async fn worker_request<T: DeserializeOwned + HasWorkerError>(
 // --- Worker Health Check ---
 
 /// Must match WORKER_VERSION in worker/src/config.ts.
-const EXPECTED_WORKER_VERSION: u32 = 10;
+const EXPECTED_WORKER_VERSION: u32 = 11;
 
 #[derive(Serialize, Default)]
 pub struct WorkerStatus {

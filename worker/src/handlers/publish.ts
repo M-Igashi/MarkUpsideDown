@@ -65,8 +65,7 @@ export async function handleServePublished(key: string, env: Env): Promise<Respo
     return new Response("Gone — this content has expired", { status: 410, headers: CORS_HEADERS });
   }
 
-  const markdown = await obj.text();
-  return new Response(markdown, {
+  return new Response(obj.body, {
     headers: {
       ...CORS_HEADERS,
       "content-type": "text/markdown; charset=utf-8",

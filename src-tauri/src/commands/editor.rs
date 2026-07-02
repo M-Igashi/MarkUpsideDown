@@ -5,8 +5,10 @@ use crate::error::{AppError, Result};
 
 // --- Editor State Sync ---
 
+// async: keeps the state-map lock contention off the main thread — bridge
+// handlers hold the same lock while cloning multi-MB editor content
 #[tauri::command]
-pub fn sync_editor_state(
+pub async fn sync_editor_state(
     window: tauri::Window,
     content: Option<String>,
     file_path: Option<String>,
@@ -299,8 +301,10 @@ pub struct ComrakDiagnostic {
     pub message: String,
 }
 
+// async: full-document comrak parse runs per edit (debounced linter) and
+// would block the main thread as a sync command
 #[tauri::command]
-pub fn validate_markdown(content: String) -> Result<Vec<ComrakDiagnostic>> {
+pub async fn validate_markdown(content: String) -> Result<Vec<ComrakDiagnostic>> {
     use comrak::{parse_document, Arena, Options};
 
     let arena = Arena::new();

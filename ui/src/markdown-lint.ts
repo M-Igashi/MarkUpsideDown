@@ -29,10 +29,18 @@ export interface LintDiagnostic {
   message: string;
 }
 
+// Single-entry memo — the CodeMirror linter and the MCP sync both lint the
+// same text; offsets are identical for both callers. Returns a copy because
+// the linter appends comrak diagnostics to the result.
+let lastCheckText: string | null = null;
+let lastCheckResult: Diagnostic[] = [];
+
 function runAllChecks(
   text: string,
   doc: { line: (n: number) => { from: number; to: number; text: string } },
 ): Diagnostic[] {
+  if (text === lastCheckText) return lastCheckResult.slice();
+
   const lines = text.split("\n");
   const structure = getDocumentStructure(text);
   const diagnostics: Diagnostic[] = [];
@@ -48,7 +56,9 @@ function runAllChecks(
   checkHtmlComments(lines, structure.codeRanges, doc, diagnostics);
   checkBlankLines(lines, structure.codeRanges, doc, diagnostics, structure);
 
-  return diagnostics;
+  lastCheckText = text;
+  lastCheckResult = diagnostics;
+  return diagnostics.slice();
 }
 
 export function getLintDiagnostics(text: string): LintDiagnostic[] {

@@ -488,7 +488,16 @@ export async function renderPreview(source: string) {
         if (oldNode.classList.contains("inline-svg")) {
           return false;
         }
+        // Keep the copy-btn marker so the post-render pass skips already-done PREs
+        if (oldNode.tagName === "PRE" && oldNode.dataset.copyBtn) {
+          newNode.dataset.copyBtn = "true";
+        }
         return true;
+      },
+      beforeNodeRemoved(node: Node) {
+        // Copy buttons are added post-render and absent from the new HTML —
+        // keep them instead of recreating button + listener on every render
+        return !(node instanceof HTMLElement && node.classList.contains("code-copy-btn"));
       },
     },
   });

@@ -65,6 +65,13 @@ async function resolveHostname(hostname: string): Promise<string[]> {
   return [...v4, ...v6];
 }
 
+// Short-lived per-isolate cache of DNS-based verdicts — avoids paying two
+// DoH round trips per request when the same host is fetched repeatedly
+// (crawls, batch link fetching). TTL keeps DNS-rebinding exposure bounded.
+const VERDICT_TTL_MS = 60_000;
+const VERDICT_CACHE_MAX = 256;
+const verdictCache = new Map<string, { verdict: string | null; expires: number }>();
+
 export async function validateUrlForSsrf(input: string): Promise<string | null> {
   let parsed: URL;
   try {
@@ -82,12 +89,21 @@ export async function validateUrlForSsrf(input: string): Promise<string | null> 
     return "Blocked: URL resolves to a private/reserved IP address";
   }
 
+  const cached = verdictCache.get(hostname);
+  if (cached && cached.expires > Date.now()) {
+    return cached.verdict;
+  }
+
   const ips = await resolveHostname(hostname);
+  let verdict: string | null = null;
   for (const ip of ips) {
     if (isPrivateIp(ip)) {
-      return "Blocked: URL resolves to a private/reserved IP address";
+      verdict = "Blocked: URL resolves to a private/reserved IP address";
+      break;
     }
   }
 
-  return null;
+  if (verdictCache.size >= VERDICT_CACHE_MAX) verdictCache.clear();
+  verdictCache.set(hostname, { verdict, expires: Date.now() + VERDICT_TTL_MS });
+  return verdict;
 }

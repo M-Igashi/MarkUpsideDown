@@ -158,24 +158,30 @@ fn raw_request_parts<'a>(request: &'a tauri::ipc::Request<'_>) -> Result<(String
 #[tauri::command]
 pub async fn list_directory(path: String, fold_info: Option<bool>) -> Result<Vec<FileEntry>> {
     let path = validate_path(&path)?;
-    let mut entries = read_dir_entries(&path).await?;
-    if fold_info.unwrap_or(false) {
-        for entry in entries.iter_mut().filter(|e| e.is_dir) {
-            entry.fold_chain = compute_fold_chain(&entry.path).await;
+    let fold = fold_info.unwrap_or(false);
+    // One thread-pool dispatch for the whole listing instead of one per
+    // tokio::fs call — per-entry dispatch overhead dominates on large trees
+    super::spawn_blocking(move || {
+        let mut entries = read_dir_entries(&path)?;
+        if fold {
+            for entry in entries.iter_mut().filter(|e| e.is_dir) {
+                entry.fold_chain = compute_fold_chain(&entry.path);
+            }
         }
-    }
-    Ok(entries)
+        Ok(entries)
+    })
+    .await
 }
 
 /// Walk down single-child directory chains starting at `start`.
 /// Returns the paths of successive lone child directories, or `None`
 /// when `start` contains anything other than exactly one directory.
-async fn compute_fold_chain(start: &str) -> Option<Vec<String>> {
+fn compute_fold_chain(start: &str) -> Option<Vec<String>> {
     const MAX_CHAIN: usize = 16; // guard against symlink loops
     let mut chain = Vec::new();
     let mut current = std::path::PathBuf::from(start);
     while chain.len() < MAX_CHAIN {
-        let Ok(entries) = read_dir_entries(&current).await else {
+        let Ok(entries) = read_dir_entries(&current) else {
             break;
         };
         if entries.len() != 1 || !entries[0].is_dir {
@@ -191,14 +197,19 @@ async fn compute_fold_chain(start: &str) -> Option<Vec<String>> {
 /// filtering as `list_directory`. Limits: max 20 levels deep,
 /// max 10 000 entries, skips `.git/` and `__pycache__/`.
 pub async fn list_recursive(root: &str) -> Result<Vec<FileEntry>> {
+    let root = validate_path(root)?;
+    super::spawn_blocking(move || list_recursive_sync(root)).await
+}
+
+fn list_recursive_sync(root: std::path::PathBuf) -> Result<Vec<FileEntry>> {
     const MAX_DEPTH: usize = 20;
     const MAX_ENTRIES: usize = 10_000;
 
     let mut result = Vec::new();
-    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(validate_path(root)?, 0)];
+    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(root, 0)];
 
     while let Some((dir, depth)) = stack.pop() {
-        let entries = read_dir_entries(&dir).await?;
+        let entries = read_dir_entries(&dir)?;
         for entry in entries {
             if entry.is_dir {
                 let name = entry.name.as_str();
@@ -223,22 +234,15 @@ pub async fn list_directory_recursive(path: String) -> Result<Vec<FileEntry>> {
     list_recursive(&path).await
 }
 
-async fn read_dir_entries(path: &std::path::Path) -> Result<Vec<FileEntry>> {
-    let mut entries = Vec::new();
-    let mut read_dir = tokio::fs::read_dir(path)
-        .await
+fn read_dir_entries(path: &std::path::Path) -> Result<Vec<FileEntry>> {
+    let read_dir = std::fs::read_dir(path)
         .map_err(|e| AppError::Io(format!("Failed to read directory: {e}")))?;
 
-    while let Some(entry) = read_dir
-        .next_entry()
-        .await
-        .map_err(|e| AppError::Io(e.to_string()))?
-    {
+    let mut entries = Vec::new();
+    for entry in read_dir {
+        let entry = entry.map_err(|e| AppError::Io(e.to_string()))?;
         let name = entry.file_name().to_string_lossy().to_string();
-        let file_type = entry
-            .file_type()
-            .await
-            .map_err(|e| AppError::Io(e.to_string()))?;
+        let file_type = entry.file_type().map_err(|e| AppError::Io(e.to_string()))?;
         let entry_path = entry.path();
         let extension = entry_path
             .extension()
@@ -247,7 +251,6 @@ async fn read_dir_entries(path: &std::path::Path) -> Result<Vec<FileEntry>> {
 
         let modified_at = entry
             .metadata()
-            .await
             .ok()
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())

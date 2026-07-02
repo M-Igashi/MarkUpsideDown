@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
 import { CRAWL_LIMIT_MAX, CRAWL_LIMIT_DEFAULT, CRAWL_DEPTH_DEFAULT } from "../config.js";
-import { jsonResponse, parseJsonBody, hasSecrets, wrapJsonSchema } from "../utils.js";
+import { jsonResponse, parseJsonBody, hasSecrets, wrapJsonSchema, CORS_HEADERS } from "../utils.js";
 import { validateUrlForSsrf } from "../ssrf.js";
 
 export async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
@@ -115,8 +115,11 @@ export async function handleCrawlStatus(jobId: string, url: URL, env: Env): Prom
       return jsonResponse({ error: `Crawl status API error (${response.status}): ${errorBody}` }, response.status);
     }
 
-    const data = await response.json();
-    return jsonResponse(data);
+    // Stream the upstream body through — results can be many MB of markdown,
+    // buffering + re-serializing them just to add CORS headers wastes CPU/memory
+    return new Response(response.body, {
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
   } catch (e) {
     return jsonResponse({ error: `Crawl status failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
   }
