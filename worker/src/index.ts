@@ -23,7 +23,7 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/fetch") {
-      return handleFetch(request, env);
+      return handleFetch(request, env, ctx);
     }
 
     if (request.method === "GET" && url.pathname === "/render") {

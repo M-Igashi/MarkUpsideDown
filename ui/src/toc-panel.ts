@@ -10,6 +10,7 @@ let editor: EditorView;
 let collapsed = true;
 let lastHeadings: Heading[] = [];
 let lastContent: string | null = null;
+let lastActiveIdx = -2;
 
 export function initTocPanel(ed: EditorView, container: HTMLElement) {
   editor = ed;
@@ -95,6 +96,7 @@ function render() {
   }
 
   panelEl.innerHTML = html;
+  lastActiveIdx = -2;
 }
 
 /** Highlight the heading closest to the current editor viewport. */
@@ -115,6 +117,10 @@ export function updateTocActiveHeading() {
   }
   // If no heading before viewport, highlight first
   if (activeIdx === -1 && lastHeadings.length > 0) activeIdx = 0;
+
+  // Skip DOM updates when the active heading hasn't changed (scroll hot path)
+  if (activeIdx === lastActiveIdx) return;
+  lastActiveIdx = activeIdx;
 
   const items = panelEl.querySelectorAll(".toc-item");
   for (let i = 0; i < items.length; i++) {

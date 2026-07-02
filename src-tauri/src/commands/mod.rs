@@ -15,6 +15,13 @@ use tauri_plugin_store::StoreExt;
 
 use crate::error::{AppError, Result};
 
+/// Run a blocking closure on the tokio thread pool, mapping join errors.
+pub(crate) async fn spawn_blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tokio::task::spawn_blocking(f).await?
+}
+
 // --- Shared Editor State (for MCP bridge) ---
 
 #[derive(Clone, Serialize, Deserialize, Default)]

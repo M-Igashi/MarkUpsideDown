@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
+use super::spawn_blocking;
 use crate::error::{AppError, Result};
 
 // --- CLI Command Runner ---
@@ -83,13 +84,6 @@ fn run_git_unlocked(repo_path: &str, args: &[&str]) -> Result<String> {
     let mut full_args = vec!["-C", repo_path];
     full_args.extend_from_slice(args);
     run_cli("git", &full_args)
-}
-
-/// Run a blocking closure on the tokio thread pool, mapping join errors.
-async fn spawn_blocking<T: Send + 'static>(
-    f: impl FnOnce() -> Result<T> + Send + 'static,
-) -> Result<T> {
-    tokio::task::spawn_blocking(f).await?
 }
 
 #[derive(Serialize)]

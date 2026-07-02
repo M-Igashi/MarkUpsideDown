@@ -12,6 +12,9 @@ export const scrollState = {
   activeSide: "editor" as "editor" | "preview",
   syncRAF: 0,
   cachedSourceLineEls: [] as HTMLElement[],
+  // Parsed source-line numbers parallel to cachedSourceLineEls (DOM order,
+  // monotonically non-decreasing) — enables binary search in sync functions
+  cachedSourceLines: [] as number[],
 };
 
 let editor: EditorView;
@@ -49,24 +52,45 @@ function getCodeBlockLineInfo(preEl: HTMLElement) {
 
 // --- Helpers for finding surrounding data-source-line elements ---
 
-function findSurroundingEls(elements: HTMLElement[], targetLine: number) {
-  let before: HTMLElement | null = null;
-  let after: HTMLElement | null = null;
-  let beforeLine = -1;
-  let afterLine = Infinity;
+function findSurroundingEls(targetLine: number) {
+  const elements = scrollState.cachedSourceLineEls;
+  const lines = scrollState.cachedSourceLines;
+  if (elements.length === 0) return null;
 
-  for (const el of elements) {
-    const sl = parseInt(el.dataset.sourceLine!, 10);
-    if (isNaN(sl)) continue;
-    if (sl <= targetLine && sl > beforeLine) {
-      before = el;
-      beforeLine = sl;
-    }
-    if (sl >= targetLine && sl < afterLine) {
-      after = el;
-      afterLine = sl;
+  // Binary search: last index with line <= targetLine
+  let lo = 0;
+  let hi = elements.length - 1;
+  let beforeIdx = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid] <= targetLine) {
+      beforeIdx = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
     }
   }
+  // First element among equal-line duplicates
+  while (beforeIdx > 0 && lines[beforeIdx - 1] === lines[beforeIdx]) beforeIdx--;
+
+  // Binary search: first index with line >= targetLine
+  lo = 0;
+  hi = elements.length - 1;
+  let afterIdx = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid] >= targetLine) {
+      afterIdx = mid;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
+  }
+
+  let before: HTMLElement | null = beforeIdx >= 0 ? elements[beforeIdx] : null;
+  let after: HTMLElement | null = afterIdx >= 0 ? elements[afterIdx] : null;
+  let beforeLine = beforeIdx >= 0 ? lines[beforeIdx] : -1;
+  let afterLine = afterIdx >= 0 ? lines[afterIdx] : Infinity;
 
   if (!before && !after) return null;
   if (!before) {
@@ -128,9 +152,16 @@ function computePreviewY(
 
 export function buildScrollAnchors() {
   // Refresh cached source-line elements (used by all sync functions)
-  scrollState.cachedSourceLineEls = Array.from(
-    previewPane.querySelectorAll("[data-source-line]"),
-  ) as HTMLElement[];
+  const els: HTMLElement[] = [];
+  const lines: number[] = [];
+  for (const el of previewPane.querySelectorAll("[data-source-line]")) {
+    const sl = parseInt((el as HTMLElement).dataset.sourceLine!, 10);
+    if (isNaN(sl)) continue;
+    els.push(el as HTMLElement);
+    lines.push(sl);
+  }
+  scrollState.cachedSourceLineEls = els;
+  scrollState.cachedSourceLines = lines;
 }
 
 // --- Viewport-based scroll sync ---
@@ -171,7 +202,7 @@ export function syncToPreview() {
   const editorSubOffset = cmScroller.scrollTop - topBlock.top;
   const blockProgress = topBlock.height > 0 ? editorSubOffset / topBlock.height : 0;
 
-  const surr = findSurroundingEls(elements, topLine);
+  const surr = findSurroundingEls(topLine);
   if (!surr) return;
 
   const previewY = computePreviewY(surr, topLine);
@@ -228,10 +259,11 @@ export function syncToEditor() {
     }
   }
 
+  const lines = scrollState.cachedSourceLines;
   let before: HTMLElement | null = beforeIdx >= 0 ? elements[beforeIdx] : null;
   let after: HTMLElement | null = beforeIdx + 1 < elements.length ? elements[beforeIdx + 1] : null;
-  let beforeLine = before ? parseInt(before.dataset.sourceLine!, 10) : -1;
-  let afterLine = after ? parseInt(after.dataset.sourceLine!, 10) : Infinity;
+  let beforeLine = beforeIdx >= 0 ? lines[beforeIdx] : -1;
+  let afterLine = beforeIdx + 1 < elements.length ? lines[beforeIdx + 1] : Infinity;
   let beforeAbsY = before ? getAbsY(before) : -Infinity;
   let afterAbsY = after ? getAbsY(after) : Infinity;
 
@@ -355,7 +387,7 @@ export function syncPreviewToCursor() {
   const elements = scrollState.cachedSourceLineEls;
   if (elements.length === 0) return;
 
-  const surr = findSurroundingEls(elements, cursorLine);
+  const surr = findSurroundingEls(cursorLine);
   if (!surr) return;
 
   const previewTargetY = computePreviewY(surr, cursorLine);

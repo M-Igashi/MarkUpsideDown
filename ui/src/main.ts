@@ -194,6 +194,9 @@ function flushPendingContent(): string | null {
 
 setTabContentFlusher(flushPendingContent);
 
+// Skip preview rendering while the preview pane is collapsed; render once on expand
+let previewDirty = false;
+
 const updatePreviewListener = EditorView.updateListener.of((update) => {
   if (update.docChanged) {
     scrollState.pendingRender = true;
@@ -202,7 +205,11 @@ const updatePreviewListener = EditorView.updateListener.of((update) => {
     previewTimeout = setTimeout(() => {
       previewTimeout = null;
       const content = flushPendingContent() ?? editor.state.doc.toString();
-      renderPreview(content);
+      if (previewWrapper.classList.contains("collapsed")) {
+        previewDirty = true;
+      } else {
+        renderPreview(content);
+      }
       updateFrontmatterPanel(content);
       updateTocPanel(content);
       updateStatus(editor.state);
@@ -829,6 +836,10 @@ function togglePreview() {
   previewUnfoldBtn.classList.toggle("visible", collapsed);
   updateDividerVisibility();
   setStorageBool(windowKey(KEY_PREVIEW_COLLAPSED), collapsed);
+  if (!collapsed && previewDirty) {
+    previewDirty = false;
+    renderPreview(flushPendingContent() ?? editor.state.doc.toString());
+  }
 }
 
 sidebarUnfoldBtn.addEventListener("click", toggleSidebar);
