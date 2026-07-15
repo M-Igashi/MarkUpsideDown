@@ -15,7 +15,7 @@ import { markdownLinter } from "./markdown-lint.ts";
 import { editorTheme } from "./theme.ts";
 import { editTableAtCursor } from "./table-editor.ts";
 import { showSettings, checkFirstRun } from "./settings.ts";
-import { checkForUpdate } from "./update-toast.ts";
+import { checkForUpdate, watchBundleVersion } from "./update-toast.ts";
 import {
   initSidebar,
   setSelectedPath,
@@ -1233,6 +1233,7 @@ window.addEventListener("beforeunload", () => {
 
 checkFirstRun();
 checkForUpdate();
+watchBundleVersion();
 
 // Preload heavy optional modules during idle time
 (globalThis.requestIdleCallback ?? setTimeout)(() => getMermaid());

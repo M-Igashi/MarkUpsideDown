@@ -179,6 +179,8 @@ fn main() {
             commands::git_show,
             commands::git_init,
             commands::check_for_update,
+            commands::get_bundle_version,
+            commands::relaunch_app,
             cloudflare::check_wrangler_status,
             cloudflare::wrangler_login,
             cloudflare::setup_cloudflare_resources,

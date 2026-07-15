@@ -767,6 +767,25 @@ pub async fn check_for_update(
     }
 }
 
+/// Version of the app bundle on disk, which may differ from the running
+/// process after a `brew upgrade`. Returns None outside a macOS .app bundle
+/// (e.g. dev builds).
+#[tauri::command]
+pub fn get_bundle_version() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let plist = exe.parent()?.parent()?.join("Info.plist");
+    let content = std::fs::read_to_string(plist).ok()?;
+    let rest = &content[content.find("<key>CFBundleShortVersionString</key>")?..];
+    let start = rest.find("<string>")? + "<string>".len();
+    let end = start + rest[start..].find("</string>")?;
+    Some(rest[start..end].trim().to_string())
+}
+
+#[tauri::command]
+pub fn relaunch_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 /// Compare dot-separated version strings (e.g. "0.1.104" > "0.1.103").
 fn is_newer(latest: &str, current: &str) -> bool {
     let parse = |s: &str| -> Vec<u64> {
