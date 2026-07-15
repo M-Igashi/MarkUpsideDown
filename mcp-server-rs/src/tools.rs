@@ -1,6 +1,5 @@
-use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock as Content, Implementation, ServerCapabilities, ServerInfo};
 use rmcp::schemars;
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use serde::Deserialize;
@@ -380,7 +379,6 @@ pub struct GitInitParams {
 // --- Server ---
 
 pub struct McpTools {
-    pub tool_router: ToolRouter<Self>,
     bridge: BridgeClient,
     http: reqwest::Client,
     worker_url_env: Option<String>,
@@ -393,7 +391,6 @@ impl McpTools {
         let worker_url_env = std::env::var("MARKUPSIDEDOWN_WORKER_URL").ok();
         let http = reqwest::Client::new();
         Self {
-            tool_router: Self::tool_router(),
             bridge: BridgeClient::new(http.clone()),
             http,
             worker_url_env,
