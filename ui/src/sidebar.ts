@@ -1686,7 +1686,11 @@ function showMultiContextMenu(event: MouseEvent) {
 }
 
 async function copyToClipboard(text: string) {
-  await invoke("copy_to_clipboard", { text });
+  try {
+    await invoke("copy_to_clipboard", { text });
+  } catch (e) {
+    message(`Copy failed: ${e}`, { kind: "error" });
+  }
 }
 
 async function revealInFinder(path: string) {
