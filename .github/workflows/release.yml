@@ -30,7 +30,11 @@ jobs:
           targets: aarch64-apple-darwin
 
       - name: Install frontend dependencies
-        run: cd ui && npm ci
+        # --legacy-peer-deps: the CI-bundled npm is stricter than the declared
+        # packageManager (npm@11.11.1) and rejects vite-plus's stale typescript
+        # peer range (^5||^6) against typescript 7. Install is driven by the
+        # lockfile, so the result matches local `npm ci` on npm 11.
+        run: cd ui && npm ci --legacy-peer-deps
 
       - name: Build MCP sidecar
         run: |
