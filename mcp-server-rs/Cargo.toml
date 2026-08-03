@@ -6,7 +6,7 @@ description = "MCP server for MarkUpsideDown Markdown editor"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-rmcp = { version = "2", features = ["server", "transport-io", "macros"] }
+rmcp = { version = "3", features = ["server", "transport-io", "macros"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "fs"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
