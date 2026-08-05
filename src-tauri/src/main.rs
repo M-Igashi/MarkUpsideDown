@@ -221,6 +221,28 @@ fn main() {
                 _ => {}
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running MarkUpsideDown");
+        .build(tauri::generate_context!())
+        .expect("error while running MarkUpsideDown")
+        .run(|_app, _event| {
+            // Finder opens (file association) arrive as Apple Events, not CLI args
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                let paths: Vec<String> = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+                if paths.is_empty() {
+                    return;
+                }
+                let handle = _app.clone();
+                tauri::async_runtime::spawn(async move {
+                    // Wait for frontend to be ready (cold launch via Finder)
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    for path in paths {
+                        let _ = handle.emit("cli:open-file", path);
+                    }
+                });
+            }
+        });
 }
