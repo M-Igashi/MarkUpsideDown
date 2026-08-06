@@ -32,6 +32,7 @@ export const KEY_WORKER_SUFFIX = "markupsidedown:workerSuffix";
 export const KEY_SETUP_DONE = "markupsidedown:setupDone";
 export const KEY_ALLOW_IMAGE = "markupsidedown:allowImageConversion";
 export const KEY_AUTOSAVE = "markupsidedown:autosave";
+export const KEY_RENDER_AVAILABLE = "markupsidedown:renderAvailable";
 
 // --- Editor / Preview layout ---
 export const KEY_SIDEBAR_COLLAPSED = "markupsidedown:sidebarCollapsed";

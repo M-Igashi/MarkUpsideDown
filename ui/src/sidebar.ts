@@ -7,6 +7,7 @@ import {
   getExtension,
   IMAGE_EXTENSIONS,
   MD_EXTENSIONS,
+  relativeToRoot,
   SYSTEM_OPEN_EXTENSIONS,
 } from "./path-utils.ts";
 import { escapeHtml } from "./html-utils.ts";
@@ -179,7 +180,9 @@ function updateSelectionDOM() {
 }
 
 type SortBy = "name" | "date" | "type" | "tag";
-let sortBy: SortBy = (localStorage.getItem(KEY_SIDEBAR_SORT) as SortBy) || "name";
+const SORT_VALUES: SortBy[] = ["name", "date", "type", "tag"];
+let sortBy: SortBy =
+  SORT_VALUES.find((v) => v === localStorage.getItem(KEY_SIDEBAR_SORT)) ?? "name";
 let tagFilter: string | null = null; // null = no filter, string = filter by tag name
 let showDotfiles = getStorageBool(KEY_SIDEBAR_SHOW_DOTFILES, true);
 
@@ -850,6 +853,9 @@ export async function refreshTree() {
   const savedScrollTop = treeEl.scrollTop;
 
   // Atomic swap: replace old tree element with new one.
+  // Remove any hover tooltip first — its owner item is about to be replaced,
+  // so its mouseleave cleanup will never fire.
+  document.querySelectorAll(".sidebar-image-tooltip").forEach((el) => el.remove());
   attachTreeListeners(newTree);
   treeEl.replaceWith(newTree);
   treeEl = newTree;
@@ -1069,7 +1075,7 @@ function createTreeItem(entry: DirEntry, depth: number, displayName?: string) {
   }
 
   // Git status indicator
-  const relPath = rootPath ? entry.path.replace(rootPath + "/", "") : entry.name;
+  const relPath = rootPath ? relativeToRoot(rootPath, entry.path) : entry.name;
   const gitStatus = gitStatusMap.get(relPath);
   if (gitStatus) {
     item.appendChild(createGitBadge(gitStatus.status));
@@ -1499,9 +1505,7 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
 
   items.push({ label: "Copy Path", action: () => copyToClipboard(entry.path) });
   if (rootPath) {
-    const relPath = entry.path.startsWith(rootPath + "/")
-      ? entry.path.substring(rootPath.length + 1)
-      : entry.name;
+    const relPath = relativeToRoot(rootPath, entry.path);
     items.push({ label: "Copy Relative Path", action: () => copyToClipboard(relPath) });
   }
   items.push(null);
@@ -1510,9 +1514,7 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
   if (!entry.is_dir && rootPath) {
     const ext = getExtension(entry.name);
     if (MD_EXTENSIONS.has(ext)) {
-      const relPath = entry.path.startsWith(rootPath + "/")
-        ? entry.path.substring(rootPath.length + 1)
-        : entry.name;
+      const relPath = relativeToRoot(rootPath, entry.path);
       if (isPublished(relPath)) {
         const pubUrl = getPublishUrl(relPath);
         if (pubUrl) {
@@ -2155,7 +2157,7 @@ export function setGitStatus(statusMap: Map<string, GitStatus>) {
   for (const item of treeEl.querySelectorAll(".sidebar-tree-item") as NodeListOf<HTMLElement>) {
     const itemPath = item.dataset.path;
     if (!itemPath) continue;
-    const relPath = itemPath.replace(rootPath + "/", "");
+    const relPath = relativeToRoot(rootPath, itemPath);
     const status = statusMap.get(relPath);
 
     // Remove existing badge and name styling

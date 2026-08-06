@@ -1,6 +1,7 @@
 // File tagging system — stores tags in .markupsidedown/tags.json per project.
 
 import { writeTextFile } from "./html-utils.ts";
+import { relativeToRoot } from "./path-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -68,10 +69,7 @@ async function save(): Promise<void> {
 }
 
 function toRelPath(absPath: string): string {
-  if (currentRootPath && absPath.startsWith(currentRootPath + "/")) {
-    return absPath.substring(currentRootPath.length + 1);
-  }
-  return absPath;
+  return currentRootPath ? relativeToRoot(currentRootPath, absPath) : absPath;
 }
 
 export function getFileTags(absPath: string): string[] {

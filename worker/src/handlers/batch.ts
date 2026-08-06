@@ -1,6 +1,6 @@
 import type { Env, ConvertMessage } from "../types.js";
 import { BATCH_TTL, BATCH_SEND_MAX, EXT_TO_MIME } from "../config.js";
-import { jsonResponse, parseJsonBody, kvPut } from "../utils.js";
+import { jsonResponse, parseJsonBody, kvPut, toMarkdownText } from "../utils.js";
 
 function base64ToBlob(b64: string, name: string): Blob {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -52,10 +52,7 @@ export async function handleBatchSubmit(request: Request, env: Env): Promise<Res
   await Promise.all(
     body.files.flatMap((f, i) => [
       env.CACHE!.put(`batch:${batchId}:data:${i}`, f.content, { expirationTtl: BATCH_TTL, metadata: { name: f.name } }),
-      env.CACHE!.put(`batch:${batchId}:status:${i}`, JSON.stringify({ status: "queued" }), {
-        expirationTtl: BATCH_TTL,
-        metadata: { status: "queued" } satisfies BatchFileStatus,
-      }),
+      updateBatchFileStatus(env, `batch:${batchId}:status:${i}`, "queued"),
     ]),
   );
 
@@ -148,10 +145,7 @@ export async function processBatchQueue(batch: MessageBatch<ConvertMessage>, env
         }
         const blob = base64ToBlob(content, name);
         const result = await env.AI.toMarkdown([{ name, blob }]);
-        const markdown = result
-          .filter((r) => r.format === "markdown")
-          .map((r) => r.data)
-          .join("\n\n");
+        const markdown = toMarkdownText(result);
         await Promise.all([
           kvPut(env, `batch:${batchId}:${index}`, markdown, BATCH_TTL, { name }),
           updateBatchFileStatus(env, `batch:${batchId}:status:${index}`, "done"),

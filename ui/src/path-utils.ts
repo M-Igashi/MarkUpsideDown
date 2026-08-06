@@ -58,6 +58,11 @@ export function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+/** Path relative to the project root, or the path itself if outside the root. */
+export function relativeToRoot(root: string, path: string): string {
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+}
+
 /** Compute a relative path from one file to another. */
 export function buildRelativePath(fromFile: string, toFile: string): string {
   const fromDir = dirname(fromFile);

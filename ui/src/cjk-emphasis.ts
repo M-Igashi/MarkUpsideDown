@@ -8,6 +8,13 @@
 
 export const CJK_RE = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
 
+// Emphasis span matchers — shared with markdown-lint.ts so a fix to the
+// flanking logic in one place cannot silently miss the other.
+export const STRONG_ASTERISK_RE = /\*\*((?:[^*]|\*(?!\*))+?)\*\*/g;
+export const EM_ASTERISK_RE = /(?<!\*)\*((?:[^*\n])+?)\*(?!\*)/g;
+export const STRONG_UNDERSCORE_RE = /__((?:[^_]|_(?!_))+?)__/g;
+export const EM_UNDERSCORE_RE = /(?<!_)_((?:[^_\n])+?)_(?!_)/g;
+
 function spaceCjkEmphasis(line: string, re: RegExp, marker: string, space: string): string {
   return line.replace(re, (m, content, offset, str) => {
     const before = offset > 0 ? str[offset - 1] : "";
@@ -35,10 +42,10 @@ export function fixCjkEmphasisWith(text: string, space: string): string {
       line = line.replace(/__\s+((?:[^_]|_(?!_))+?)\s+__/g, "__$1__");
 
       // Insert spaces at CJK boundaries (longer markers first to avoid conflicts)
-      line = spaceCjkEmphasis(line, /\*\*((?:[^*]|\*(?!\*))+?)\*\*/g, "**", space);
-      line = spaceCjkEmphasis(line, /(?<!\*)\*((?:[^*\n])+?)\*(?!\*)/g, "*", space);
-      line = spaceCjkEmphasis(line, /__((?:[^_]|_(?!_))+?)__/g, "__", space);
-      line = spaceCjkEmphasis(line, /(?<!_)_((?:[^_\n])+?)_(?!_)/g, "_", space);
+      line = spaceCjkEmphasis(line, STRONG_ASTERISK_RE, "**", space);
+      line = spaceCjkEmphasis(line, EM_ASTERISK_RE, "*", space);
+      line = spaceCjkEmphasis(line, STRONG_UNDERSCORE_RE, "__", space);
+      line = spaceCjkEmphasis(line, EM_UNDERSCORE_RE, "_", space);
 
       return line;
     })

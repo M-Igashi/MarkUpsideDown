@@ -17,12 +17,10 @@ export interface WorkerFetchResult {
   spa_detected: boolean;
 }
 
-/**
- * Smart fetch: Markdown for Agents → Worker /fetch → auto-render if SPA → raw HTML fallback.
- */
-export async function getUrlAsMarkdown(
+async function fetchPipeline(
   url: string,
   workerUrl: string | null,
+  autoRender: boolean,
   onStatus?: (msg: string) => void,
 ): Promise<{ content: string; method: string }> {
   // 1. Try Markdown for Agents (free, no Worker needed)
@@ -41,7 +39,7 @@ export async function getUrlAsMarkdown(
       });
 
       // 2a. If SPA detected and render available, auto-fallback to Browser Rendering
-      if (fetchResult.spa_detected && isRenderAvailable()) {
+      if (autoRender && fetchResult.spa_detected && isRenderAvailable()) {
         try {
           onStatus?.("JS detected, rendering…");
           const rendered = await invoke<string>("fetch_rendered_url_as_markdown", {
@@ -65,32 +63,25 @@ export async function getUrlAsMarkdown(
 }
 
 /**
+ * Smart fetch: Markdown for Agents → Worker /fetch → auto-render if SPA → raw HTML fallback.
+ */
+export function getUrlAsMarkdown(
+  url: string,
+  workerUrl: string | null,
+  onStatus?: (msg: string) => void,
+): Promise<{ content: string; method: string }> {
+  return fetchPipeline(url, workerUrl, true, onStatus);
+}
+
+/**
  * Fetch a URL (static only, no SPA auto-fallback).
  * Pipeline: Markdown for Agents → Worker AI.toMarkdown() → raw HTML fallback.
  */
-export async function fetchUrlAsMarkdown(
+export function fetchUrlAsMarkdown(
   url: string,
   workerUrl: string | null,
 ): Promise<{ content: string; method: string }> {
-  const result = await invoke<FetchResult>("fetch_url_as_markdown", { url });
-
-  if (result.is_markdown) {
-    return { content: normalizeMarkdown(result.body), method: "Markdown for Agents" };
-  }
-
-  if (workerUrl) {
-    try {
-      const fetchResult = await invoke<WorkerFetchResult>("fetch_url_via_worker", {
-        url,
-        workerUrl,
-      });
-      return { content: normalizeMarkdown(fetchResult.markdown), method: "AI.toMarkdown" };
-    } catch {
-      // Fall through to raw HTML
-    }
-  }
-
-  return { content: result.body, method: "raw HTML" };
+  return fetchPipeline(url, workerUrl, false);
 }
 
 /**

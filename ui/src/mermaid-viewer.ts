@@ -124,10 +124,6 @@ function updateZoomLabel() {
   if (label) label.textContent = `${Math.round(scale * 100)}%`;
 }
 
-function copyAsPng(svgEl: SVGElement, btn: HTMLButtonElement) {
-  copySvgAsPng(svgEl, btn);
-}
-
 export function open(mermaidContainer: HTMLElement) {
   if (overlay) close();
 
@@ -183,7 +179,7 @@ export function open(mermaidContainer: HTMLElement) {
   const copyBtn = document.createElement("button");
   copyBtn.className = "mermaid-viewer-btn mermaid-viewer-text-btn";
   copyBtn.textContent = "Copy as PNG";
-  copyBtn.addEventListener("click", () => copyAsPng(cloned as unknown as SVGElement, copyBtn));
+  copyBtn.addEventListener("click", () => copySvgAsPng(cloned as unknown as SVGElement, copyBtn));
 
   const hint = document.createElement("span");
   hint.className = "mermaid-viewer-hint";

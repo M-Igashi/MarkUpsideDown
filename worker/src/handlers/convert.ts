@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
 import { IMAGE_TYPES, SUPPORTED_TYPES, MIME_TO_EXT } from "../config.js";
-import { jsonResponse, isUnconvertedHtml, mimeToFilename } from "../utils.js";
+import { jsonResponse, isUnconvertedHtml, mimeToFilename, toMarkdownText } from "../utils.js";
 
 export async function handleConvert(request: Request, env: Env): Promise<Response> {
   const contentType = request.headers.get("content-type") || "";
@@ -17,10 +17,7 @@ export async function handleConvert(request: Request, env: Env): Promise<Respons
     const blob = new Blob([body], { type: mimeType });
     const fileName = mimeToFilename(mimeType, MIME_TO_EXT);
     const result = await env.AI.toMarkdown([{ name: fileName, blob }]);
-    const markdown = result
-      .filter((r) => r.format === "markdown")
-      .map((r) => r.data)
-      .join("\n\n");
+    const markdown = toMarkdownText(result);
     const warning = isUnconvertedHtml(markdown) ? "Conversion result may contain unconverted HTML" : undefined;
     return jsonResponse({ markdown, is_image: isImage, original_size: originalSize, warning });
   } catch (e) {

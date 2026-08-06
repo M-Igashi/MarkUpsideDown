@@ -129,6 +129,7 @@ export function isPublished(relativePath: string): boolean {
   if (!entry) return false;
   if (entry.expiresAt && new Date(entry.expiresAt) < new Date()) {
     delete state.files[relativePath];
+    savePublishState().catch(() => {});
     return false;
   }
   return true;

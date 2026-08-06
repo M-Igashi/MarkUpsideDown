@@ -69,15 +69,19 @@ export async function kvPut(env: Env, key: string, value: string, ttl: number, m
   await env.CACHE.put(key, value, { expirationTtl: ttl, metadata });
 }
 
-// --- AI conversion helper ---
+// --- AI conversion helpers ---
 
-export async function htmlToMarkdown(html: string, env: Env): Promise<string> {
-  const blob = new Blob([html], { type: "text/html" });
-  const result = await env.AI.toMarkdown([{ name: "page.html", blob }]);
+/** Flatten an AI.toMarkdown() result into a single Markdown string. */
+export function toMarkdownText(result: { format: string; data: string }[]): string {
   return result
     .filter((r) => r.format === "markdown")
     .map((r) => r.data)
     .join("\n\n");
+}
+
+export async function htmlToMarkdown(html: string, env: Env): Promise<string> {
+  const blob = new Blob([html], { type: "text/html" });
+  return toMarkdownText(await env.AI.toMarkdown([{ name: "page.html", blob }]));
 }
 
 // --- SPA detection ---

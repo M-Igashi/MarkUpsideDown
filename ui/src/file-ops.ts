@@ -1,5 +1,11 @@
 import type { EditorView } from "@codemirror/view";
-import { basename, getExtension, IMAGE_EXTENSIONS, MD_EXTENSIONS } from "./path-utils.ts";
+import {
+  basename,
+  getExtension,
+  IMAGE_EXTENSIONS,
+  MD_EXTENSIONS,
+  relativeToRoot,
+} from "./path-utils.ts";
 import { ensureWorkerUrl, isImageConversionAllowed, isAutoSaveEnabled } from "./settings.ts";
 import { getUrlAsMarkdown, fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fetch-markdown.ts";
 import { normalizeMarkdown } from "./normalize.ts";
@@ -285,8 +291,7 @@ export async function convertFile(filePath: string) {
 
     // Auto-index converted file for semantic search (fire and forget)
     const rootPath = getRootPath();
-    const docId =
-      rootPath && filePath.startsWith(rootPath) ? filePath.slice(rootPath.length + 1) : fileName;
+    const docId = rootPath ? relativeToRoot(rootPath, filePath) : fileName;
     indexDocument(docId, markdown, { filename: fileName }).catch(() => {});
   } catch (e) {
     statusEl.textContent = `Convert error: ${e}`;

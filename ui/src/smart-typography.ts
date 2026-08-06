@@ -13,7 +13,7 @@ export function setSmartTypographyEnabled(enabled: boolean) {
 
 interface Rule {
   pattern: RegExp;
-  replace: string | ((match: RegExpMatchArray) => string);
+  replace: string;
 }
 
 const rules: Rule[] = [
@@ -47,8 +47,7 @@ export const smartTypography = ViewPlugin.fromClass(
             const before = update.state.doc.sliceString(0, matchStart);
             if (isPositionInCode(before, before.length)) continue;
 
-            const replacement =
-              typeof rule.replace === "function" ? rule.replace(match) : rule.replace;
+            const replacement = rule.replace;
 
             requestAnimationFrame(() => {
               const current = update.view.state.doc.sliceString(matchStart, matchEnd);

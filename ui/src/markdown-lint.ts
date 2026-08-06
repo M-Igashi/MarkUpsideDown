@@ -5,6 +5,12 @@ import {
   isInCodeBlock,
   type DocumentStructure,
 } from "./document-structure.ts";
+import {
+  EM_ASTERISK_RE,
+  EM_UNDERSCORE_RE,
+  STRONG_ASTERISK_RE,
+  STRONG_UNDERSCORE_RE,
+} from "./cjk-emphasis.ts";
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import { KEY_LINT_ENABLED } from "./storage-keys.ts";
 
@@ -313,42 +319,10 @@ function checkEmphasis(
     // Mask inline code spans so they don't trigger false positives
     const noCode = line.replace(/`[^`]*`/g, (m) => " ".repeat(m.length));
 
-    checkEmphasisPattern(
-      noCode,
-      /\*\*((?:[^*]|\*(?!\*))+?)\*\*/g,
-      "**",
-      "strong",
-      line,
-      lineObj,
-      diagnostics,
-    );
-    checkEmphasisPattern(
-      noCode,
-      /(?<!\*)\*((?:[^*\n])+?)\*(?!\*)/g,
-      "*",
-      "em",
-      line,
-      lineObj,
-      diagnostics,
-    );
-    checkEmphasisPattern(
-      noCode,
-      /__((?:[^_]|_(?!_))+?)__/g,
-      "__",
-      "strong",
-      line,
-      lineObj,
-      diagnostics,
-    );
-    checkEmphasisPattern(
-      noCode,
-      /(?<!_)_((?:[^_\n])+?)_(?!_)/g,
-      "_",
-      "em",
-      line,
-      lineObj,
-      diagnostics,
-    );
+    checkEmphasisPattern(noCode, STRONG_ASTERISK_RE, "**", "strong", line, lineObj, diagnostics);
+    checkEmphasisPattern(noCode, EM_ASTERISK_RE, "*", "em", line, lineObj, diagnostics);
+    checkEmphasisPattern(noCode, STRONG_UNDERSCORE_RE, "__", "strong", line, lineObj, diagnostics);
+    checkEmphasisPattern(noCode, EM_UNDERSCORE_RE, "_", "em", line, lineObj, diagnostics);
   }
 }
 
@@ -564,6 +538,8 @@ function checkEmphasisPattern(
   lineObj: { from: number; to: number },
   diagnostics: Diagnostic[],
 ) {
+  // Shared /g regex instances — reset in case a previous caller left state behind
+  re.lastIndex = 0;
   let m;
   while ((m = re.exec(masked)) !== null) {
     // Build a minimal context string: one char before + match + one char after

@@ -1,10 +1,5 @@
 import type { EditorView } from "@codemirror/view";
 
-export interface ScrollAnchor {
-  editorY: number;
-  previewY: number;
-}
-
 // Shared mutable state — accessed by both scroll-sync and preview modules
 export const scrollState = {
   renderingPreview: false,

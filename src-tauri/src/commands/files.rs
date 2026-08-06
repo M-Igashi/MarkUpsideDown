@@ -173,6 +173,28 @@ pub async fn list_directory(path: String, fold_info: Option<bool>) -> Result<Vec
     .await
 }
 
+/// If `dir` contains exactly one visible entry and it is a directory, return
+/// its path. Applies the same hidden-entry filtering as `read_dir_entries`,
+/// but skips its metadata stats and sorting — this runs for every directory
+/// in a sidebar listing.
+fn lone_child_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut lone: Option<std::path::PathBuf> = None;
+    for entry in std::fs::read_dir(dir).ok()? {
+        let entry = entry.ok()?;
+        let is_dir = entry.file_type().ok()?.is_dir();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if is_hidden_entry(is_dir, &name) {
+            continue;
+        }
+        if !is_dir || lone.is_some() {
+            return None;
+        }
+        lone = Some(entry.path());
+    }
+    lone
+}
+
 /// Walk down single-child directory chains starting at `start`.
 /// Returns the paths of successive lone child directories, or `None`
 /// when `start` contains anything other than exactly one directory.
@@ -181,14 +203,11 @@ fn compute_fold_chain(start: &str) -> Option<Vec<String>> {
     let mut chain = Vec::new();
     let mut current = std::path::PathBuf::from(start);
     while chain.len() < MAX_CHAIN {
-        let Ok(entries) = read_dir_entries(&current) else {
+        let Some(child) = lone_child_dir(&current) else {
             break;
         };
-        if entries.len() != 1 || !entries[0].is_dir {
-            break;
-        }
-        chain.push(entries[0].path.clone());
-        current = std::path::PathBuf::from(&entries[0].path);
+        chain.push(child.to_string_lossy().to_string());
+        current = child;
     }
     (!chain.is_empty()).then_some(chain)
 }
@@ -234,6 +253,18 @@ pub async fn list_directory_recursive(path: String) -> Result<Vec<FileEntry>> {
     list_recursive(&path).await
 }
 
+/// Entries hidden from listings: build artifact / dependency directories
+/// and OS-generated junk files.
+fn is_hidden_entry(is_dir: bool, name: &str) -> bool {
+    const HIDDEN_DIRS: &[&str] = &["node_modules", "target", "dist", "build"];
+    const HIDDEN_FILES: &[&str] = &[".DS_Store", "Thumbs.db"];
+    if is_dir {
+        HIDDEN_DIRS.contains(&name)
+    } else {
+        HIDDEN_FILES.contains(&name)
+    }
+}
+
 fn read_dir_entries(path: &std::path::Path) -> Result<Vec<FileEntry>> {
     let read_dir = std::fs::read_dir(path)
         .map_err(|e| AppError::Io(format!("Failed to read directory: {e}")))?;
@@ -266,14 +297,7 @@ fn read_dir_entries(path: &std::path::Path) -> Result<Vec<FileEntry>> {
         });
     }
 
-    // Filter out well-known build artifact and dependency directories.
-    const HIDDEN_DIRS: &[&str] = &["node_modules", "target", "dist", "build"];
-    // Filter out OS-generated junk files.
-    const HIDDEN_FILES: &[&str] = &[".DS_Store", "Thumbs.db"];
-    entries.retain(|e| {
-        !(e.is_dir && HIDDEN_DIRS.contains(&e.name.as_str()))
-            && !(!e.is_dir && HIDDEN_FILES.contains(&e.name.as_str()))
-    });
+    entries.retain(|e| !is_hidden_entry(e.is_dir, &e.name));
 
     // Sort: directories first, then alphabetically (case-insensitive)
     entries.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
@@ -322,17 +346,28 @@ pub async fn rename_entry(from: String, to: String) -> Result<()> {
 
 #[tauri::command]
 pub async fn write_file_bytes(request: tauri::ipc::Request<'_>) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
     let (path, data) = raw_request_parts(&request)?;
     let dest = validate_path(&path)?;
-    if dest.exists() {
-        return Err(AppError::Io(format!(
-            "'{}' already exists",
-            dest.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default()
-        )));
-    }
-    tokio::fs::write(&dest, data)
+    // create_new refuses to overwrite atomically (no exists() pre-check race)
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&dest)
+        .await
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                AppError::Io(format!(
+                    "'{}' already exists",
+                    dest.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                ))
+            } else {
+                AppError::Io(format!("Failed to write file: {e}"))
+            }
+        })?;
+    file.write_all(data)
         .await
         .map_err(|e| AppError::Io(format!("Failed to write file: {e}")))
 }

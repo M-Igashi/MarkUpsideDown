@@ -8,6 +8,7 @@ import {
   KEY_SETUP_DONE,
   KEY_ALLOW_IMAGE,
   KEY_AUTOSAVE,
+  KEY_RENDER_AVAILABLE,
 } from "./storage-keys.ts";
 import { escapeHtml } from "./html-utils.ts";
 
@@ -86,8 +87,17 @@ function markSetupDone() {
 let currentTestStatus: WorkerStatus | null = null; // cached last test result
 let lastTestedUrl: string | null = null; // URL that produced currentTestStatus
 
+/** Cache a health-test result and persist render availability, so SPA
+ * auto-render keeps working on fresh launches before any test runs. */
+function cacheTestStatus(status: WorkerStatus, testedUrl: string) {
+  currentTestStatus = status;
+  lastTestedUrl = testedUrl;
+  setStorageBool(KEY_RENDER_AVAILABLE, Boolean(status.render_available));
+}
+
 export function isRenderAvailable(): boolean {
-  return Boolean(currentTestStatus?.render_available);
+  if (currentTestStatus) return Boolean(currentTestStatus.render_available);
+  return getStorageBool(KEY_RENDER_AVAILABLE);
 }
 
 function featureRows(status: WorkerStatus | null) {
@@ -386,8 +396,7 @@ async function startAutoSetup(
     const testStatus = await invoke<WorkerStatus>("test_worker_url", {
       workerUrl,
     });
-    currentTestStatus = testStatus;
-    lastTestedUrl = workerUrl;
+    cacheTestStatus(testStatus, workerUrl);
     if (testStatus.reachable) {
       update("verify", "done");
       if (testStatus.render_available) {
@@ -873,8 +882,7 @@ export function showSettings({
       urlInput.value = newUrl;
       // Re-test to refresh capabilities
       const status = await invoke<WorkerStatus>("test_worker_url", { workerUrl: newUrl });
-      currentTestStatus = status;
-      lastTestedUrl = newUrl;
+      cacheTestStatus(status, newUrl);
       renderFeatureList(featureList, status);
       showUpdateButton(status);
       if (status.reachable && !status.update_available) {
@@ -906,8 +914,7 @@ export function showSettings({
 
     try {
       const status = await invoke<WorkerStatus>("test_worker_url", { workerUrl: url });
-      currentTestStatus = status;
-      lastTestedUrl = url;
+      cacheTestStatus(status, url);
 
       if (!status.reachable) {
         testResult.className = "settings-test-result test-error";
@@ -969,6 +976,7 @@ export function showSettings({
     urlInput.value = "";
     currentTestStatus = null;
     lastTestedUrl = null;
+    setStorageBool(KEY_RENDER_AVAILABLE, false);
     testResult.className = "settings-test-result";
     testResult.textContent = "";
     renderFeatureList(featureList, null);

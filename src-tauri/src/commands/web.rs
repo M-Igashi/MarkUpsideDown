@@ -93,7 +93,6 @@ struct HealthCapabilities {
 
 #[derive(Deserialize)]
 struct HealthResponse {
-    _status: Option<String>,
     version: Option<u32>,
     capabilities: Option<HealthCapabilities>,
 }
@@ -152,7 +151,6 @@ pub async fn test_worker_url(
 #[derive(Serialize)]
 pub struct MarkdownResponse {
     pub body: String,
-    pub token_count: Option<u64>,
     pub is_markdown: bool,
 }
 
@@ -169,12 +167,6 @@ pub async fn fetch_url_as_markdown(
         .await
         .map_err(|e| AppError::Network(e.to_string()))?;
 
-    let token_count = response
-        .headers()
-        .get("x-markdown-tokens")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<u64>().ok());
-
     let content_type = response
         .headers()
         .get("content-type")
@@ -189,7 +181,6 @@ pub async fn fetch_url_as_markdown(
 
     Ok(MarkdownResponse {
         body,
-        token_count,
         is_markdown: content_type.contains("text/markdown"),
     })
 }
@@ -266,56 +257,6 @@ pub async fn fetch_url_via_worker(
             .ok_or_else(|| AppError::Worker("No markdown in response".into()))?,
         source: body.source.unwrap_or_else(|| "ai-to-markdown".to_string()),
         spa_detected: body.spa_detected.unwrap_or(false),
-    })
-}
-
-// --- JSON Extraction via Browser Rendering /json API ---
-
-#[derive(Deserialize)]
-struct JsonWorkerResponse {
-    data: Option<serde_json::Value>,
-    error: Option<String>,
-}
-
-impl HasWorkerError for JsonWorkerResponse {
-    fn take_error(&mut self) -> Option<String> { self.error.take() }
-}
-
-#[derive(Serialize)]
-pub struct JsonExtractResult {
-    pub data: serde_json::Value,
-}
-
-#[tauri::command]
-pub async fn fetch_json_via_worker(
-    url: String,
-    worker_url: String,
-    prompt: Option<String>,
-    response_format: Option<serde_json::Value>,
-    client: tauri::State<'_, reqwest::Client>,
-) -> Result<JsonExtractResult> {
-    let json_url = format!("{}/json", worker_url.trim_end_matches('/'));
-
-    let mut req_body = serde_json::json!({ "url": url });
-    if let Some(ref p) = prompt {
-        req_body["prompt"] = serde_json::json!(p);
-    }
-    if let Some(ref rf) = response_format {
-        req_body["response_format"] = rf.clone();
-    }
-
-    let resp: JsonWorkerResponse = worker_request(
-        client
-            .post(&json_url)
-            .timeout(Duration::from_secs(60))
-            .json(&req_body),
-    )
-    .await?;
-
-    Ok(JsonExtractResult {
-        data: resp
-            .data
-            .ok_or_else(|| AppError::Worker("No data in response".into()))?,
     })
 }
 
@@ -463,15 +404,6 @@ pub async fn convert_file_to_markdown(
         original_size,
         warning: body.warning,
     })
-}
-
-#[tauri::command]
-pub fn detect_file_is_image(file_path: String) -> Result<bool> {
-    let ext = std::path::Path::new(&file_path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    Ok(mime_from_extension(ext).is_some_and(|m| m.starts_with("image/")))
 }
 
 /// MIME map (sync with mcp-server-rs/src/tools.rs and worker SUPPORTED_TYPES)

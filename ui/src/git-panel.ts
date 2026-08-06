@@ -282,11 +282,11 @@ function statusLabel(status: string): string {
   return (STATUS_MAP[status] || DEFAULT_STATUS).label || status;
 }
 
-export function statusClass(status: string): string {
+function statusClass(status: string): string {
   return (STATUS_MAP[status] || DEFAULT_STATUS).cls;
 }
 
-export function statusSuffix(status: string): string {
+function statusSuffix(status: string): string {
   return (STATUS_MAP[status] || DEFAULT_STATUS).suffix;
 }
 

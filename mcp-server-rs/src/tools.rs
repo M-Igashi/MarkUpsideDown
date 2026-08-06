@@ -453,6 +453,22 @@ impl McpTools {
         Ok(data)
     }
 
+    /// GET /render for a URL via the Worker and return the rendered Markdown.
+    async fn render_via_worker(&self, url: &str) -> Result<String, String> {
+        let data = self
+            .worker_call(
+                reqwest::Method::GET,
+                &format!("/render?url={}", urlencoding::encode(url)),
+                None,
+                60,
+            )
+            .await?;
+        if let Some(err) = data["error"].as_str() {
+            return Err(err.to_string());
+        }
+        Ok(data["markdown"].as_str().unwrap_or_default().to_string())
+    }
+
     /// Resolve an absolute path to a path relative to the project root
     /// (used by the tag tools, which key files by relative path).
     async fn resolve_rel_path(&self, path: &str) -> String {
@@ -561,24 +577,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<UrlParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-
-            let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&params.url));
-            let response = self.http.get(&render_url).timeout(std::time::Duration::from_secs(60)).send().await.map_err(|e| e.to_string())?;
-
-            #[derive(Deserialize)]
-            struct Resp {
-                markdown: Option<String>,
-                error: Option<String>,
-            }
-            let data: Resp = response.json().await.map_err(|e| e.to_string())?;
-            if let Some(err) = data.error {
-                return Err(err);
-            }
-            Ok(data.markdown.unwrap_or_default())
-        }
-        .await;
+        let result = self.render_via_worker(&params.url).await;
 
         match result {
             Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
@@ -628,20 +627,9 @@ impl McpTools {
 
                 // 2a. If SPA detected, try Browser Rendering
                 if spa_detected {
-                    #[derive(Deserialize)]
-                    struct RenderResp {
-                        markdown: Option<String>,
-                        error: Option<String>,
-                    }
-
-                    let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&params.url));
-                    if let Ok(resp) = self.http.get(&render_url).timeout(std::time::Duration::from_secs(60)).send().await {
-                        if let Ok(rdata) = resp.json::<RenderResp>().await {
-                            if rdata.error.is_none() {
-                                if let Some(rendered) = rdata.markdown {
-                                    return Ok(format!("--- Browser Rendering (auto) ---\n\n{rendered}"));
-                                }
-                            }
+                    if let Ok(rendered) = self.render_via_worker(&params.url).await {
+                        if !rendered.is_empty() {
+                            return Ok(format!("--- Browser Rendering (auto) ---\n\n{rendered}"));
                         }
                     }
                     // Render failed — return fetch result
@@ -958,9 +946,6 @@ impl McpTools {
                 return Err("At least one of 'prompt' or 'response_format' is required".to_string());
             }
 
-            let worker_url = self.resolve_worker_url().await?;
-            let json_url = format!("{}/json", worker_url.trim_end_matches('/'));
-
             let mut body = serde_json::json!({ "url": params.url });
             if let Some(ref p) = params.prompt {
                 body["prompt"] = serde_json::json!(p);
@@ -969,27 +954,14 @@ impl McpTools {
                 body["response_format"] = parse_schema_param(rf)?;
             }
 
-            let response = self
-                .http
-                .post(&json_url)
-                .timeout(std::time::Duration::from_secs(120))
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            #[derive(Deserialize)]
-            struct Resp {
-                data: Option<serde_json::Value>,
-                error: Option<String>,
-            }
-            let status = response.status();
-            let data: Resp = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
-            if !status.is_success() {
-                return Err(data.error.unwrap_or_else(|| format!("Worker returned {status}")));
-            }
-            let result = data.data.ok_or("No data in response")?;
-            Ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()))
+            let data = self
+                .worker_call(reqwest::Method::POST, "/json", Some(body), 120)
+                .await?;
+            let result = data
+                .get("data")
+                .filter(|v| !v.is_null())
+                .ok_or_else(|| "No data in response".to_string())?;
+            Ok(serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string()))
         }
         .await;
 
@@ -1004,10 +976,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<CrawlWebsiteParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let worker_url = self.resolve_worker_url().await?;
-            let crawl_url = format!("{}/crawl", worker_url.trim_end_matches('/'));
-
+        let result: Result<String, String> = async {
             let mut body = serde_json::json!({
                 "url": params.url,
                 "depth": params.depth.unwrap_or(1),
@@ -1033,26 +1002,12 @@ impl McpTools {
                 }
             }
 
-            let response = self
-                .http
-                .post(&crawl_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            #[derive(Deserialize)]
-            struct Resp {
-                job_id: Option<String>,
-                error: Option<String>,
-            }
-            let status = response.status();
-            let data: Resp = response.json().await.map_err(|e| format!("Failed to parse response: {e}"))?;
-            if !status.is_success() {
-                return Err(data.error.unwrap_or_else(|| format!("Worker returned {status}")));
-            }
-            let job_id = data.job_id.ok_or("No job_id in response")?;
+            let data = self
+                .worker_call(reqwest::Method::POST, "/crawl", Some(body), 30)
+                .await?;
+            let job_id = data["job_id"]
+                .as_str()
+                .ok_or_else(|| "No job_id in response".to_string())?;
             Ok(format!("Crawl started. job_id: {job_id}\n\nUse crawl_status with this job_id to poll for results."))
         }
         .await;

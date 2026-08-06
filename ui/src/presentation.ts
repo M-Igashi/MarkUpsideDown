@@ -15,6 +15,7 @@ export function startPresentation(content: string) {
 
   if (slides.length === 0) return;
 
+  if (overlay) stopPresentation();
   currentSlide = 0;
   createOverlay();
   showSlide(currentSlide);
@@ -100,12 +101,6 @@ async function showSlide(index: number) {
   const slideEl = overlay.querySelector(".presentation-slide")!;
   const counterEl = overlay.querySelector(".presentation-counter")!;
 
-  // Use a temporary container to render the slide's Markdown
-  const tempPane = document.createElement("div");
-  tempPane.className = "preview-pane presentation-content";
-
-  // We need to render into the slide element directly
-  // Use marked directly for simplicity
   markedModule ??= await import("marked");
   const { marked } = markedModule;
   const html = await marked.parse(slides[index]);

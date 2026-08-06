@@ -35,6 +35,20 @@ fn resolve_file_paths<'a>(
         .collect()
 }
 
+/// Emit `cli:open-file` for each path after a short delay so the frontend
+/// has registered its listeners (cold launch via CLI or Finder).
+fn emit_open_files_delayed(handle: tauri::AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        for path in paths {
+            let _ = handle.emit("cli:open-file", path);
+        }
+    });
+}
+
 /// Extract file path strings from a CLI arg value (handles both string and array).
 fn extract_cli_file_values(value: &serde_json::Value) -> Vec<&str> {
     match value {
@@ -107,16 +121,7 @@ fn main() {
                     let values = extract_cli_file_values(&file_arg.value);
                     let base_dir = std::env::current_dir().unwrap_or_default();
                     let paths = resolve_file_paths(values.into_iter(), &base_dir);
-                    if !paths.is_empty() {
-                        let handle = app.handle().clone();
-                        tauri::async_runtime::spawn(async move {
-                            // Wait for frontend to be ready
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                            for path in paths {
-                                let _ = handle.emit("cli:open-file", path);
-                            }
-                        });
-                    }
+                    emit_open_files_delayed(app.handle().clone(), paths);
                 }
             }
 
@@ -130,12 +135,10 @@ fn main() {
             commands::fetch_url_as_markdown,
             commands::fetch_rendered_url_as_markdown,
             commands::fetch_url_via_worker,
-            commands::fetch_json_via_worker,
             commands::crawl_website,
             commands::crawl_status,
             commands::crawl_save,
             commands::convert_file_to_markdown,
-            commands::detect_file_is_image,
             commands::git_clone,
             commands::sync_editor_state,
             commands::fetch_page_title,
@@ -232,17 +235,7 @@ fn main() {
                     .filter_map(|u| u.to_file_path().ok())
                     .map(|p| p.to_string_lossy().to_string())
                     .collect();
-                if paths.is_empty() {
-                    return;
-                }
-                let handle = _app.clone();
-                tauri::async_runtime::spawn(async move {
-                    // Wait for frontend to be ready (cold launch via Finder)
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    for path in paths {
-                        let _ = handle.emit("cli:open-file", path);
-                    }
-                });
+                emit_open_files_delayed(_app.clone(), paths);
             }
         });
 }

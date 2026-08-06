@@ -30,8 +30,6 @@ pub async fn crawl_website(
     render: bool,
     include_patterns: Option<Vec<String>>,
     exclude_patterns: Option<Vec<String>>,
-    formats: Option<Vec<String>>,
-    response_format: Option<serde_json::Value>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<CrawlStartResult> {
     let crawl_url = format!("{}/crawl", worker_url.trim_end_matches('/'));
@@ -42,12 +40,6 @@ pub async fn crawl_website(
         "limit": limit,
         "render": render,
     });
-    if let Some(ref f) = formats {
-        body["formats"] = serde_json::json!(f);
-    }
-    if let Some(ref rf) = response_format {
-        body["response_format"] = rf.clone();
-    }
 
     if let Some(ref patterns) = include_patterns {
         if !patterns.is_empty() {
@@ -81,7 +73,6 @@ struct CrawlRecord {
     url: Option<String>,
     status: Option<String>,
     markdown: Option<String>,
-    json: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -109,8 +100,6 @@ impl HasWorkerError for CrawlStatusWorkerResponse {
 pub struct CrawlPage {
     pub url: String,
     pub markdown: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub json: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -155,7 +144,6 @@ pub async fn crawl_status(
             Some(CrawlPage {
                 url: r.url?,
                 markdown: r.markdown.unwrap_or_default(),
-                json: r.json,
             })
         })
         .collect();

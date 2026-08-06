@@ -106,7 +106,7 @@ import {
   insertCodeBlock,
   insertLink,
 } from "./markdown-commands.ts";
-import { basename, buildRelativePath } from "./path-utils.ts";
+import { basename, buildRelativePath, relativeToRoot } from "./path-utils.ts";
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import {
   KEY_TABS,
@@ -345,7 +345,7 @@ async function refreshGitAndSyncNow() {
 function refreshGitAfterAutoSave(path: string) {
   if (getActivePanel() !== "git") {
     const root = getRootPath();
-    const rel = root && path.startsWith(root + "/") ? path.slice(root.length + 1) : path;
+    const rel = root ? relativeToRoot(root, path) : path;
     const entry = getStatusMap().get(rel);
     if (entry && !entry.staged) return;
   }
@@ -513,13 +513,7 @@ window.__TAURI__.event?.listen<string>("menu:open-recent", (e) => openFileByPath
 async function openSearchResult(filePath: string) {
   const root = getRootPath();
   if (!root) return;
-  const absPath = `${root}/${filePath}`;
-  try {
-    const content = await invoke<string>("read_text_file", { path: absPath });
-    loadContentAsTab(content, absPath);
-  } catch (e) {
-    statusEl.textContent = `Failed to open: ${e}`;
-  }
+  await openFileByPath(`${root}/${filePath}`);
 }
 
 // --- Scroll Sync Event Listeners ---
@@ -866,6 +860,9 @@ if (getStorageBool(windowKey(KEY_PREVIEW_COLLAPSED), false)) {
 
 const tabBarEl = document.getElementById("tab-bar")!;
 
+// Last-seen (mtime, size) per file path — gates disk re-reads on tab switch
+const tabStatKeys = new Map<string, string>();
+
 // --- File Watcher ---
 
 const { confirm: confirmDialog } = window.__TAURI__.dialog;
@@ -873,7 +870,6 @@ const { confirm: confirmDialog } = window.__TAURI__.dialog;
 /** Apply freshly-read disk content to a tab (and the editor when active). */
 function applyDiskContent(tab: Tab, content: string) {
   tab.content = content;
-  tab.savedContent = content;
   markTabSaved(tab.id);
   if (tab.id === getActiveTab()?.id) {
     loadContent(content, tab.path);
@@ -924,13 +920,20 @@ initTabs(tabBarEl, {
   onSwitch: (tab: Tab) => {
     autoSave();
     loadContent(tab.content, tab.path);
-    // Check if file changed on disk since last load (catches missed watcher events)
+    // Check if file changed on disk since last load (catches missed watcher events).
+    // Cheap (mtime, size) gate first — only re-read the file when it changed.
     if (tab.path && tab.savedContent !== null) {
-      invoke<string>("read_text_file", { path: tab.path })
-        .then((diskContent) => {
-          if (diskContent !== tab.savedContent && tab.id === getActiveTab()?.id) {
-            applyDiskContent(tab, diskContent);
-          }
+      const path = tab.path;
+      invoke<{ mtime_ms: number; size: number }>("stat_file", { path })
+        .then((stat) => {
+          const statKey = `${stat.mtime_ms}:${stat.size}`;
+          if (tabStatKeys.get(path) === statKey) return;
+          tabStatKeys.set(path, statKey);
+          return invoke<string>("read_text_file", { path }).then((diskContent) => {
+            if (diskContent !== tab.savedContent && tab.id === getActiveTab()?.id) {
+              applyDiskContent(tab, diskContent);
+            }
+          });
         })
         .catch(() => {});
     }
@@ -1184,6 +1187,8 @@ registerCommands([
 
 // --- Window registry (session restoration) ---
 
+let lastWindowSnapshot = "";
+
 async function saveWindowRegistry() {
   try {
     // Load current registry and update this window's entry
@@ -1194,10 +1199,6 @@ async function saveWindowRegistry() {
       width: number;
       height: number;
     };
-    const existing: WindowEntry[] = await invoke<WindowEntry[]>("load_window_registry").catch(
-      () => [] as WindowEntry[],
-    );
-
     const label = getWindowLabel();
     const entry = {
       label,
@@ -1206,6 +1207,15 @@ async function saveWindowRegistry() {
       width: window.outerWidth,
       height: window.outerHeight,
     };
+
+    // Skip the load + save IPC round-trip when geometry hasn't changed
+    const snapshot = JSON.stringify(entry);
+    if (snapshot === lastWindowSnapshot) return;
+    lastWindowSnapshot = snapshot;
+
+    const existing: WindowEntry[] = await invoke<WindowEntry[]>("load_window_registry").catch(
+      () => [] as WindowEntry[],
+    );
 
     const filtered = (existing as (typeof entry)[]).filter((e) => e.label !== label);
     filtered.push(entry);
