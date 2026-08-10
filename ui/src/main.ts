@@ -106,7 +106,14 @@ import {
   insertCodeBlock,
   insertLink,
 } from "./markdown-commands.ts";
-import { basename, buildRelativePath, relativeToRoot } from "./path-utils.ts";
+import {
+  basename,
+  buildRelativePath,
+  getExtension,
+  relativeToRoot,
+  resolveRelativePath,
+  SYSTEM_OPEN_EXTENSIONS,
+} from "./path-utils.ts";
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import {
   KEY_TABS,
@@ -543,6 +550,36 @@ window.addEventListener("resize", () => {
   cancelAnimationFrame(resizeRAF);
   resizeRAF = requestAnimationFrame(buildScrollAnchors);
 });
+/** Open a local file linked from the preview, resolved against the current file. */
+async function openLocalLink(href: string) {
+  const [rawPath] = href.split(/[?#]/);
+  if (!rawPath) return;
+  let target = rawPath;
+  try {
+    target = decodeURI(rawPath);
+  } catch {}
+  let path: string;
+  if (target.startsWith("/")) {
+    path = target;
+  } else {
+    const current = getCurrentFilePath();
+    if (!current) {
+      statusEl.textContent = "Save this file first to follow relative links";
+      return;
+    }
+    path = resolveRelativePath(current, target);
+  }
+  if (SYSTEM_OPEN_EXTENSIONS.has(getExtension(path))) {
+    try {
+      await invoke("open_with_default_app", { path });
+    } catch (e) {
+      statusEl.textContent = `Failed to open: ${e}`;
+    }
+    return;
+  }
+  await openFileByPath(path);
+}
+
 previewPane.addEventListener("click", (e) => {
   const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
   if (anchor) {
@@ -550,6 +587,12 @@ previewPane.addEventListener("click", (e) => {
     if (/^https?:\/\//.test(href)) {
       e.preventDefault();
       invoke("plugin:shell|open", { path: href });
+      return;
+    }
+    // Relative/absolute local path (not a fragment or another URI scheme)
+    if (href && !href.startsWith("#") && !/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+      e.preventDefault();
+      openLocalLink(href);
       return;
     }
   }

@@ -48,6 +48,20 @@ export function dirname(path: string): string {
   return path.substring(0, path.lastIndexOf("/"));
 }
 
+/** Resolve a relative path (`../a/b.md`, `./b.md`, `b.md`) against a file's directory. */
+export function resolveRelativePath(fromFile: string, relative: string): string {
+  const parts = dirname(fromFile).split("/");
+  for (const seg of relative.split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") {
+      if (parts.length > 1) parts.pop();
+    } else {
+      parts.push(seg);
+    }
+  }
+  return parts.join("/");
+}
+
 /** Get the assets directory for a given file path. */
 export function getAssetsDir(filePath: string): string {
   return `${dirname(filePath)}/assets`;
