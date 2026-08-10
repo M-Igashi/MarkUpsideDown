@@ -36,7 +36,6 @@
   "packageManager": "npm@11.11.1",
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",
-    "vitest": "npm:@voidzero-dev/vite-plus-test@latest",
     "lodash-es": "^4.18.0"
   }
 }
