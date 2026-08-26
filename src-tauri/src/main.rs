@@ -193,6 +193,7 @@ fn main() {
             cloudflare::set_r2_public_url,
             menu::add_recent_file,
             commands::validate_markdown,
+            commands::print_webview,
             commands::save_window_registry,
             commands::load_window_registry,
         ])

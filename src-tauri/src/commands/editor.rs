@@ -292,6 +292,17 @@ MarkUpsideDown must be running for editor/file/git tools to work.
     Ok(expanded.to_string_lossy().to_string())
 }
 
+// --- Print ---
+
+// window.print() is a no-op in WKWebView, so printing goes through the
+// native print operation exposed by tauri/wry (macOS print dialog).
+#[tauri::command]
+pub fn print_webview(webview: tauri::Webview) -> Result<()> {
+    webview
+        .print()
+        .map_err(|e| AppError::Io(format!("Print failed: {e}")))
+}
+
 // --- comrak-based CommonMark validation (#140) ---
 
 #[derive(Clone, Serialize, Deserialize)]

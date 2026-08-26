@@ -879,6 +879,25 @@ function togglePreview() {
   }
 }
 
+async function printPreview() {
+  statusEl.textContent = "Preparing print…";
+  // Re-render so the printout reflects the latest edits even while the
+  // preview pane is collapsed (renders are skipped in that state)
+  const content = flushPendingContent() ?? editor.state.doc.toString();
+  await renderPreview(content);
+  previewDirty = false;
+  // Lazy images outside the viewport never load — force-load them for print
+  const imgs = Array.from(previewPane.querySelectorAll("img")) as HTMLImageElement[];
+  for (const img of imgs) img.loading = "eager";
+  await Promise.allSettled(imgs.map((img) => img.decode()));
+  updateStatus(editor.state);
+  try {
+    await invoke("print_webview");
+  } catch (e) {
+    statusEl.textContent = `Print failed: ${e}`;
+  }
+}
+
 sidebarUnfoldBtn.addEventListener("click", toggleSidebar);
 editorFoldBtn.addEventListener("click", toggleEditor);
 previewFoldBtn.addEventListener("click", togglePreview);
@@ -1065,6 +1084,10 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "k") {
       e.preventDefault();
       toggleCommandPalette();
+    } else if (e.key === "p" && !e.defaultPrevented) {
+      // defaultPrevented: Ctrl-p is cursorLineUp inside CodeMirror on macOS
+      e.preventDefault();
+      printPreview();
     }
   }
 });
@@ -1138,6 +1161,13 @@ registerCommands([
     run: copyRichText,
   },
   { id: "export.markdown", label: "Copy as Markdown", category: "Export", run: copyMarkdown },
+  {
+    id: "export.print",
+    label: "Print Preview",
+    shortcut: "⌘P",
+    category: "Export",
+    run: printPreview,
+  },
   {
     id: "convert.get",
     label: "Get URL as Markdown",

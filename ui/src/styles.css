@@ -3753,3 +3753,156 @@ body {
 .update-toast-restart:hover {
   opacity: 0.85;
 }
+
+/* --- Print (A4) --- */
+/* The native print operation has zero hardware margins (wry PrintOptions
+   default), so all page margins come from @page. */
+@page {
+  size: A4;
+  margin: 16mm 15mm;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+
+  /* Hide all app chrome and overlays — only the preview content prints */
+  #toolbar,
+  #status-bar,
+  #sidebar,
+  #sidebar-divider,
+  #editor-container,
+  #divider,
+  .panel-unfold-btn,
+  .preview-header,
+  .toc-panel,
+  .sidebar-context-menu,
+  .link-context-menu,
+  .presentation-overlay,
+  .prompt-overlay,
+  .dialog-overlay,
+  .crawl-dialog-overlay,
+  .command-palette-overlay,
+  .mermaid-viewer-overlay,
+  .update-toast {
+    display: none !important;
+  }
+
+  #app {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  #preview-wrapper {
+    display: block !important;
+    overflow: visible;
+  }
+
+  #preview-pane {
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+    contain: none;
+  }
+
+  #preview-pane .preview-page {
+    background: #fff;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+    min-height: 0;
+    contain: none;
+    /* A4-tuned typography: ~10.5pt body on a 180mm text column */
+    font-size: 10.5pt;
+    line-height: 1.65;
+    /* Keep code/table/alert backgrounds in the printout */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Interactive bits inside the preview */
+  #preview-pane .code-copy-btn,
+  #preview-pane .mermaid-copy-btn,
+  #preview-pane .mermaid-expand-hint {
+    display: none !important;
+  }
+
+  /* Page-break hygiene */
+  #preview-pane h1,
+  #preview-pane h2,
+  #preview-pane h3,
+  #preview-pane h4 {
+    break-after: avoid;
+    break-inside: avoid;
+  }
+  #preview-pane p,
+  #preview-pane li {
+    orphans: 3;
+    widows: 3;
+  }
+  #preview-pane figure,
+  #preview-pane img,
+  #preview-pane .gfm-alert,
+  #preview-pane .mermaid-container,
+  #preview-pane .math-block,
+  #preview-pane pre {
+    break-inside: avoid;
+  }
+
+  /* Code blocks: wrap lines instead of clipping the horizontal overflow */
+  #preview-pane pre {
+    overflow-x: visible;
+    border-color: #ccc;
+  }
+  #preview-pane pre code {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 8.5pt;
+    line-height: 1.45;
+  }
+
+  /* Tables: fit the page width, repeat header row, keep rows intact */
+  #preview-pane .table-wrapper {
+    overflow-x: visible;
+  }
+  #preview-pane thead {
+    display: table-header-group;
+  }
+  #preview-pane tr {
+    break-inside: avoid;
+  }
+  #preview-pane th,
+  #preview-pane td {
+    padding: 5pt 8pt;
+    word-break: break-word;
+  }
+
+  /* Links: readable in black & white */
+  #preview-pane a,
+  #preview-pane a:visited {
+    color: #1a4e8a;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* Media scale to the text column */
+  #preview-pane img {
+    max-width: 100%;
+    border-radius: 0;
+  }
+  .mermaid-container {
+    cursor: default;
+  }
+  .mermaid-container svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  .math-block {
+    overflow-x: visible;
+  }
+}
