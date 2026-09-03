@@ -456,9 +456,15 @@ struct ReadFileQuery {
 }
 
 async fn read_file(Query(query): Query<ReadFileQuery>) -> Json<serde_json::Value> {
-    match commands::read_text_file(query.path).await {
+    // Bridge callers never go through a file dialog, so confine reads to the
+    // home directory like every other bridge file endpoint.
+    let path = match commands::validate_path(&query.path) {
+        Ok(p) => p,
+        Err(e) => return e.to_bridge_json(),
+    };
+    match tokio::fs::read_to_string(&path).await {
         Ok(content) => Json(serde_json::json!({ "content": content })),
-        Err(e) => e.to_bridge_json(),
+        Err(e) => AppError::Io(format!("Failed to read file: {e}")).to_bridge_json(),
     }
 }
 

@@ -110,7 +110,7 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `list_directory` | List files and directories (respects .gitignore) | `path?: string`, `recursive?: boolean`, `max_entries?: number` (default: 1000) |
-| `read_file` | Read a text file from the project | `path: string` |
+| `read_file` | Read a text file (must be under the home directory) | `path: string` |
 | `get_open_tabs` | List all open editor tabs with dirty status | — |
 | `get_project_root` | Get the current project root directory path | — |
 | `get_dirty_files` | List files with unsaved changes | — |
