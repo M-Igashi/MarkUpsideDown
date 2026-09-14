@@ -307,6 +307,57 @@ impl BridgeClient {
         self.request_str("POST", "/git/revert", Some(serde_json::json!({ "commit_hash": commit_hash })), "output").await
     }
 
+    // --- GitHub (issues / pull requests via the gh CLI) ---
+
+    pub async fn github_status(&self) -> Result<serde_json::Value, String> {
+        self.request_json("GET", "/github/status", None).await
+    }
+
+    pub async fn github_list(
+        &self,
+        kind: &str,
+        state: &str,
+        limit: Option<u32>,
+        search: Option<&str>,
+    ) -> Result<serde_json::Value, String> {
+        let mut query = format!(
+            "/github/list?kind={}&state={}",
+            urlencoding::encode(kind),
+            urlencoding::encode(state)
+        );
+        if let Some(limit) = limit {
+            query.push_str(&format!("&limit={limit}"));
+        }
+        if let Some(search) = search.filter(|s| !s.trim().is_empty()) {
+            query.push_str(&format!("&search={}", urlencoding::encode(search)));
+        }
+        let json = self.request_json("GET", &query, None).await?;
+        Ok(json.get("items").cloned().unwrap_or(json))
+    }
+
+    pub async fn github_view(&self, kind: &str, number: u64) -> Result<serde_json::Value, String> {
+        let query = format!("/github/view?kind={}&number={number}", urlencoding::encode(kind));
+        self.request_json("GET", &query, None).await
+    }
+
+    pub async fn github_update(
+        &self,
+        kind: &str,
+        number: u64,
+        title: &str,
+        body: &str,
+        expected_body: Option<&str>,
+    ) -> Result<serde_json::Value, String> {
+        let payload = serde_json::json!({
+            "kind": kind,
+            "number": number,
+            "title": title,
+            "body": body,
+            "expected_body": expected_body,
+        });
+        self.request_json("POST", "/github/update", Some(payload)).await
+    }
+
     // --- Crawl save ---
 
     pub async fn crawl_save(&self, pages: &[CrawlSavePage], base_dir: &str) -> Result<CrawlSaveResult, String> {

@@ -49,6 +49,9 @@ export const KEY_SIDEBAR_SORT = "markupsidedown:sidebar-sort";
 export const KEY_SIDEBAR_PANEL = "markupsidedown:sidebarPanel";
 export const KEY_SIDEBAR_SHOW_DOTFILES = "markupsidedown:sidebar-show-dotfiles";
 
+// --- GitHub panel ---
+export const KEY_GITHUB_FILTER = "markupsidedown:githubFilter";
+
 // --- Tabs ---
 export const KEY_TABS = "markupsidedown:tabs";
 

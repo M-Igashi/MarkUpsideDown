@@ -53,6 +53,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 
 - **File tree sidebar** — Browse, create, rename, duplicate, delete files and folders; drag & drop, search, file tagging
 - **Git panel** — View changes, stage/unstage files, commit, push/pull with ahead/behind counts, fetch
+- **GitHub issues & PRs** — Browse issues and pull requests of the project's GitHub remote, then edit a title and body as Markdown and push it back (requires the `gh` CLI)
 - **Clone repository** — Clone Git repositories (HTTPS/SSH) and open them in the editor
 
 ### Clipboard & Copy
@@ -68,7 +69,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 
 ### AI Agent Integration
 
-- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, lint/normalize documents, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (62 tools). See [docs/ai-integration.md](docs/ai-integration.md) for setup.
+- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, lint/normalize documents, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (66 tools). See [docs/ai-integration.md](docs/ai-integration.md) for setup.
 - **File-watcher sync** — External edits by AI agents are automatically detected and reloaded in the editor
 
 ### Keyboard Shortcuts
@@ -135,7 +136,7 @@ cargo tauri build      # production build
 | Document | Contents |
 |----------|----------|
 | [docs/ai-integration.md](docs/ai-integration.md) | AI agent setup guide (quick start) |
-| [docs/mcp-server.md](docs/mcp-server.md) | MCP server reference (62 tools, standalone mode) |
+| [docs/mcp-server.md](docs/mcp-server.md) | MCP server reference (66 tools, standalone mode) |
 | [docs/worker-deployment.md](docs/worker-deployment.md) | Worker deployment, API tokens, pricing |
 | [docs/architecture.md](docs/architecture.md) | Data flow, components, IPC/bridge API reference |
 | [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md) | All keyboard shortcuts |

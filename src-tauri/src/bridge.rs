@@ -98,6 +98,10 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/git/show", get(git_show))
         .route("/git/clone", post(git_clone))
         .route("/git/init", post(git_init))
+        .route("/github/status", get(github_status))
+        .route("/github/list", get(github_list))
+        .route("/github/view", get(github_view))
+        .route("/github/update", post(github_update))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
@@ -132,6 +136,7 @@ impl BridgeError for AppError {
             AppError::Io(_) => "io",
             AppError::Network(_) => "network",
             AppError::Git(_) => "git",
+            AppError::GitHub(_) => "github",
             AppError::Worker(_) => "worker",
             AppError::Validation(_) => "validation",
             AppError::Store(_) => "store",
@@ -780,6 +785,108 @@ async fn git_log(
     };
     match commands::git_log(repo_path, query.limit).await {
         Ok(entries) => Json(serde_json::json!({ "entries": entries })),
+        Err(e) => e.to_bridge_json(),
+    }
+}
+
+// --- GitHub handlers ---
+
+/// Resolve the focused project's `owner/name`, or an error response when the
+/// project has no GitHub remote.
+async fn get_gh_repo(state: &BridgeState) -> Result<String, Json<serde_json::Value>> {
+    let repo_path = get_repo_path(state)?;
+    match commands::gh_repo(repo_path).await {
+        Ok(Some(repo)) => Ok(repo),
+        Ok(None) => Err(not_found_json("Project has no GitHub remote")),
+        Err(e) => Err(e.to_bridge_json()),
+    }
+}
+
+async fn github_status(State(state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
+    let repo_path = match get_repo_path(&state) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match commands::gh_status(repo_path).await {
+        Ok(status) => Json(serde_json::json!(status)),
+        Err(e) => e.to_bridge_json(),
+    }
+}
+
+#[derive(Deserialize)]
+struct GitHubListQuery {
+    kind: Option<String>,
+    state: Option<String>,
+    limit: Option<u32>,
+    search: Option<String>,
+}
+
+async fn github_list(
+    State(state): State<Arc<BridgeState>>,
+    Query(query): Query<GitHubListQuery>,
+) -> Json<serde_json::Value> {
+    let repo = match get_gh_repo(&state).await {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    let kind = query.kind.unwrap_or_else(|| "issue".to_string());
+    let item_state = query.state.unwrap_or_else(|| "open".to_string());
+    match commands::gh_list(repo, kind, item_state, query.limit, query.search).await {
+        Ok(items) => Json(serde_json::json!({ "items": items })),
+        Err(e) => e.to_bridge_json(),
+    }
+}
+
+#[derive(Deserialize)]
+struct GitHubViewQuery {
+    kind: Option<String>,
+    number: u64,
+}
+
+async fn github_view(
+    State(state): State<Arc<BridgeState>>,
+    Query(query): Query<GitHubViewQuery>,
+) -> Json<serde_json::Value> {
+    let repo = match get_gh_repo(&state).await {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    let kind = query.kind.unwrap_or_else(|| "issue".to_string());
+    match commands::gh_view(repo, kind, query.number).await {
+        Ok(detail) => Json(serde_json::json!(detail)),
+        Err(e) => e.to_bridge_json(),
+    }
+}
+
+#[derive(Deserialize)]
+struct GitHubUpdateRequest {
+    kind: Option<String>,
+    number: u64,
+    title: String,
+    body: String,
+    expected_body: Option<String>,
+}
+
+async fn github_update(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<GitHubUpdateRequest>,
+) -> Json<serde_json::Value> {
+    let repo = match get_gh_repo(&state).await {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    let kind = body.kind.unwrap_or_else(|| "issue".to_string());
+    match commands::gh_update(
+        repo,
+        kind,
+        body.number,
+        body.title,
+        body.body,
+        body.expected_body,
+    )
+    .await
+    {
+        Ok(detail) => Json(serde_json::json!(detail)),
         Err(e) => e.to_bridge_json(),
     }
 }

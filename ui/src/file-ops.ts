@@ -11,7 +11,8 @@ import { getUrlAsMarkdown, fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fet
 import { normalizeMarkdown } from "./normalize.ts";
 import { getRootPath, refreshTree, hasPendingExternalDrop } from "./sidebar.ts";
 import { indexDocument } from "./semantic-search.ts";
-import { getActiveTab, isTabDirty, markTabSaved, updateActiveTab } from "./tabs.ts";
+import { getActiveTab, isTabDirty, markTabSaved, setTabContent, updateActiveTab } from "./tabs.ts";
+import { pushRemoteTab } from "./github.ts";
 import { suppressNext } from "./file-watcher.ts";
 
 import { writeTextFile } from "./html-utils.ts";
@@ -55,6 +56,7 @@ let getCurrentFilePath: () => string | null;
 let loadContentAsTab: (content: string, filePath?: string, tabName?: string) => void;
 let refreshGitAndSync: () => void;
 let refreshGitAfterAutoSave: (path: string) => void;
+let applyEditorContent: (content: string) => void;
 
 export function initFileOps(deps: {
   editor: EditorView;
@@ -63,6 +65,7 @@ export function initFileOps(deps: {
   loadContentAsTab: (content: string, filePath?: string, tabName?: string) => void;
   refreshGitAndSync: () => void;
   refreshGitAfterAutoSave?: (path: string) => void;
+  applyEditorContent: (content: string) => void;
 }) {
   editor = deps.editor;
   statusEl = deps.statusEl;
@@ -70,6 +73,7 @@ export function initFileOps(deps: {
   loadContentAsTab = deps.loadContentAsTab;
   refreshGitAndSync = deps.refreshGitAndSync;
   refreshGitAfterAutoSave = deps.refreshGitAfterAutoSave ?? deps.refreshGitAndSync;
+  applyEditorContent = deps.applyEditorContent;
 }
 
 // --- Title extraction ---
@@ -102,7 +106,31 @@ function suggestFilename(): string | undefined {
 
 // --- Save ---
 
+/** Push an issue or pull request tab back to GitHub instead of writing to disk. */
+async function saveRemoteTab(content: string) {
+  const tab = getActiveTab();
+  if (!tab?.remote) return;
+  const label = tab.name;
+  statusEl.textContent = `Saving ${label} to GitHub…`;
+  try {
+    const { document: updated } = await pushRemoteTab(tab, content);
+    // GitHub may normalize the body, and comments may have moved on. Adopt the
+    // round-tripped document so the next save compares against the truth.
+    setTabContent(tab.id, updated);
+    if (updated !== content && getActiveTab()?.id === tab.id) applyEditorContent(updated);
+    markTabSaved(tab.id);
+    statusEl.textContent = `Saved ${label} to GitHub`;
+  } catch (e) {
+    statusEl.textContent = `Save failed: ${e}`;
+  }
+}
+
 export async function saveFile() {
+  const activeTab = getActiveTab();
+  if (activeTab?.remote) {
+    await saveRemoteTab(editor.state.doc.toString());
+    return;
+  }
   const currentFilePath = getCurrentFilePath();
   try {
     const content = editor.state.doc.toString();

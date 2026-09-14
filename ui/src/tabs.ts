@@ -3,6 +3,15 @@ import { basename, buildRelativePath } from "./path-utils.ts";
 
 // --- Types ---
 
+/** A tab backed by a remote item (a GitHub issue or pull request) instead of a file. */
+export interface RemoteRef {
+  service: "github";
+  kind: "issue" | "pr";
+  repo: string;
+  number: number;
+  url: string;
+}
+
 export interface Tab {
   id: string;
   path: string | null;
@@ -10,6 +19,11 @@ export interface Tab {
   content: string;
   scrollTop: number;
   savedContent: string | null; // runtime-only, not serialized
+  remote?: RemoteRef | null;
+}
+
+function sameRemote(a: RemoteRef, b: RemoteRef): boolean {
+  return a.service === b.service && a.kind === b.kind && a.repo === b.repo && a.number === b.number;
 }
 
 // --- State ---
@@ -93,8 +107,8 @@ export function initTabs(
   // If we have tabs, activate the active one
   const activeTab = tabs.find((t) => t.id === activeTabId);
   if (activeTab) {
-    // File-backed tabs with empty content need to be reloaded from disk
-    if (activeTab.path && !activeTab.content && onReload) {
+    // Tabs backed by a file or a remote item need their content reloaded
+    if ((activeTab.path || activeTab.remote) && !activeTab.content && onReload) {
       onReload(activeTab);
     } else {
       onTabSwitch?.(activeTab);
@@ -108,8 +122,10 @@ function saveState(): void {
       id: t.id,
       path: t.path,
       name: t.name,
-      // Skip content for file-backed tabs to avoid hitting localStorage limits
-      content: t.path ? "" : t.content,
+      remote: t.remote ?? null,
+      // Skip content for tabs that can be reloaded from their source, to
+      // avoid hitting localStorage limits
+      content: t.path || t.remote ? "" : t.content,
       scrollTop: t.scrollTop || 0,
     })),
     activeTabId,
@@ -139,8 +155,9 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
   contentFlusher?.();
   saveState();
 
-  // Carry over untitled (non-file-backed) tabs to the new project
-  const untitled = tabs.filter((t) => t.path === null);
+  // Carry over untitled tabs to the new project. Remote tabs belong to the
+  // old project's repository, so they stay behind with it.
+  const untitled = tabs.filter((t) => t.path === null && !t.remote);
 
   // Switch to new project
   currentProjectRoot = newRoot;
@@ -176,7 +193,7 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   if (activeTab) {
-    if (activeTab.path && !activeTab.content && onReload) {
+    if ((activeTab.path || activeTab.remote) && !activeTab.content && onReload) {
       onReload(activeTab);
     } else {
       onTabSwitch?.(activeTab);
@@ -186,27 +203,34 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
   }
 }
 
-export function openTab(path: string | null, name: string, content: string): Tab {
+export function openTab(
+  path: string | null,
+  name: string,
+  content: string,
+  remote?: RemoteRef,
+): Tab {
   contentFlusher?.();
-  // If file already open, switch to it
-  if (path) {
-    const existing = tabs.find((t) => t.path === path);
-    if (existing) {
-      // Only overwrite content if the tab is not dirty (unsaved edits)
-      const dirty = existing.savedContent !== null && existing.content !== existing.savedContent;
-      if (!dirty) {
-        existing.content = content;
-        existing.savedContent = content;
-      }
-      if (existing.id === activeTabId) {
-        // Already active but content was refreshed — update the editor
-        onTabSwitch?.(existing);
-        renderTabs();
-      } else {
-        switchTab(existing.id);
-      }
-      return existing;
+  // If the file or remote item is already open, switch to it
+  const existing = remote
+    ? tabs.find((t) => t.remote && sameRemote(t.remote, remote))
+    : path
+      ? tabs.find((t) => t.path === path)
+      : null;
+  if (existing) {
+    // Only overwrite content if the tab is not dirty (unsaved edits)
+    const dirty = existing.savedContent !== null && existing.content !== existing.savedContent;
+    if (!dirty) {
+      existing.content = content;
+      existing.savedContent = content;
     }
+    if (existing.id === activeTabId) {
+      // Already active but content was refreshed — update the editor
+      onTabSwitch?.(existing);
+      renderTabs();
+    } else {
+      switchTab(existing.id);
+    }
+    return existing;
   }
 
   const tab: Tab = {
@@ -215,7 +239,8 @@ export function openTab(path: string | null, name: string, content: string): Tab
     name: name || "Untitled",
     content: content ?? "",
     scrollTop: 0,
-    savedContent: path ? (content ?? "") : null,
+    savedContent: path || remote ? (content ?? "") : null,
+    remote: remote ?? null,
   };
   tabs.push(tab);
   onTabOpen?.(tab);
@@ -309,6 +334,12 @@ export function updateActiveTab({
   }
 }
 
+/** Replace a specific tab's content, regardless of which tab is active. */
+export function setTabContent(id: string, content: string): void {
+  const tab = tabs.find((t) => t.id === id);
+  if (tab) tab.content = content;
+}
+
 export function getActiveTab(): Tab | null {
   return tabs.find((t) => t.id === activeTabId) || null;
 }
@@ -317,13 +348,18 @@ export function getTabByPath(path: string): Tab | null {
   return tabs.find((t) => t.path === path) || null;
 }
 
+export function getTabByRemote(remote: RemoteRef): Tab | null {
+  return tabs.find((t) => t.remote && sameRemote(t.remote, remote)) || null;
+}
+
 export function getTabs(): Tab[] {
   return tabs;
 }
 
 export function isTabDirty(tab: Tab): boolean {
   contentFlusher?.();
-  return tab.path !== null && tab.savedContent !== null && tab.content !== tab.savedContent;
+  const backed = tab.path !== null || !!tab.remote;
+  return backed && tab.savedContent !== null && tab.content !== tab.savedContent;
 }
 
 export function markTabSaved(id: string): void {

@@ -22,6 +22,10 @@ pub enum AppError {
     #[error("{0}")]
     Git(String),
 
+    /// GitHub CLI errors (`gh` execution, auth, or API failures).
+    #[error("{0}")]
+    GitHub(String),
+
     /// Cloudflare Worker API errors (response-level errors).
     #[error("{0}")]
     Worker(String),

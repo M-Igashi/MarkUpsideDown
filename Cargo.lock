@@ -2457,7 +2457,7 @@ dependencies = [
 
 [[package]]
 name = "markupsidedown"
-version = "0.2.34"
+version = "0.2.35"
 dependencies = [
  "axum",
  "comrak",
@@ -2481,7 +2481,7 @@ dependencies = [
 
 [[package]]
 name = "markupsidedown-mcp"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "reqwest",

@@ -70,3 +70,76 @@ Click a commit row to expand a multi-file inline diff of that commit.
 
 Switch to the **Clone** panel in the sidebar (clone icon in the bottom nav). Enter a repository URL (HTTPS or SSH) and click Clone. The repository is cloned and opened in the editor.
 
+
+## GitHub Issues and Pull Requests
+
+If the open project's `origin` remote points at GitHub, you can browse its issues and pull requests in the sidebar and edit them as ordinary Markdown documents.
+
+### Requirements
+
+This feature is built on the [GitHub CLI](https://cli.github.com/). Install it and sign in once:
+
+```bash
+brew install gh
+gh auth login
+```
+
+MarkUpsideDown never stores a GitHub token of its own. It reuses whatever account `gh` is signed in as.
+
+### Browsing
+
+Click the **Issues & PRs** icon in the sidebar's bottom navigation bar, or run "Show GitHub Issues" from the command palette (<kbd>Cmd</kbd>+<kbd>K</kbd>).
+
+The panel has:
+
+- A toggle between **Issues** and **Pull Requests**
+- A state filter: Open, Closed, or All
+- A search box that accepts GitHub search syntax, for example `label:bug author:octocat`
+- **⟳ Refresh** to re-fetch
+
+If something is missing, the panel says why: no folder open, no GitHub remote, `gh` not installed, or not signed in.
+
+### Editing
+
+Click any row to open it in a tab. The document looks like this:
+
+```markdown
+---
+title: Preview scroll sync drifts on long documents
+state: open
+author: octocat
+labels: bug, priority: high
+url: https://github.com/owner/repo/issues/42
+---
+
+The preview pane loses its position after…
+
+<!-- markupsidedown:github-comments (read-only below this line) -->
+
+### @alice · 2026-09-02 09:30
+
+Any update?
+```
+
+Edit the `title:` line in the frontmatter and the body beneath it, then press <kbd>Cmd</kbd>+<kbd>S</kbd>. Both are pushed to GitHub. The status bar confirms the save.
+
+### What is and is not editable
+
+| Editable | Read-only |
+|----------|-----------|
+| Title (the `title:` frontmatter line) | Comments |
+| Body | State, labels, assignees, milestones |
+
+Everything below the comment marker is regenerated each time the item is loaded and is never sent back, so edits there are discarded. The remaining frontmatter keys are shown for context only; changing them has no effect.
+
+Auto-save is deliberately not applied to these tabs. Nothing reaches GitHub until you save explicitly.
+
+### Conflicts
+
+If someone edits the body on GitHub after you opened it, saving is refused with a message asking you to reload. Close the tab and open the item again to pick up the newer version. New comments do not count as a conflict.
+
+### Limitations
+
+- Images cannot be attached. GitHub has no public upload API for issue attachments, so paste an image into the browser first and reference its URL.
+- Creating issues and posting comments are not supported.
+- The preview uses the app's own Markdown renderer, so a few GitHub-specific conveniences such as `#123` auto-linking and `@mention` links are shown as plain text.

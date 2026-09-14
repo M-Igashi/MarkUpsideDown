@@ -59,6 +59,8 @@ MCP Server (mcp-server-rs/)
 | Tabs | Multi-tab editing with state persistence, drag reorder | `ui/src/tabs.ts` |
 | Git panel | Status, stage/unstage, commit, push/pull with ahead/behind, fetch | `ui/src/git-panel.ts` |
 | Clone panel | Repository clone UI (HTTPS/SSH) | `ui/src/clone-panel.ts` |
+| GitHub panel | Issue and pull request browser for the project's GitHub remote | `ui/src/github-panel.ts` |
+| GitHub documents | Issue/PR to Markdown document conversion and push-back | `ui/src/github.ts` |
 | Table editor | Spreadsheet grid with undo/redo, paste TSV/CSV | `ui/src/table-editor.ts` |
 | Formatting | Markdown shortcuts (bold `__`, italic, link, strikethrough, code, smart code fences) | `ui/src/markdown-commands.ts` |
 | Auto link title | Paste URL → auto-fetch title → `[Title](url)` | `ui/src/auto-link-title.ts` |
@@ -129,7 +131,7 @@ Security: SSRF prevention validates URLs and blocks private/reserved IP ranges v
 | Component | Role |
 |-----------|------|
 | `main.rs` | Entry point, stdio transport |
-| `tools.rs` | 62 MCP tools (editor, project, files, content, conversion, crawl, git, tags, search, publish, batch, windows) |
+| `tools.rs` | 66 MCP tools (editor, project, files, content, conversion, crawl, git, github, tags, search, publish, batch, windows) |
 | `bridge.rs` | HTTP client to Tauri bridge (auto-discovers port) |
 
 Communication: MCP server (Rust sidecar binary) reads the bridge port from `~/.markupsidedown-bridge-port` and sends HTTP requests to the Tauri backend's axum server.
@@ -208,6 +210,17 @@ See [ai-integration.md](ai-integration.md) for setup and [mcp-server.md](mcp-ser
 | `git_revert` | Revert a commit (creates new revert commit) | `commands/git.rs` |
 | `git_show` | Show diff for a specific commit | `commands/git.rs` |
 | `git_init` | Initialize a new git repo | `commands/git.rs` |
+
+### GitHub
+
+Backed by the `gh` CLI, scoped to the `owner/name` parsed from the project's `origin` remote.
+
+| Command | Description | Module |
+|---------|-------------|--------|
+| `gh_status` | Check `gh` availability, authentication, and the project's GitHub repository | `commands/github.rs` |
+| `gh_list` | List issues or pull requests | `commands/github.rs` |
+| `gh_view` | Get one issue or pull request with its body and comments | `commands/github.rs` |
+| `gh_update` | Replace the title and body, with optimistic conflict detection | `commands/github.rs` |
 
 ### Clone
 
@@ -304,6 +317,10 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 | `/git/discard-all` | POST | Discard all uncommitted changes |
 | `/git/log` | GET | Get recent commit history |
 | `/git/revert` | POST | Revert a commit |
+| `/github/status` | GET | Check `gh` availability, auth, and the project's GitHub repository |
+| `/github/list` | GET | List issues or pull requests |
+| `/github/view` | GET | Get one issue or pull request with comments |
+| `/github/update` | POST | Replace an issue or pull request title and body |
 
 ## Scroll Sync
 

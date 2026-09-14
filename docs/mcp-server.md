@@ -76,7 +76,7 @@ Check Worker health and version: `curl https://your-worker-url/health`
 
 The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit.
 
-## Available Tools (62)
+## Available Tools (66)
 
 <details>
 <summary><strong>Window Tools</strong> — 1 tool (require the app to be running)</summary>
@@ -192,6 +192,20 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 | `git_revert` | Revert a commit by creating a new revert commit | `commit_hash: string` |
 | `git_clone` | Clone a git repository | `url: string`, `dest: string` |
 | `git_init` | Initialize a new git repository | `path: string` |
+
+</details>
+
+<details>
+<summary><strong>GitHub Issues & Pull Requests</strong> — 4 tools (require the app to be running and the <code>gh</code> CLI)</summary>
+
+These operate on the repository the open project's `origin` remote points at, using the authentication from `gh auth login`. Only the title and body are writable; comments are read-only.
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `github_status` | Check whether `gh` is installed and authenticated, and which `owner/name` the project points at | — |
+| `github_list` | List issues or pull requests | `kind?: "issue" \| "pr"`, `state?: "open" \| "closed" \| "merged" \| "all"`, `limit?: number`, `search?: string` |
+| `github_view` | Read one issue or pull request including its body and comments | `number: number`, `kind?: "issue" \| "pr"` |
+| `github_update` | Replace the title and Markdown body | `number: number`, `title: string`, `body: string`, `kind?: "issue" \| "pr"`, `expected_body?: string` |
 
 </details>
 

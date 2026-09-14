@@ -7,7 +7,7 @@ use crate::error::{AppError, Result};
 
 // --- CLI Command Runner ---
 
-fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
+pub(super) fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
     let output = Command::new(cmd)
         .args(args)
         .output()

@@ -1,4 +1,5 @@
 import { createGitBadge, applyGitNameStyle, refresh as refreshGitPanel } from "./git-panel.ts";
+import { refresh as refreshGitHubPanel } from "./github-panel.ts";
 import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
 import { submitBatch, pollBatch, saveBatchResults } from "./batch-import.ts";
 import {
@@ -186,7 +187,7 @@ let sortBy: SortBy =
 let tagFilter: string | null = null; // null = no filter, string = filter by tag name
 let showDotfiles = getStorageBool(KEY_SIDEBAR_SHOW_DOTFILES, true);
 
-export type SidebarPanel = "files" | "git" | "clone";
+export type SidebarPanel = "files" | "git" | "github" | "clone";
 let activePanel: SidebarPanel = "files";
 
 // --- DOM ---
@@ -194,6 +195,7 @@ let activePanel: SidebarPanel = "files";
 let sidebarEl: HTMLElement | null = null;
 let treeEl: HTMLElement | null = null;
 let gitPanelSlot: HTMLElement | null = null;
+let gitHubPanelSlot: HTMLElement | null = null;
 let clonePanelSlot: HTMLElement | null = null;
 let filesContainer: HTMLElement | null = null;
 let navBar: HTMLElement | null = null;
@@ -242,7 +244,12 @@ export function initSidebar(
 
     // Restore active panel
     const savedPanel = localStorage.getItem(windowKey(KEY_SIDEBAR_PANEL));
-    if (savedPanel === "files" || savedPanel === "git" || savedPanel === "clone") {
+    if (
+      savedPanel === "files" ||
+      savedPanel === "git" ||
+      savedPanel === "github" ||
+      savedPanel === "clone"
+    ) {
       activePanel = savedPanel;
     }
   }
@@ -553,6 +560,14 @@ function render() {
   }
   sidebarEl.appendChild(gitPanelSlot);
 
+  // GitHub panel slot — reuse existing element
+  if (!gitHubPanelSlot) {
+    gitHubPanelSlot = document.createElement("div");
+    gitHubPanelSlot.id = "github-panel";
+    gitHubPanelSlot.className = "sidebar-panel-content";
+  }
+  sidebarEl.appendChild(gitHubPanelSlot);
+
   // Clone panel slot — reuse existing element
   if (!clonePanelSlot) {
     clonePanelSlot = document.createElement("div");
@@ -566,6 +581,7 @@ function render() {
   navBar.className = "sidebar-nav";
   navBar.appendChild(createNavButton("files", "Files", SVG_FILES));
   navBar.appendChild(createNavButton("git", "Git", SVG_GIT));
+  navBar.appendChild(createNavButton("github", "Issues & PRs", SVG_GITHUB));
   navBar.appendChild(createNavButton("clone", "Clone", SVG_CLONE));
   sidebarEl.appendChild(navBar);
 
@@ -578,6 +594,8 @@ function panelTitle(): string {
       return rootPath ? basename(rootPath) : "Files";
     case "git":
       return "Source Control";
+    case "github":
+      return "Issues & Pull Requests";
     case "clone":
       return "Clone Repository";
   }
@@ -587,6 +605,7 @@ function panelTitle(): string {
 const SVG_FILES = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2h4l2 2h6v9H2V2z"/><path d="M2 5h12"/></svg>`;
 const SVG_GIT = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="3.5" r="1.5"/><circle cx="8" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M8 5v6"/><path d="M9.4 4.2 11 6.5"/></svg>`;
 const SVG_CLONE = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg>`;
+const SVG_GITHUB = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="1.6"/></svg>`;
 
 function syncGitBadge(btn: Element, count: number) {
   const existing = btn.querySelector(".sidebar-nav-badge");
@@ -621,8 +640,9 @@ export function switchPanel(panel: SidebarPanel) {
   const wasActive = activePanel === panel;
   activePanel = panel;
   localStorage.setItem(windowKey(KEY_SIDEBAR_PANEL), panel);
-  // Stats and log are skipped while the git panel is hidden — refresh on open
+  // Stats, log and issue listings are skipped while their panel is hidden
   if (panel === "git" && !wasActive) refreshGitPanel();
+  if (panel === "github" && !wasActive) refreshGitHubPanel();
   // Update header title
   const titleEl = sidebarEl?.querySelector(".sidebar-title");
   if (titleEl) titleEl.textContent = panelTitle();
@@ -642,6 +662,7 @@ export function switchPanel(panel: SidebarPanel) {
 function updatePanelVisibility() {
   if (filesContainer) filesContainer.style.display = activePanel === "files" ? "" : "none";
   if (gitPanelSlot) gitPanelSlot.style.display = activePanel === "git" ? "" : "none";
+  if (gitHubPanelSlot) gitHubPanelSlot.style.display = activePanel === "github" ? "" : "none";
   if (clonePanelSlot) clonePanelSlot.style.display = activePanel === "clone" ? "" : "none";
 }
 
@@ -662,6 +683,10 @@ export function updateGitChangeCount(count: number) {
 
 export function getGitPanelEl() {
   return gitPanelSlot;
+}
+
+export function getGitHubPanelEl() {
+  return gitHubPanelSlot;
 }
 
 export function getClonePanelEl() {

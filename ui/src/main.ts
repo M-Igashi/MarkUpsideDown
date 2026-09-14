@@ -29,6 +29,8 @@ import {
   refreshTree,
   stopDirWatcher,
   getActivePanel,
+  switchPanel,
+  getGitHubPanelEl,
   SIDEBAR_IMAGE_MIME,
 } from "./sidebar.ts";
 import {
@@ -39,6 +41,20 @@ import {
   getChangeCount,
   getBranch,
 } from "./git-panel.ts";
+import {
+  initGitHubPanel,
+  setGitHubRepoPath,
+  setGitHubKind,
+  refresh as refreshGitHubPanel,
+} from "./github-panel.ts";
+import {
+  buildDocument,
+  remoteTabName,
+  reloadRemoteTab,
+  toRemoteRef,
+  type GhItemDetail,
+  type GhKind,
+} from "./github.ts";
 import { initClonePanel } from "./clone-panel.ts";
 
 import {
@@ -61,6 +77,7 @@ import {
   switchProjectTabs,
   getDirtyFileTabs,
   setTabContentFlusher,
+  setTabContent,
 } from "./tabs.ts";
 import {
   initFileWatcher,
@@ -308,6 +325,16 @@ function loadContent(content: string, filePath?: string | null) {
   updateStatus(editor.state);
 }
 
+/** Open a GitHub issue or pull request as an editable document tab. */
+function openRemoteTab(repo: string, kind: GhKind, detail: GhItemDetail) {
+  openTab(
+    null,
+    remoteTabName(kind, detail.number, detail.title),
+    buildDocument(detail),
+    toRemoteRef(repo, kind, detail),
+  );
+}
+
 function loadContentAsTab(content: string, filePath?: string, tabName?: string) {
   const name = tabName || (filePath ? basename(filePath) : "Untitled");
   openTab(filePath || null, name, content);
@@ -375,6 +402,7 @@ initFileOps({
   loadContentAsTab,
   refreshGitAndSync,
   refreshGitAfterAutoSave,
+  applyEditorContent: (content: string) => loadContent(content),
 });
 
 initCrawl({
@@ -725,6 +753,7 @@ initSidebar(sidebarEl, {
       if (tab.path) startWatching(tab.path);
     }
     setRepoPath(rootPath, true);
+    setGitHubRepoPath(rootPath, true);
     setPublishProjectRoot(rootPath);
     loadPublishState().catch(() => {});
     refreshGitAndSyncNow();
@@ -771,6 +800,14 @@ if (gitPanelEl) {
   });
 }
 
+const gitHubPanelEl = getGitHubPanelEl();
+if (gitHubPanelEl) {
+  initGitHubPanel(gitHubPanelEl, {
+    onOpen: openRemoteTab,
+    isVisible: () => getActivePanel() === "github",
+  });
+}
+
 const clonePanelEl = getClonePanelEl();
 if (clonePanelEl) {
   initClonePanel(clonePanelEl, {
@@ -784,6 +821,8 @@ if (clonePanelEl) {
 const initialRoot = getRootPath();
 if (initialRoot) {
   setRepoPath(initialRoot, true);
+  setGitHubRepoPath(initialRoot, true);
+  if (getActivePanel() === "github") refreshGitHubPanel();
   setPublishProjectRoot(initialRoot);
   loadPublishState().catch(() => {});
   refreshGitAndSyncNow();
@@ -795,6 +834,13 @@ function toggleSidebar() {
     sidebarUnfoldBtn.classList.toggle("visible", collapsed);
     setStorageBool(windowKey(KEY_SIDEBAR_COLLAPSED), collapsed);
   });
+}
+
+/** Reveal the GitHub panel, expanding the sidebar when it is collapsed. */
+function showGitHubPanel(kind?: GhKind) {
+  if (sidebarEl.classList.contains("collapsed")) toggleSidebar();
+  switchPanel("github");
+  if (kind) setGitHubKind(kind);
 }
 
 makeDraggable(
@@ -966,7 +1012,18 @@ initFileWatcher({
 setTabsProjectRoot(getRootPath());
 
 // Shared tab reload logic — used by initTabs.onReload and switchProjectTabs
-async function reloadTab(tab: { content: string; path: string | null; id: string }) {
+async function reloadTab(tab: Tab) {
+  if (tab.remote) {
+    try {
+      const { document: doc } = await reloadRemoteTab(tab.remote);
+      setTabContent(tab.id, doc);
+      markTabSaved(tab.id);
+      if (getActiveTab()?.id === tab.id) loadContent(doc);
+    } catch (e) {
+      statusEl.textContent = `Failed to load ${tab.name}: ${e}`;
+    }
+    return;
+  }
   if (!tab.path) return;
   try {
     const content = await invoke<string>("read_text_file", { path: tab.path });
@@ -1100,6 +1157,27 @@ registerCommands([
   { id: "file.open", label: "Open File", shortcut: "⌘O", category: "File", run: openFile },
   { id: "file.save", label: "Save File", shortcut: "⌘S", category: "File", run: saveFile },
   { id: "file.import", label: "Import Document", category: "File", run: importFile },
+  {
+    id: "github.issues",
+    label: "Show GitHub Issues",
+    category: "GitHub",
+    run: () => showGitHubPanel("issue"),
+  },
+  {
+    id: "github.pulls",
+    label: "Show GitHub Pull Requests",
+    category: "GitHub",
+    run: () => showGitHubPanel("pr"),
+  },
+  {
+    id: "github.refresh",
+    label: "Refresh GitHub Issues & Pull Requests",
+    category: "GitHub",
+    run: () => {
+      showGitHubPanel();
+      refreshGitHubPanel();
+    },
+  },
   {
     id: "edit.bold",
     label: "Bold",

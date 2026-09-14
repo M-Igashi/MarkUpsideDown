@@ -237,6 +237,42 @@ pub struct GitRevertParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitHubListParams {
+    #[schemars(description = "Item kind: issue or pr (default: issue)")]
+    pub kind: Option<String>,
+    #[schemars(description = "State filter: open, closed, merged (pr only), or all (default: open)")]
+    pub state: Option<String>,
+    #[schemars(description = "Maximum number of items to return (default: 50, max: 200)")]
+    pub limit: Option<u32>,
+    #[schemars(description = "GitHub search query, e.g. \"label:bug author:octocat\"")]
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitHubViewParams {
+    #[schemars(description = "Item kind: issue or pr (default: issue)")]
+    pub kind: Option<String>,
+    #[schemars(description = "Issue or pull request number")]
+    pub number: u64,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GitHubUpdateParams {
+    #[schemars(description = "Item kind: issue or pr (default: issue)")]
+    pub kind: Option<String>,
+    #[schemars(description = "Issue or pull request number")]
+    pub number: u64,
+    #[schemars(description = "New title")]
+    pub title: String,
+    #[schemars(description = "New body in Markdown (replaces the existing body)")]
+    pub body: String,
+    #[schemars(
+        description = "Body the update is based on. When given, the update is rejected if the body changed on GitHub in the meantime."
+    )]
+    pub expected_body: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CrawlSaveParams {
     #[schemars(description = "Array of pages to save, each with url and markdown fields")]
     pub pages: Vec<CrawlSavePageParam>,
@@ -1737,6 +1773,82 @@ impl McpTools {
 
         match result {
             Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    // --- GitHub Tools (issues / pull requests) ---
+
+    #[tool(name = "github_status", description = "Check GitHub integration availability for the current project: whether the gh CLI is installed and authenticated, and which owner/name repository the project's origin remote points at.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
+    async fn github_status(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        match self.bridge.github_status().await {
+            Ok(status) => {
+                let text = serde_json::to_string_pretty(&status).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(text)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "github_list", description = "List issues or pull requests for the current project's GitHub repository. Returns number, title, state, labels, author, and URL for each item. Use github_view to read a body.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    async fn github_list(
+        &self,
+        Parameters(params): Parameters<GitHubListParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let kind = params.kind.as_deref().unwrap_or("issue");
+        let state = params.state.as_deref().unwrap_or("open");
+        match self
+            .bridge
+            .github_list(kind, state, params.limit, params.search.as_deref())
+            .await
+        {
+            Ok(items) => {
+                let text = serde_json::to_string_pretty(&items).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(text)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "github_view", description = "Read a single issue or pull request including its Markdown body and all comments.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    async fn github_view(
+        &self,
+        Parameters(params): Parameters<GitHubViewParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let kind = params.kind.as_deref().unwrap_or("issue");
+        match self.bridge.github_view(kind, params.number).await {
+            Ok(detail) => {
+                let text = serde_json::to_string_pretty(&detail).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(text)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "github_update", description = "Replace the title and Markdown body of an issue or pull request on GitHub. Comments are not affected. Pass expected_body to abort when the body changed on GitHub since it was read.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
+    async fn github_update(
+        &self,
+        Parameters(params): Parameters<GitHubUpdateParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let kind = params.kind.as_deref().unwrap_or("issue");
+        match self
+            .bridge
+            .github_update(
+                kind,
+                params.number,
+                &params.title,
+                &params.body,
+                params.expected_body.as_deref(),
+            )
+            .await
+        {
+            Ok(detail) => {
+                let url = detail.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Updated {kind} #{}: {url}",
+                    params.number
+                ))]))
+            }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }

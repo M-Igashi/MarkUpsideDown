@@ -85,7 +85,7 @@ fn compute_augmented_path() -> Option<String> {
 
 /// Set HOME and augment PATH for macOS GUI apps that don't inherit shell env.
 /// Covers: Homebrew (Intel + ARM), nvm, nodebrew, fnm, Volta, asdf, mise, n, proto
-fn setup_gui_env(cmd: &mut Command) {
+pub(crate) fn setup_gui_env(cmd: &mut Command) {
     if let Some(home) = crate::util::home_dir() {
         cmd.env("HOME", home);
     }
