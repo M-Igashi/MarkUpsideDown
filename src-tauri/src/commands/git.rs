@@ -25,6 +25,36 @@ pub(super) fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+// --- Argument Validation ---
+
+/// Reject values git would parse as an option instead of a path or revision.
+fn reject_option_like(kind: &str, value: &str) -> Result<()> {
+    if value.starts_with('-') {
+        return Err(AppError::Git(format!("Invalid {kind}: {value}")));
+    }
+    Ok(())
+}
+
+/// Commit hashes always come from `git_log`, so anything that is not a plain
+/// hex object name is rejected rather than handed to git as a revision.
+fn validate_commit_hash(hash: &str) -> Result<()> {
+    if (4..=40).contains(&hash.len()) && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err(AppError::Git(format!("Invalid commit hash: {hash}")))
+    }
+}
+
+/// `<helper>::<address>` remotes (`ext::`, `fd::`, ...) make git execute an
+/// arbitrary command, so only ordinary transports and local paths are allowed.
+fn validate_clone_url(url: &str) -> Result<()> {
+    reject_option_like("clone URL", url)?;
+    if url.contains("::") {
+        return Err(AppError::Git(format!("Unsupported clone URL: {url}")));
+    }
+    Ok(())
+}
+
 // --- Git Operations ---
 
 /// Unquote a git-quoted path (e.g. `"path with spaces"` -> `path with spaces`).
@@ -81,6 +111,7 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String> {
 
 /// Run git without acquiring GIT_LOCK -- caller must hold the lock.
 fn run_git_unlocked(repo_path: &str, args: &[&str]) -> Result<String> {
+    reject_option_like("repository path", repo_path)?;
     let mut full_args = vec!["-C", repo_path];
     full_args.extend_from_slice(args);
     run_cli("git", &full_args)
@@ -413,6 +444,7 @@ pub async fn git_log(repo_path: String, limit: Option<u32>) -> Result<Vec<GitLog
 #[tauri::command]
 pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String> {
     spawn_blocking(move || {
+        validate_commit_hash(&commit_hash)?;
         let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
         // Require clean working tree
@@ -446,6 +478,7 @@ pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String
 #[tauri::command]
 pub async fn git_show(repo_path: String, commit_hash: String) -> Result<String> {
     spawn_blocking(move || {
+        validate_commit_hash(&commit_hash)?;
         run_git(&repo_path, &["show", "--patch", "--format=", &commit_hash])
     })
     .await
@@ -456,7 +489,9 @@ pub async fn git_show(repo_path: String, commit_hash: String) -> Result<String> 
 #[tauri::command]
 pub async fn git_clone(url: String, dest: String) -> Result<String> {
     spawn_blocking(move || {
-        run_cli("git", &["clone", &url, &dest]).map(|s| s.trim().to_string())
+        validate_clone_url(&url)?;
+        reject_option_like("clone destination", &dest)?;
+        run_cli("git", &["clone", "--", &url, &dest]).map(|s| s.trim().to_string())
     })
     .await
 }
@@ -464,7 +499,41 @@ pub async fn git_clone(url: String, dest: String) -> Result<String> {
 #[tauri::command]
 pub async fn git_init(repo_path: String) -> Result<String> {
     spawn_blocking(move || {
-        run_cli("git", &["init", &repo_path]).map(|s| s.trim().to_string())
+        reject_option_like("repository path", &repo_path)?;
+        run_cli("git", &["init", "--", &repo_path]).map(|s| s.trim().to_string())
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_transport_helper_clone_urls() {
+        assert!(validate_clone_url("ext::sh -c 'touch /tmp/pwned'").is_err());
+        assert!(validate_clone_url("fd::7").is_err());
+        assert!(validate_clone_url("--upload-pack=touch /tmp/pwned").is_err());
+    }
+
+    #[test]
+    fn accepts_ordinary_clone_urls() {
+        assert!(validate_clone_url("https://github.com/owner/repo.git").is_ok());
+        assert!(validate_clone_url("git@github.com:owner/repo.git").is_ok());
+        assert!(validate_clone_url("/Users/me/repos/local").is_ok());
+    }
+
+    #[test]
+    fn rejects_non_hex_commit_hashes() {
+        assert!(validate_commit_hash("--output=/tmp/pwned").is_err());
+        assert!(validate_commit_hash("HEAD").is_err());
+        assert!(validate_commit_hash("").is_err());
+        assert!(validate_commit_hash("99715c3").is_ok());
+    }
+
+    #[test]
+    fn rejects_option_like_repo_paths() {
+        assert!(run_git_unlocked("--exec-path=/tmp", &["status"]).is_err());
+        assert!(reject_option_like("repository path", "/Users/me/repo").is_ok());
+    }
 }
