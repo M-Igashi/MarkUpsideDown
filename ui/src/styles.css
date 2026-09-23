@@ -417,6 +417,74 @@ body {
   color: var(--text);
 }
 
+/* Find in preview (Cmd+F), docked below the preview header like the editor search panel */
+.preview-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.preview-search[hidden] {
+  display: none;
+}
+
+.preview-search-input {
+  width: 220px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--text);
+  outline: none;
+}
+
+.preview-search-input:focus {
+  border-color: var(--accent);
+}
+
+.preview-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.preview-search-count {
+  min-width: 56px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.preview-search-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.preview-search-btn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+::highlight(preview-search) {
+  background-color: rgba(74, 122, 181, 0.2);
+}
+
+::highlight(preview-search-current) {
+  background-color: rgba(74, 122, 181, 0.5);
+}
+
 .sidebar-header {
   display: flex;
   align-items: center;
@@ -3978,6 +4046,7 @@ body {
   #divider,
   .panel-unfold-btn,
   .preview-header,
+  .preview-search,
   .toc-panel,
   .sidebar-context-menu,
   .link-context-menu,

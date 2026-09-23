@@ -53,6 +53,7 @@ MCP Server (mcp-server-rs/)
 | Editor | CodeMirror 6 (Markdown) | `ui/src/main.ts` |
 | Preview | marked.js + KaTeX + Mermaid + highlight.js + idiomorph DOM-diffing | `ui/src/preview-render.ts` |
 | Scroll sync | Viewport-based bidirectional sync with cooldown | `ui/src/scroll-sync.ts` |
+| Preview search | Find in preview (Cmd+F while the preview is active), CSS Highlight API | `ui/src/preview-search.ts` |
 | Settings | Worker setup (auto + manual), feature status, MCP config | `ui/src/settings.ts` |
 | Sidebar | File tree browser with context menu, search, drag & drop, file tagging | `ui/src/sidebar.ts` |
 | Tags | File tagging system (CRUD, badges, filter, sort by tag) | `ui/src/tags.ts` |

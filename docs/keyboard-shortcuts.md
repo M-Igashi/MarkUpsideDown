@@ -30,6 +30,7 @@ All commands are also accessible via the **Command Palette** (<kbd>Cmd</kbd>+<kb
 | <kbd>Cmd</kbd>+<kbd>3</kbd> | Toggle preview pane |
 | <kbd>Cmd</kbd>+<kbd>4</kbd> | Toggle Table of Contents |
 | <kbd>Cmd</kbd>+<kbd>5</kbd> | Semantic search |
+| <kbd>Cmd</kbd>+<kbd>F</kbd> | Find in the last clicked or scrolled pane: editor search or preview search. In the preview search, <kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>Enter</kbd> step through matches and <kbd>Esc</kbd> closes |
 
 ## Copy (<kbd>Cmd</kbd>+<kbd>C</kbd>)
 

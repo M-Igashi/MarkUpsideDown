@@ -99,6 +99,7 @@ import {
   preservePreviewScroll,
 } from "./scroll-sync.ts";
 import { initPreview, renderPreview, getMermaid, setFilePathGetter } from "./preview-render.ts";
+import { initPreviewSearch, openPreviewSearch, isPreviewSearchTarget } from "./preview-search.ts";
 import {
   initFileOps,
   saveFile,
@@ -269,6 +270,14 @@ const editor = new EditorView({
         { key: "Mod-Shift-x", run: toggleStrikethrough },
         { key: "Mod-`", run: toggleInlineCode },
         { key: "Mod-Shift-`", run: insertCodeBlock },
+        {
+          key: "Mod-f",
+          run: () => {
+            if (!isPreviewSearchTarget()) return false;
+            openPreviewSearch();
+            return true;
+          },
+        },
         ...searchKeymap,
         ...defaultKeymap,
         ...historyKeymap,
@@ -876,6 +885,7 @@ previewFoldBtn.title = "Collapse Preview (⌘3)";
 previewFoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 previewHeader.appendChild(previewFoldBtn);
 previewWrapper.insertBefore(previewHeader, previewPane);
+initPreviewSearch(previewPane, previewWrapper, editorContainer, { onClose: () => editor.focus() });
 
 // Unfold buttons (thin strips shown when panel is collapsed)
 const appEl = document.getElementById("app")!;
@@ -1145,6 +1155,13 @@ document.addEventListener("keydown", (e) => {
       // defaultPrevented: Ctrl-p is cursorLineUp inside CodeMirror on macOS
       e.preventDefault();
       printPreview();
+    } else if (e.key === "f" && !e.defaultPrevented && isPreviewSearchTarget()) {
+      // Leave other text fields (sidebar search, dialogs) to their own handling
+      const active = document.activeElement;
+      const inField = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+      if (inField && !previewWrapper.contains(active)) return;
+      e.preventDefault();
+      openPreviewSearch();
     }
   }
 });
@@ -1322,6 +1339,15 @@ registerCommands([
     shortcut: "⌘5",
     category: "Search",
     run: () => openCommandPalette("?"),
+  },
+  {
+    id: "search.preview",
+    label: "Find in Preview",
+    category: "Search",
+    run: () => {
+      if (previewWrapper.classList.contains("collapsed")) togglePreview();
+      openPreviewSearch();
+    },
   },
   {
     id: "app.settings",

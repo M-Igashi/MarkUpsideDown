@@ -15,6 +15,16 @@ The preview pane renders your Markdown in real time as you type. It sits on the 
 
 The editor and preview panes stay in sync as you scroll. This is bidirectional — scrolling either pane moves the other to the corresponding position. The sync is viewport-based, so it works accurately even with complex content like images and diagrams.
 
+## Find in Preview
+
+Press **Cmd+F** while the preview is the active pane (the pane you last clicked or scrolled) to open a search bar below the preview header. When the editor is the active pane, Cmd+F opens the editor's own search and replace panel as before.
+
+- Matches are highlighted as you type, with the current match in a stronger color and a running count
+- **Enter** / **Shift+Enter** (or **Cmd+G** / **Cmd+Shift+G**) step to the next or previous match; the preview scrolls to it and the editor follows through scroll sync
+- Search is case-insensitive and finds text that spans inline formatting such as bold or links
+- **Esc** closes the bar and clears the highlights
+- Also available from the Command Palette as **Find in Preview**
+
 ## Mermaid Diagrams
 
 Fenced code blocks with the `mermaid` language tag are rendered as diagrams:

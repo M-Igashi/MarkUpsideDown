@@ -32,6 +32,7 @@ All commands are also accessible via the **Command Palette** (Cmd+K).
 | Cmd+3 | Toggle preview pane |
 | Cmd+4 | Toggle Table of Contents |
 | Cmd+5 | Open Semantic Search |
+| Cmd+F | Find in the active pane: editor search, or preview search when the preview was last clicked or scrolled |
 
 ## Smart Copy (Cmd+C)
 

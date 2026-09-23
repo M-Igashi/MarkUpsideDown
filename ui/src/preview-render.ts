@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { Idiomorph } from "idiomorph";
+import { refreshPreviewSearch } from "./preview-search.ts";
 import {
   scrollState,
   buildScrollAnchors,
@@ -644,6 +645,8 @@ export async function renderPreview(source: string) {
     markProgrammaticScroll();
     syncPreviewToCursor();
   }
+
+  refreshPreviewSearch();
 
   inlineSvgImages(previewPane)
     .then((changed) => {
