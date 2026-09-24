@@ -10,13 +10,11 @@ The easiest way to install on macOS:
 brew install M-Igashi/tap/markupsidedown
 ```
 
-Homebrew handles Gatekeeper automatically — no need to run `xattr` or right-click to open.
-
 ### GitHub Releases
 
 Download the latest `.dmg` from the [Releases page](https://github.com/M-Igashi/MarkUpsideDown/releases). Open the `.dmg` and drag MarkUpsideDown to your Applications folder.
 
-> **Note:** The app is not code-signed. If you download directly (not via Homebrew), macOS may show a warning. Right-click the app and select "Open" to bypass it the first time.
+The app is signed and notarized by Apple, so it opens without Gatekeeper warnings either way.
 
 ## System Requirements
 

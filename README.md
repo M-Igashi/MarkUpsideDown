@@ -90,9 +90,7 @@ Press <kbd>Cmd</kbd>+<kbd>K</kbd> to open the command palette with all available
 brew install M-Igashi/tap/markupsidedown
 ```
 
-**Manual:** Download the `.dmg` from the [latest release](https://github.com/M-Igashi/MarkUpsideDown/releases/latest), open it, and drag **MarkUpsideDown.app** to Applications.
-
-> **Note:** The app is not code-signed. For manual installs, run `xattr -cr /Applications/MarkUpsideDown.app` or right-click → Open to bypass Gatekeeper. Homebrew handles this automatically.
+**Manual:** Download the `.dmg` from the [latest release](https://github.com/M-Igashi/MarkUpsideDown/releases/latest), open it, and drag **MarkUpsideDown.app** to Applications. The app is signed and notarized by Apple, so it opens without Gatekeeper warnings.
 
 ### 2. Set Up the Cloudflare Worker
 
