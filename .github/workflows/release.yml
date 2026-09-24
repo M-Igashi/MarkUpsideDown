@@ -97,7 +97,7 @@ jobs:
         run: echo "$ASC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
 
       # Tauri signs the app and the MCP sidecar with the hardened runtime,
-      # notarizes the bundle and staples it before building the DMG.
+      # notarizes and staples the app, then builds and signs the DMG.
       - name: Build Tauri app (Apple Silicon)
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
@@ -113,6 +113,20 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target aarch64-apple-darwin
+
+      # Tauri does not notarize the DMG, and Gatekeeper rejects a signed but
+      # unnotarized DMG when it is opened from a browser download.
+      - name: Notarize and staple DMG
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DMG="target/aarch64-apple-darwin/release/bundle/dmg/MarkUpsideDown_${VERSION}_aarch64.dmg"
+          xcrun notarytool submit "$DMG" --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
+          xcrun stapler staple "$DMG"
+          gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Extract checksums
         id: checksums
