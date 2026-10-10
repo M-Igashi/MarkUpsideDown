@@ -31,7 +31,7 @@
     "@types/dompurify": "^3.2.0",
     "typescript": "^7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.3.2",
-    "vite-plus": "^1.0.0"
+    "vite-plus": "^1.1.0"
   },
   "packageManager": "npm@11.11.1",
   "overrides": {
