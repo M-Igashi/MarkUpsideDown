@@ -43,3 +43,8 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore(ci):"
+    groups:
+      # init and analyze must stay on the same version or CodeQL fails
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
