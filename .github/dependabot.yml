@@ -1,22 +1,13 @@
 version: 2
 updates:
-  # Rust (Cargo) — src-tauri/
+  # Rust (Cargo) — workspace root, so Cargo.lock is updated with the manifests
   - package-ecosystem: "cargo"
-    directory: "/src-tauri"
+    directory: "/"
     schedule:
       interval: "weekly"
     commit-message:
       prefix: "chore(deps):"
     open-pull-requests-limit: 10
-
-  # Rust (Cargo) — mcp-server-rs/
-  - package-ecosystem: "cargo"
-    directory: "/mcp-server-rs"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps):"
-    open-pull-requests-limit: 5
 
   # npm — ui/
   - package-ecosystem: "npm"
