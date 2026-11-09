@@ -24,11 +24,20 @@ pub(crate) trait HasWorkerError {
     fn take_error(&mut self) -> Option<String>;
 }
 
+/// Attach the Worker API key, if configured, as a bearer token.
+fn with_worker_key(request: reqwest::RequestBuilder, worker_key: Option<&str>) -> reqwest::RequestBuilder {
+    match worker_key.filter(|k| !k.is_empty()) {
+        Some(key) => request.bearer_auth(key),
+        None => request,
+    }
+}
+
 /// Send a request to the Worker, parse the JSON response, and check for errors.
 pub(crate) async fn worker_request<T: DeserializeOwned + HasWorkerError>(
     request: reqwest::RequestBuilder,
+    worker_key: Option<&str>,
 ) -> Result<T> {
-    let response = request
+    let response = with_worker_key(request, worker_key)
         .send()
         .await
         .map_err(|e| AppError::Network(format!("Request failed: {e}")))?;
@@ -52,7 +61,7 @@ pub(crate) async fn worker_request<T: DeserializeOwned + HasWorkerError>(
 // --- Worker Health Check ---
 
 /// Must match WORKER_VERSION in worker/src/config.ts.
-const EXPECTED_WORKER_VERSION: u32 = 11;
+const EXPECTED_WORKER_VERSION: u32 = 12;
 
 #[derive(Serialize, Default)]
 pub struct WorkerStatus {
@@ -67,6 +76,9 @@ pub struct WorkerStatus {
     pub search_available: bool,
     pub worker_version: Option<u32>,
     pub update_available: bool,
+    /// API key check result from /health: "valid", "invalid", "missing", or
+    /// "unconfigured". None for Workers older than v12 (no auth support).
+    pub auth: Option<String>,
     pub error: Option<String>,
 }
 
@@ -94,17 +106,20 @@ struct HealthCapabilities {
 #[derive(Deserialize)]
 struct HealthResponse {
     version: Option<u32>,
+    auth: Option<String>,
     capabilities: Option<HealthCapabilities>,
 }
 
 #[tauri::command]
 pub async fn test_worker_url(
     worker_url: String,
+    worker_key: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<WorkerStatus> {
     let health_url = format!("{}/health", worker_url.trim_end_matches('/'));
+    let request = with_worker_key(client.get(&health_url), worker_key.as_deref());
 
-    Ok(match client.get(&health_url).timeout(Duration::from_secs(10)).send().await {
+    Ok(match request.timeout(Duration::from_secs(10)).send().await {
         Ok(resp) if resp.status().is_success() => {
             match resp.json::<HealthResponse>().await {
                 Ok(body) => {
@@ -126,6 +141,7 @@ pub async fn test_worker_url(
                         search_available: caps.search.unwrap_or(false),
                         worker_version: version,
                         update_available,
+                        auth: body.auth,
                         error: None,
                     }
                 }
@@ -201,12 +217,14 @@ impl HasWorkerError for RenderWorkerResponse {
 pub async fn fetch_rendered_url_as_markdown(
     url: String,
     worker_url: String,
+    worker_key: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String> {
     let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&url));
 
     let body: RenderWorkerResponse = worker_request(
         client.get(&render_url).timeout(Duration::from_secs(60)),
+        worker_key.as_deref(),
     )
     .await?;
 
@@ -239,6 +257,7 @@ impl HasWorkerError for FetchWorkerResponse {
 pub async fn fetch_url_via_worker(
     url: String,
     worker_url: String,
+    worker_key: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<WorkerFetchResult> {
     let fetch_url = format!("{}/fetch", worker_url.trim_end_matches('/'));
@@ -248,6 +267,7 @@ pub async fn fetch_url_via_worker(
             .post(&fetch_url)
             .timeout(Duration::from_secs(60))
             .json(&serde_json::json!({ "url": url })),
+        worker_key.as_deref(),
     )
     .await?;
 
@@ -374,6 +394,7 @@ pub struct ConvertResponse {
 pub async fn convert_file_to_markdown(
     file_path: String,
     worker_url: String,
+    worker_key: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<ConvertResponse> {
     let path = std::path::Path::new(&file_path);
@@ -395,6 +416,7 @@ pub async fn convert_file_to_markdown(
             .timeout(Duration::from_secs(120))
             .header("Content-Type", mime_type)
             .body(bytes),
+        worker_key.as_deref(),
     )
     .await?;
 

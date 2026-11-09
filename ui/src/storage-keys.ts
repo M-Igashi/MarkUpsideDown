@@ -27,6 +27,7 @@ export function windowKey(key: string): string {
 
 // --- Settings ---
 export const KEY_WORKER_URL = "markupsidedown:workerUrl";
+export const KEY_WORKER_KEY = "markupsidedown:workerKey";
 export const KEY_ACCOUNT_ID = "markupsidedown:accountId";
 export const KEY_WORKER_SUFFIX = "markupsidedown:workerSuffix";
 export const KEY_SETUP_DONE = "markupsidedown:setupDone";

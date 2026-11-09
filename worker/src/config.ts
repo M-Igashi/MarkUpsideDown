@@ -1,5 +1,5 @@
 // Bump this when adding/changing endpoints so the app can detect outdated Workers.
-export const WORKER_VERSION = 11;
+export const WORKER_VERSION = 12;
 
 // --- Cache TTLs (seconds) ---
 export const RENDER_CACHE_TTL = 3600; // 1 hour

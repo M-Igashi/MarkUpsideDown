@@ -1,6 +1,6 @@
 import type { EditorView } from "@codemirror/view";
 import { basename } from "./path-utils.ts";
-import { getWorkerUrl } from "./settings.ts";
+import { getWorkerKey, getWorkerUrl } from "./settings.ts";
 import {
   getActiveTab,
   getTabByPath,
@@ -114,6 +114,7 @@ export function syncEditorState(cachedContent?: string) {
       cursorLine,
       cursorColumn,
       workerUrl: getWorkerUrl() || null,
+      workerKey: getWorkerKey(),
       documentStructure: cachedStructureJson,
       lintDiagnostics: cachedLintJson,
       rootPath: getRootPath() || null,

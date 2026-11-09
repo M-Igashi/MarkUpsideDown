@@ -26,6 +26,7 @@ The MCP server can run **without the desktop app** for conversion and crawl work
 
 - The MCP binary (bundled in the `.app` or built from `mcp-server-rs/`)
 - `MARKUPSIDEDOWN_WORKER_URL` environment variable pointing to your deployed Worker
+- `MARKUPSIDEDOWN_WORKER_KEY` environment variable with the Worker API key (shown in Settings and included in the copied MCP config)
 
 ### What works without the app
 
@@ -46,7 +47,8 @@ The MCP server can run **without the desktop app** for conversion and crawl work
     "markupsidedown": {
       "command": "/Applications/MarkUpsideDown.app/Contents/MacOS/markupsidedown-mcp",
       "env": {
-        "MARKUPSIDEDOWN_WORKER_URL": "https://markupsidedown-XXXXXX.YOUR_SUBDOMAIN.workers.dev"
+        "MARKUPSIDEDOWN_WORKER_URL": "https://markupsidedown-XXXXXX.YOUR_SUBDOMAIN.workers.dev",
+        "MARKUPSIDEDOWN_WORKER_KEY": "YOUR_WORKER_API_KEY"
       }
     }
   }
@@ -55,16 +57,18 @@ The MCP server can run **without the desktop app** for conversion and crawl work
 
 > **Tip:** You can verify the binary version with `markupsidedown-mcp --version`.
 
-When `MARKUPSIDEDOWN_WORKER_URL` is set, the MCP server uses it directly without contacting the app bridge. Editor/file/git tools will return an error if the app is not running, but conversion and crawl tools work normally.
+When both `MARKUPSIDEDOWN_WORKER_URL` and `MARKUPSIDEDOWN_WORKER_KEY` are set, the MCP server uses them directly without contacting the app bridge. Editor/file/git tools will return an error if the app is not running, but conversion and crawl tools work normally.
 
 ## Configuration
 
-### Worker URL Resolution
+### Worker URL and API Key Resolution
 
-The MCP server resolves the Worker URL in this order:
+The MCP server resolves the Worker URL and API key in this order:
 
-1. `MARKUPSIDEDOWN_WORKER_URL` environment variable (set in MCP config)
-2. Worker URL configured in the app's Settings (read via bridge `/editor/state`)
+1. `MARKUPSIDEDOWN_WORKER_URL` and `MARKUPSIDEDOWN_WORKER_KEY` environment variables (set in MCP config)
+2. Values configured in the app's Settings (read via bridge `/worker`), for whichever of the two is not set in the environment
+
+The key is sent as `Authorization: Bearer <key>`. Worker v12 and later reject requests without it.
 
 ### Worker Version Compatibility
 
@@ -276,6 +280,10 @@ Conversion tools need a Worker URL. Either:
 
 - Set `MARKUPSIDEDOWN_WORKER_URL` in your MCP config's `env` block
 - Or configure the Worker URL in the app's Settings panel
+
+### "Unauthorized: missing API key" or "invalid API key"
+
+The Worker requires its API key (Worker v12+). Either keep the app running so the MCP server can read the key from Settings, or re-copy the MCP config from Settings so it includes `MARKUPSIDEDOWN_WORKER_KEY`.
 
 ### Bridge port conflict
 

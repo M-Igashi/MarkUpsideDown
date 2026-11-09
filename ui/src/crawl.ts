@@ -1,5 +1,5 @@
 import { normalizeMarkdown } from "./normalize.ts";
-import { ensureWorkerUrl } from "./settings.ts";
+import { ensureWorkerUrl, getWorkerKey } from "./settings.ts";
 import { escapeHtml } from "./html-utils.ts";
 import { basename as pathBasename, dirname } from "./path-utils.ts";
 import { getRootPath } from "./sidebar.ts";
@@ -65,6 +65,7 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
     const { job_id } = await invoke<CrawlStartResult>("crawl_website", {
       url,
       workerUrl,
+      workerKey: getWorkerKey() || null,
       depth: options.depth,
       limit: options.limit,
       render: options.render,
@@ -169,6 +170,7 @@ async function pollCrawl(
       const result: CrawlStatusResult = await invoke("crawl_status", {
         jobId,
         workerUrl,
+        workerKey: getWorkerKey() || null,
         cursor,
       });
 

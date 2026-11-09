@@ -6,7 +6,12 @@ import {
   MD_EXTENSIONS,
   relativeToRoot,
 } from "./path-utils.ts";
-import { ensureWorkerUrl, isImageConversionAllowed, isAutoSaveEnabled } from "./settings.ts";
+import {
+  ensureWorkerUrl,
+  getWorkerKey,
+  isImageConversionAllowed,
+  isAutoSaveEnabled,
+} from "./settings.ts";
 import { getUrlAsMarkdown, fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fetch-markdown.ts";
 import { normalizeMarkdown } from "./normalize.ts";
 import { getRootPath, refreshTree, hasPendingExternalDrop } from "./sidebar.ts";
@@ -302,6 +307,7 @@ export async function convertFile(filePath: string) {
     const result = await invoke<ConvertResult>("convert_file_to_markdown", {
       filePath,
       workerUrl,
+      workerKey: getWorkerKey() || null,
     });
     const markdown = normalizeMarkdown(result.markdown);
     loadContentAsTab(markdown, filePath);

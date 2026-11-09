@@ -25,6 +25,10 @@
   "vectorize": [
     { "binding": "VECTORS", "index_name": "markupsidedown-docs" }
   ],
+  // Deletes expired published documents (only kept when the R2 bucket exists).
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "observability": {
     "enabled": true
   }

@@ -31,13 +31,21 @@ fn truncate_chars(s: &str, max: usize) -> &str {
     }
 }
 
-fn get_worker_url(env_url: Option<&str>, bridge_url: Option<&str>) -> Result<String, String> {
-    env_url
-        .or(bridge_url)
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            "Worker URL not configured. Set MARKUPSIDEDOWN_WORKER_URL env var or configure in app Settings.".to_string()
-        })
+/// Worker base URL plus the API key it requires on non-public routes.
+#[derive(Clone)]
+struct WorkerTarget {
+    url: String,
+    key: Option<String>,
+}
+
+impl WorkerTarget {
+    fn request(&self, http: &reqwest::Client, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        let req = http.request(method, format!("{}{path}", self.url.trim_end_matches('/')));
+        match &self.key {
+            Some(key) => req.bearer_auth(key),
+            None => req,
+        }
+    }
 }
 
 /// Accept a JSON Schema as either an object or a JSON-encoded string.
@@ -418,42 +426,45 @@ pub struct McpTools {
     bridge: BridgeClient,
     http: reqwest::Client,
     worker_url_env: Option<String>,
-    cached_worker_url: std::sync::Mutex<Option<(String, std::time::Instant)>>,
+    worker_key_env: Option<String>,
+    cached_worker: std::sync::Mutex<Option<(WorkerTarget, std::time::Instant)>>,
 }
 
 #[tool_router]
 impl McpTools {
     pub fn new() -> Self {
-        let worker_url_env = std::env::var("MARKUPSIDEDOWN_WORKER_URL").ok();
+        let env = |name| std::env::var(name).ok().filter(|v: &String| !v.is_empty());
         let http = reqwest::Client::new();
         Self {
             bridge: BridgeClient::new(http.clone()),
             http,
-            worker_url_env,
-            cached_worker_url: std::sync::Mutex::new(None),
+            worker_url_env: env("MARKUPSIDEDOWN_WORKER_URL"),
+            worker_key_env: env("MARKUPSIDEDOWN_WORKER_KEY"),
+            cached_worker: std::sync::Mutex::new(None),
         }
     }
 
-    async fn resolve_worker_url(&self) -> Result<String, String> {
-        if let Some(ref url) = self.worker_url_env {
-            return Ok(url.clone());
+    /// Resolve the Worker URL and API key. Env vars win; anything missing is
+    /// taken from the running app via the bridge (cached for 60 seconds).
+    async fn resolve_worker(&self) -> Result<WorkerTarget, String> {
+        if let (Some(url), Some(key)) = (&self.worker_url_env, &self.worker_key_env) {
+            return Ok(WorkerTarget { url: url.clone(), key: Some(key.clone()) });
         }
-        // Check cache (TTL: 60 seconds)
         {
-            let cache = self.cached_worker_url.lock().unwrap();
-            if let Some((ref url, ref ts)) = *cache {
+            let cache = self.cached_worker.lock().unwrap();
+            if let Some((ref target, ref ts)) = *cache {
                 if ts.elapsed() < std::time::Duration::from_secs(60) {
-                    return Ok(url.clone());
+                    return Ok(target.clone());
                 }
             }
         }
-        let bridge_state = self.bridge.get_editor_state().await.ok();
-        let url = get_worker_url(
-            None,
-            bridge_state.as_ref().and_then(|s| s.worker_url.as_deref()),
-        )?;
-        *self.cached_worker_url.lock().unwrap() = Some((url.clone(), std::time::Instant::now()));
-        Ok(url)
+        let bridge = self.bridge.get_worker_config().await.unwrap_or_default();
+        let url = self.worker_url_env.clone().or(bridge.url).ok_or_else(|| {
+            "Worker URL not configured. Set MARKUPSIDEDOWN_WORKER_URL env var or configure in app Settings.".to_string()
+        })?;
+        let target = WorkerTarget { url, key: self.worker_key_env.clone().or(bridge.key) };
+        *self.cached_worker.lock().unwrap() = Some((target.clone(), std::time::Instant::now()));
+        Ok(target)
     }
 
     /// Call a Worker endpoint: resolve the URL, send the request, and surface
@@ -466,11 +477,10 @@ impl McpTools {
         body: Option<serde_json::Value>,
         timeout_secs: u64,
     ) -> Result<serde_json::Value, String> {
-        let worker_url = self.resolve_worker_url().await?;
-        let url = format!("{}{path}", worker_url.trim_end_matches('/'));
         let mut req = self
-            .http
-            .request(method, &url)
+            .resolve_worker()
+            .await?
+            .request(&self.http, method, path)
             .timeout(std::time::Duration::from_secs(timeout_secs));
         if let Some(body) = body {
             req = req.json(&body);
@@ -635,8 +645,7 @@ impl McpTools {
             }
 
             // 2. Try Worker /fetch with SPA detection
-            let worker_url = self.resolve_worker_url().await;
-            if let Ok(worker_url) = worker_url {
+            if let Ok(worker) = self.resolve_worker().await {
                 #[derive(Deserialize)]
                 struct FetchResp {
                     markdown: Option<String>,
@@ -644,9 +653,8 @@ impl McpTools {
                     error: Option<String>,
                 }
 
-                let fetch_resp = self
-                    .http
-                    .post(format!("{worker_url}/fetch"))
+                let fetch_resp = worker
+                    .request(&self.http, reqwest::Method::POST, "/fetch")
                     .json(&serde_json::json!({ "url": params.url }))
                     .timeout(std::time::Duration::from_secs(30))
                     .send()
@@ -691,7 +699,7 @@ impl McpTools {
         Parameters(params): Parameters<FilePathParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
+            let worker = self.resolve_worker().await?;
 
             let ext = std::path::Path::new(&params.file_path)
                 .extension()
@@ -705,9 +713,8 @@ impl McpTools {
                 .await
                 .map_err(|e| format!("Failed to read file: {e}"))?;
 
-            let response = self
-                .http
-                .post(format!("{worker_url}/convert"))
+            let response = worker
+                .request(&self.http, reqwest::Method::POST, "/convert")
                 .header("Content-Type", mime)
                 .timeout(std::time::Duration::from_secs(60))
                 .body(bytes)
@@ -1060,20 +1067,15 @@ impl McpTools {
         Parameters(params): Parameters<CrawlStatusParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker_url = self.resolve_worker_url().await?;
+            let worker = self.resolve_worker().await?;
             let limit = params.limit.unwrap_or(10);
-            let mut status_url = format!(
-                "{}/crawl/{}?limit={limit}&status=completed",
-                worker_url.trim_end_matches('/'),
-                params.job_id,
-            );
+            let mut status_path = format!("/crawl/{}?limit={limit}&status=completed", params.job_id);
             if let Some(ref c) = params.cursor {
-                status_url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
+                status_path.push_str(&format!("&cursor={}", urlencoding::encode(c)));
             }
 
-            let response = self
-                .http
-                .get(&status_url)
+            let response = worker
+                .request(&self.http, reqwest::Method::GET, &status_path)
                 .timeout(std::time::Duration::from_secs(120))
                 .send()
                 .await

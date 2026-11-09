@@ -195,6 +195,7 @@ fn main() {
             cloudflare::setup_worker_secrets,
             cloudflare::setup_worker_secrets_with_token,
             cloudflare::set_r2_public_url,
+            cloudflare::set_worker_api_key,
             menu::add_recent_file,
             commands::validate_markdown,
             commands::print_webview,

@@ -19,10 +19,11 @@ On first launch, MarkUpsideDown opens the Settings panel with a **Setup with Clo
 2. Runs `wrangler login` (opens browser for Cloudflare OAuth)
 3. **Creates Cloudflare resources** — KV namespace (cache), R2 bucket (publish), Queue (batch conversion), Vectorize index (semantic search). Each is optional and created in parallel; failures are non-fatal
 4. Deploys the Worker with a **randomized URL** (e.g. `markupsidedown-a3f8k2xp7m9qb.example.workers.dev`) to prevent third-party URL guessing
-5. **(Optional)** Configures secrets for Render JS via OAuth — creates a scoped API token automatically
-6. Verifies the deployment
+5. Sets a random **API key** as the `API_KEY` Worker secret and saves it in the app. Every endpoint except `GET /health` and `GET /p/:key` requires it
+6. **(Optional)** Configures secrets for Render JS via OAuth — creates a scoped API token automatically
+7. Verifies the deployment
 
-After step 4, Document Import is ready to use. Step 5 (secrets) is only needed for Render JS (fetching JavaScript-rendered pages). If OAuth token creation fails, you can add secrets later via `wrangler secret put`.
+After step 5, Document Import is ready to use. Step 6 (secrets) is only needed for Render JS (fetching JavaScript-rendered pages). If OAuth token creation fails, you can add secrets later via `wrangler secret put`.
 
 Resources created in step 3 enable additional features (see [Feature Status](#feature-status)). If a resource fails to create, the Worker still deploys without that binding — features degrade gracefully.
 
@@ -62,6 +63,18 @@ export CLOUDFLARE_API_TOKEN="your-token-here"
 cd worker && wrangler deploy
 ```
 
+### Set the API Key
+
+The Worker rejects every request except `GET /health` and `GET /p/:key` (published documents) unless it carries `Authorization: Bearer <API_KEY>`. Generate a random key and store it as a secret:
+
+```bash
+cd worker
+openssl rand -hex 32          # copy the output
+wrangler secret put API_KEY   # paste it
+```
+
+Until `API_KEY` is set, protected endpoints return `500` with an error explaining how to set it.
+
 ### Set Worker Secrets
 
 The secrets are required for the `/render` and `/crawl` endpoints (Rendered Fetch and Website Crawl). If you only need Document Import, you can skip this — `/convert` uses the AI binding directly.
@@ -86,17 +99,18 @@ By default, published URLs contain the Worker subdomain. To hide the Worker URL,
 
 Published URLs will now use the R2 public URL (e.g. `https://pub-abc123.r2.dev/my-document`) instead of the Worker URL. The `GET /p/:key` endpoint is kept as a fallback.
 
-> **Note:** R2 public access serves objects directly without expiration checks. Time-limited published files will remain accessible via the R2 URL until the object is deleted. The Worker's `GET /p/:key` endpoint still enforces expiration.
+> **Note:** R2 public access serves objects directly, without going through the Worker. A Cron Trigger on the Worker deletes expired documents every 15 minutes, so a time-limited file can stay reachable via the R2 URL for up to 15 minutes after it expires. The Worker's `GET /p/:key` endpoint enforces expiration immediately. The cron is only deployed when the R2 bucket exists, and it counts toward your account's Cron Trigger limit (5 on the Workers Free plan).
 
 ### Configure the App
 
 1. Open Settings in the toolbar (or wait for the first-launch prompt)
 2. Paste your Worker URL (e.g. `https://markupsidedown-XXXXXX.example.workers.dev`)
-3. Click **Test** to verify the connection
-4. Check **Feature Status** to see which capabilities are ready
-5. Click **Save**
+3. Paste the API key you set with `wrangler secret put API_KEY`
+4. Click **Test** to verify the connection
+5. Check **Feature Status** to see which capabilities are ready
+6. Click **Save**
 
-The URL is saved in localStorage and persists across sessions.
+The URL and API key are saved in localStorage and persist across sessions.
 
 ## When to Use Each Feature
 
@@ -158,6 +172,14 @@ Set the secrets as described in [Set Worker Secrets](#set-worker-secrets). This 
 - **429**: Rate limit exceeded (free tier: 6 req/min)
 - **Timeout**: Complex pages may take longer; try standard fetch instead
 
+### "Unauthorized: missing API key" or "invalid API key"
+
+The Worker requires the API key on every endpoint except `GET /health` and `GET /p/:key`. Paste the key into Settings, or click **Update Worker** to set a new one. For the MCP server in standalone mode, set `MARKUPSIDEDOWN_WORKER_KEY` in the MCP config (re-copy the config from Settings).
+
+### "API_KEY secret is not set on this Worker"
+
+The Worker code is v12 or later but the secret was never set (for example, after a manual deploy). Click **Update Worker** in Settings, or run `wrangler secret put API_KEY` as described in [Set the API Key](#set-the-api-key).
+
 ### Auto-setup fails at "Configure secrets"
 
 If the app can't auto-detect your API token, it will prompt you to paste one manually. Create a token with the permissions listed in [API Token](#api-token).
@@ -168,7 +190,7 @@ If you skip this step, the Worker is still deployed and Document Import works �
 
 The app shows an **"Update available"** badge in Settings when your deployed Worker is older than the version bundled with the app. Click the **Update Worker** button to re-deploy with the latest code.
 
-The URL stays the same. Secrets and resource bindings persist across deploys. The feature list refreshes automatically after update.
+The URL stays the same. Secrets and resource bindings persist across deploys. Updating also sets the API key (reusing the saved one), so Workers deployed before v12 become protected after one update. The feature list refreshes automatically after update.
 
 **When to update:** After installing a new version of MarkUpsideDown, check Settings → Worker Status. If it shows "Update available", click Update Worker. New MCP tools (e.g., `extract_json`) may require Worker endpoints that don't exist in older versions.
 
@@ -177,8 +199,10 @@ The URL stays the same. Secrets and resource bindings persist across deploys. Th
 The Worker exposes its version via `GET /health`:
 
 ```json
-{ "status": "ok", "version": 7, "capabilities": { "fetch": true, "convert": true, "render": true, "json": true, "crawl": true, "cache": true, "batch": true, "publish": true, "search": true } }
+{ "status": "ok", "version": 12, "auth": "valid", "capabilities": { "fetch": true, "convert": true, "render": true, "json": true, "crawl": true, "cache": true, "batch": true, "publish": true, "search": true } }
 ```
+
+`auth` reports the API key check for the request: `valid`, `invalid`, `missing` (no `Authorization` header), or `unconfigured` (the `API_KEY` secret is not set).
 
 The `capabilities` object shows which features are available:
 - `render`, `json`, `crawl` — require Worker secrets (`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`)

@@ -125,6 +125,8 @@ The `/render` endpoint pipeline:
 2. **Markdown conversion** — `AI.toMarkdown()` converts HTML to Markdown
 3. **Caching** — Responses cached for 1 hour via `caches.default`
 
+Authentication: every endpoint except `GET /health` and `GET /p/:key` requires `Authorization: Bearer <API_KEY>`, where `API_KEY` is a Worker secret set by the setup wizard (compared in constant time). A Cron Trigger (every 15 minutes) deletes expired published documents, which matters when R2 public URLs bypass the Worker.
+
 Security: SSRF prevention validates URLs and blocks private/reserved IP ranges via DNS-over-HTTPS resolution. Bridge path validation: All file paths received via MCP bridge are validated through `validate_path()` which canonicalizes and ensures paths are under the user's home directory.
 
 ### MCP Server (`mcp-server-rs/`)
@@ -265,6 +267,7 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 | `/editor/content` | POST | Replace editor content |
 | `/editor/insert` | POST | Insert text at position (cursor/start/end) |
 | `/editor/state` | GET | Get editor state (file path, Worker URL, cursor) |
+| `/worker` | GET | Worker URL and API key for the MCP server (kept out of `/editor/state` so the key never reaches tool output) |
 | `/editor/open-file` | POST | Open a file in the editor |
 | `/editor/save-file` | POST | Save editor content to file |
 | `/editor/structure` | GET | Get document structure as JSON |

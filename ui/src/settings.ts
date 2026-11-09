@@ -3,6 +3,7 @@ import { isSmartTypographyEnabled, setSmartTypographyEnabled } from "./smart-typ
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import {
   KEY_WORKER_URL,
+  KEY_WORKER_KEY,
   KEY_ACCOUNT_ID,
   KEY_WORKER_SUFFIX,
   KEY_SETUP_DONE,
@@ -39,6 +40,7 @@ interface WorkerStatus {
   search_available: boolean;
   worker_version: number | null;
   update_available: boolean;
+  auth: "valid" | "invalid" | "missing" | "unconfigured" | null;
   error?: string;
 }
 
@@ -58,6 +60,33 @@ export function setWorkerUrl(url: string) {
   } else {
     localStorage.removeItem(KEY_WORKER_URL);
   }
+}
+
+/** API key the Worker requires on every non-public route (Worker v12+). */
+export function getWorkerKey() {
+  return localStorage.getItem(KEY_WORKER_KEY) || "";
+}
+
+function setWorkerKey(key: string) {
+  if (key) {
+    localStorage.setItem(KEY_WORKER_KEY, key);
+  } else {
+    localStorage.removeItem(KEY_WORKER_KEY);
+  }
+}
+
+function generateWorkerKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Store the API key as a Worker secret (reusing the saved key so existing
+ *  MCP configs keep working) and remember it locally. */
+async function protectWorker(accountId: string | null, workerName: string): Promise<string> {
+  const apiKey = getWorkerKey() || generateWorkerKey();
+  await invoke("set_worker_api_key", { accountId, workerName, apiKey });
+  setWorkerKey(apiKey);
+  return apiKey;
 }
 
 export function isSetupDone() {
@@ -206,6 +235,7 @@ const SETUP_STEPS = [
   { id: "login", label: "Cloudflare login" },
   { id: "resources", label: "Create resources (R2, Queue, Vectorize)" },
   { id: "deploy", label: "Deploy Worker" },
+  { id: "auth", label: "Protect Worker with API key" },
   { id: "secrets", label: "Configure secrets (via OAuth)" },
   { id: "verify", label: "Verify" },
 ];
@@ -256,6 +286,7 @@ async function setupResources(
 async function startAutoSetup(
   progressContainer: HTMLElement,
   urlInput: HTMLInputElement,
+  keyInput: HTMLInputElement,
   onComplete: (workerUrl: string | null, testStatus: WorkerStatus | null) => void,
 ) {
   const states: Record<string, string> = {};
@@ -366,6 +397,17 @@ async function startAutoSetup(
   }
   update("deploy", "done");
 
+  // The Worker rejects every non-public request until its API key is set.
+  update("auth", "running");
+  let workerKey: string;
+  try {
+    workerKey = await protectWorker(accountId, workerName);
+  } catch (e) {
+    return fail("auth", `Failed to set the Worker API key: ${e}`);
+  }
+  keyInput.value = workerKey;
+  update("auth", "done");
+
   // Step 5: Secrets (needed for Render JS, Crawl, Extract JSON)
   // Try OAuth first, fall back to manual token input.
   update("secrets", "running");
@@ -395,6 +437,7 @@ async function startAutoSetup(
   try {
     const testStatus = await invoke<WorkerStatus>("test_worker_url", {
       workerUrl,
+      workerKey,
     });
     cacheTestStatus(testStatus, workerUrl);
     if (testStatus.reachable) {
@@ -616,6 +659,14 @@ export function showSettings({
           />
           <button id="settings-test-btn">Test</button>
         </div>
+        <div class="settings-worker-input-row">
+          <input
+            type="password"
+            id="settings-worker-key"
+            placeholder="API key (set automatically by Setup and Update Worker)"
+            autocomplete="off"
+          />
+        </div>
         <div id="settings-test-result" class="settings-test-result"></div>
       </div>
 
@@ -758,6 +809,7 @@ export function showSettings({
   document.body.appendChild(overlay);
 
   const urlInput = document.getElementById("settings-worker-url") as HTMLInputElement;
+  const keyInput = document.getElementById("settings-worker-key") as HTMLInputElement;
   const testBtn = document.getElementById("settings-test-btn") as HTMLButtonElement;
   const testResult = document.getElementById("settings-test-result")!;
   const featureList = document.getElementById("settings-feature-list")!;
@@ -769,7 +821,7 @@ export function showSettings({
   const setupProgress = document.getElementById("settings-setup-progress")!;
 
   function showUpdateButton(status: WorkerStatus | null) {
-    if (status?.reachable && status.update_available) {
+    if (status?.reachable && (status.update_available || status.auth === "unconfigured")) {
       updateWorkerBtn.style.display = "";
     } else {
       updateWorkerBtn.style.display = "none";
@@ -807,7 +859,7 @@ export function showSettings({
     setupProgress.style.display = "";
     setupProgress.innerHTML = "";
 
-    startAutoSetup(setupProgress, urlInput, (workerUrl, testStatus) => {
+    startAutoSetup(setupProgress, urlInput, keyInput, (workerUrl, testStatus) => {
       if (testStatus) {
         renderFeatureList(featureList, testStatus);
         showUpdateButton(testStatus);
@@ -877,11 +929,17 @@ export function showSettings({
         resources: updateResources,
         workerName: updateWorkerName,
       });
+      // Older Workers had no API key; set (or re-set) it on every update.
+      const workerKey = await protectWorker(resolvedAccountId, updateWorkerName);
+      keyInput.value = workerKey;
       updateResult.className = "settings-test-result test-ok";
       updateResult.textContent = `Worker updated successfully: ${newUrl}`;
       urlInput.value = newUrl;
       // Re-test to refresh capabilities
-      const status = await invoke<WorkerStatus>("test_worker_url", { workerUrl: newUrl });
+      const status = await invoke<WorkerStatus>("test_worker_url", {
+        workerUrl: newUrl,
+        workerKey,
+      });
       cacheTestStatus(status, newUrl);
       renderFeatureList(featureList, status);
       showUpdateButton(status);
@@ -913,12 +971,23 @@ export function showSettings({
     testResult.textContent = "Connecting\u2026";
 
     try {
-      const status = await invoke<WorkerStatus>("test_worker_url", { workerUrl: url });
+      const status = await invoke<WorkerStatus>("test_worker_url", {
+        workerUrl: url,
+        workerKey: keyInput.value.trim() || null,
+      });
       cacheTestStatus(status, url);
 
       if (!status.reachable) {
         testResult.className = "settings-test-result test-error";
         testResult.textContent = status.error || "Cannot reach Worker";
+      } else if (status.auth === "missing" || status.auth === "invalid") {
+        testResult.className = "settings-test-result test-error";
+        testResult.textContent =
+          status.auth === "invalid" ? "API key is invalid" : "This Worker requires an API key";
+      } else if (status.auth === "unconfigured") {
+        testResult.className = "settings-test-result test-warn";
+        testResult.textContent =
+          "Worker has no API key set \u2014 click Update Worker to protect it";
       } else if (status.update_available) {
         testResult.className = "settings-test-result test-warn";
         testResult.textContent =
@@ -950,6 +1019,7 @@ export function showSettings({
 
   // Set value via DOM API (avoids HTML injection from localStorage)
   urlInput.value = workerUrl;
+  keyInput.value = getWorkerKey();
 
   // Close actions
   const close = () => {
@@ -959,6 +1029,7 @@ export function showSettings({
   const saveAndClose = () => {
     const url = urlInput.value.trim();
     setWorkerUrl(url);
+    setWorkerKey(keyInput.value.trim());
     setImageConversionAllowed(allowImageCheckbox.checked);
     setAutoSaveEnabled(autosaveCheckbox.checked);
     setLintEnabled(lintCheckbox.checked);
@@ -974,6 +1045,7 @@ export function showSettings({
 
   document.getElementById("settings-clear")!.addEventListener("click", () => {
     urlInput.value = "";
+    keyInput.value = "";
     currentTestStatus = null;
     lastTestedUrl = null;
     setStorageBool(KEY_RENDER_AVAILABLE, false);
@@ -998,10 +1070,12 @@ export function showSettings({
 // --- MCP Config Generator ---
 
 function generateMcpServerEntry(binaryPath: string, workerUrl: string) {
-  return {
-    command: binaryPath,
-    ...(workerUrl ? { env: { MARKUPSIDEDOWN_WORKER_URL: workerUrl } } : {}),
+  const workerKey = getWorkerKey();
+  const env = {
+    MARKUPSIDEDOWN_WORKER_URL: workerUrl,
+    ...(workerKey ? { MARKUPSIDEDOWN_WORKER_KEY: workerKey } : {}),
   };
+  return { command: binaryPath, ...(workerUrl ? { env } : {}) };
 }
 
 function generateMcpConfigJson(binaryPath: string, workerUrl: string) {
@@ -1066,7 +1140,7 @@ function renderClaudeDesktopCodeTab(container: HTMLElement, binaryPath: string, 
       Changes to files are auto-detected by MarkUpsideDown's file-watcher — no manual reload needed.
     </div>
     <div class="settings-mcp-note settings-mcp-warning">
-      ⚠ The config contains your secret Worker URL. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
+      ⚠ The config contains your secret Worker URL and API key. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
     </div>
   `;
   attachCopyHandler(container);
@@ -1093,7 +1167,7 @@ function renderClaudeCodeTerminalTab(
     <pre class="settings-code settings-mcp-json">${escapeHtml(json)}</pre>
     <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     <div class="settings-mcp-note settings-mcp-warning">
-      ⚠ The config contains your secret Worker URL. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
+      ⚠ The config contains your secret Worker URL and API key. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
     </div>
   `;
   attachCopyHandler(container);
@@ -1151,6 +1225,7 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
       const configPath = await invoke<string>("install_mcp_to_claude_desktop", {
         mcpBinaryPath: binaryPath,
         workerUrl,
+        workerKey: getWorkerKey() || null,
       });
       installResult.className = "settings-mcp-cowork-install-status test-ok";
       installResult.textContent = `Installed \u2014 restart Claude Desktop to activate`;

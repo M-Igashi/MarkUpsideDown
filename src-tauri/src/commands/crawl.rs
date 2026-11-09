@@ -25,6 +25,7 @@ pub struct CrawlStartResult {
 pub async fn crawl_website(
     url: String,
     worker_url: String,
+    worker_key: Option<String>,
     depth: u32,
     limit: u32,
     render: bool,
@@ -57,6 +58,7 @@ pub async fn crawl_website(
             .post(&crawl_url)
             .timeout(Duration::from_secs(30))
             .json(&body),
+        worker_key.as_deref(),
     )
     .await?;
 
@@ -115,6 +117,7 @@ pub struct CrawlStatusResult {
 pub async fn crawl_status(
     job_id: String,
     worker_url: String,
+    worker_key: Option<String>,
     cursor: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<CrawlStatusResult> {
@@ -129,6 +132,7 @@ pub async fn crawl_status(
 
     let resp: CrawlStatusWorkerResponse = worker_request(
         client.get(&status_url).timeout(Duration::from_secs(30)),
+        worker_key.as_deref(),
     )
     .await?;
 
