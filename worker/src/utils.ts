@@ -5,7 +5,7 @@ import type { Env } from "./types.js";
 export const CORS_HEADERS: Record<string, string> = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "access-control-allow-headers": "content-type, cache-control",
+  "access-control-allow-headers": "content-type, cache-control, authorization",
 };
 
 // --- JSON response ---
@@ -23,6 +23,36 @@ export async function parseJsonBody<T>(request: Request): Promise<T | Response> 
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
+}
+
+// --- API key auth ---
+
+export type AuthStatus = "valid" | "invalid" | "missing" | "unconfigured";
+
+function sha256Bytes(input: string): Promise<ArrayBuffer> {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+}
+
+export async function checkAuth(request: Request, env: Env): Promise<AuthStatus> {
+  if (!env.API_KEY) return "unconfigured";
+  const match = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i);
+  if (!match) return "missing";
+  // Compare fixed-length digests so the comparison is constant-time.
+  const [given, expected] = await Promise.all([sha256Bytes(match[1]), sha256Bytes(env.API_KEY)]);
+  return crypto.subtle.timingSafeEqual(given, expected) ? "valid" : "invalid";
+}
+
+export function authErrorResponse(status: Exclude<AuthStatus, "valid">): Response {
+  if (status === "unconfigured") {
+    return jsonResponse(
+      { error: "API_KEY secret is not set on this Worker. Click Update Worker in MarkUpsideDown Settings, or run `wrangler secret put API_KEY`." },
+      500,
+    );
+  }
+  return jsonResponse(
+    { error: `Unauthorized: ${status} API key. Set the Worker API key in MarkUpsideDown Settings (MCP: MARKUPSIDEDOWN_WORKER_KEY).` },
+    401,
+  );
 }
 
 // --- Capability checks ---

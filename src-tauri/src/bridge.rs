@@ -59,6 +59,7 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/editor/content", get(get_content).post(set_content))
         .route("/editor/insert", post(insert_text))
         .route("/editor/state", get(get_state))
+        .route("/worker", get(get_worker))
         .route("/editor/open-file", post(open_file))
         .route("/editor/save-file", post(save_file))
         .route("/editor/structure", get(get_structure))
@@ -258,6 +259,28 @@ async fn get_state(
             cursor_pos: s.cursor_pos,
             cursor_line: s.cursor_line,
             cursor_column: s.cursor_column,
+        })
+        .unwrap_or_default();
+    Json(resp)
+}
+
+/// Worker URL and API key for the MCP server. Kept out of /editor/state so the
+/// key never appears in `get_editor_state` tool output.
+#[derive(Serialize, Default)]
+struct WorkerConfigResponse {
+    url: Option<String>,
+    key: Option<String>,
+}
+
+async fn get_worker(
+    State(state): State<Arc<BridgeState>>,
+    Query(wq): Query<WindowQuery>,
+) -> Json<WorkerConfigResponse> {
+    let resp = state
+        .editor
+        .with_state(wq.window.as_deref(), |s| WorkerConfigResponse {
+            url: s.worker_url.clone(),
+            key: s.worker_key.clone(),
         })
         .unwrap_or_default();
     Json(resp)

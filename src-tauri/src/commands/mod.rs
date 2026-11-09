@@ -42,6 +42,7 @@ pub struct EditorStateInner {
     pub cursor_line: usize,
     pub cursor_column: usize,
     pub worker_url: Option<String>,
+    pub worker_key: Option<String>,
     pub document_structure: Option<String>, // JSON string from frontend
     pub lint_diagnostics: Option<String>,   // JSON string from frontend
     pub root_path: Option<String>,

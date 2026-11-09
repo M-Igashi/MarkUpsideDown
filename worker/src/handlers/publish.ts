@@ -9,6 +9,28 @@ interface PublishRequest {
   expires_in?: number; // seconds (0 or omitted = permanent)
 }
 
+function isExpired(expiresAt: string | undefined, now = Date.now()): boolean {
+  return expiresAt !== undefined && Date.parse(expiresAt) <= now;
+}
+
+/** Cron job: delete expired documents. Needed because R2 public URLs
+ *  (R2_PUBLIC_URL) bypass the expiry check in handleServePublished. */
+export async function deleteExpiredPublished(env: Env): Promise<void> {
+  if (!env.PUBLISH_BUCKET) return;
+  const now = Date.now();
+  let cursor: string | undefined;
+  do {
+    const listed = await env.PUBLISH_BUCKET.list({ cursor, include: ["customMetadata"] });
+    const expired = listed.objects
+      .filter((obj) => isExpired(obj.customMetadata?.expiresAt, now))
+      .map((obj) => obj.key);
+    if (expired.length > 0) {
+      await env.PUBLISH_BUCKET.delete(expired);
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+}
+
 export async function handlePublish(request: Request, env: Env): Promise<Response> {
   if (!env.PUBLISH_BUCKET) {
     return jsonResponse({ error: "R2 bucket not configured" }, 500);
@@ -60,7 +82,7 @@ export async function handleServePublished(key: string, env: Env): Promise<Respo
   }
 
   const expiresAt = obj.customMetadata?.expiresAt;
-  if (expiresAt && new Date(expiresAt) < new Date()) {
+  if (isExpired(expiresAt)) {
     await env.PUBLISH_BUCKET.delete(key);
     return new Response("Gone — this content has expired", { status: 410, headers: CORS_HEADERS });
   }

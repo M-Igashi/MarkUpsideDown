@@ -2,7 +2,7 @@
 // Used by file-ops.ts (URL bar) and link-context-menu.ts (context menu).
 
 import { normalizeMarkdown } from "./normalize.ts";
-import { isRenderAvailable } from "./settings.ts";
+import { getWorkerKey, isRenderAvailable } from "./settings.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -36,6 +36,7 @@ async function fetchPipeline(
       const fetchResult = await invoke<WorkerFetchResult>("fetch_url_via_worker", {
         url,
         workerUrl,
+        workerKey: getWorkerKey() || null,
       });
 
       // 2a. If SPA detected and render available, auto-fallback to Browser Rendering
@@ -45,6 +46,7 @@ async function fetchPipeline(
           const rendered = await invoke<string>("fetch_rendered_url_as_markdown", {
             url,
             workerUrl,
+            workerKey: getWorkerKey() || null,
           });
           return { content: normalizeMarkdown(rendered), method: "Browser Rendering (auto)" };
         } catch {
@@ -88,6 +90,10 @@ export function fetchUrlAsMarkdown(
  * Render a URL via Browser Rendering and convert to Markdown.
  */
 export async function renderUrlAsMarkdown(url: string, workerUrl: string): Promise<string> {
-  const markdown = await invoke<string>("fetch_rendered_url_as_markdown", { url, workerUrl });
+  const markdown = await invoke<string>("fetch_rendered_url_as_markdown", {
+    url,
+    workerUrl,
+    workerKey: getWorkerKey() || null,
+  });
   return normalizeMarkdown(markdown);
 }

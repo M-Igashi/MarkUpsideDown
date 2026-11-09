@@ -221,9 +221,12 @@ fn build_wrangler_config(resources: &ResourceFlags, worker_name: Option<&str>) -
 
     // KV binding has no id — wrangler v4 auto-provisions on deploy
 
-    // Remove R2 binding if bucket not created
+    // Remove R2 binding (and the expired-document cleanup cron) if bucket not created
     if !resources.r2_bucket {
-        config.as_object_mut().map(|o| o.remove("r2_buckets"));
+        config.as_object_mut().map(|o| {
+            o.remove("r2_buckets");
+            o.remove("triggers");
+        });
     }
 
     // Remove Queue bindings if queue not created
@@ -553,7 +556,23 @@ pub async fn set_r2_public_url(
 ) -> crate::error::Result<()> {
     use crate::error::AppError;
     tokio::task::spawn_blocking(move || {
-        set_wrangler_secret("R2_PUBLIC_URL", &url, &account_id, &worker_name)
+        set_wrangler_secret("R2_PUBLIC_URL", &url, Some(&account_id), &worker_name)
+    })
+    .await?
+    .map_err(AppError::Wrangler)?;
+    Ok(())
+}
+
+/// Set the API key that the Worker requires on every non-public route.
+#[tauri::command]
+pub async fn set_worker_api_key(
+    account_id: Option<String>,
+    worker_name: String,
+    api_key: String,
+) -> crate::error::Result<()> {
+    use crate::error::AppError;
+    tokio::task::spawn_blocking(move || {
+        set_wrangler_secret("API_KEY", &api_key, account_id.as_deref(), &worker_name)
     })
     .await?
     .map_err(AppError::Wrangler)?;
@@ -573,10 +592,10 @@ async fn set_secrets_with_token(
     let acct_for_r2 = account_id.clone();
     let (r1, r2) = tokio::join!(
         tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id, &acct_for_r1, &name1)
+            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id, Some(&acct_for_r1), &name1)
         }),
         tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, &acct_for_r2, &name2)
+            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, Some(&acct_for_r2), &name2)
         }),
     );
     r1?.map_err(AppError::Wrangler)?;
@@ -589,16 +608,18 @@ async fn set_secrets_with_token(
 fn set_wrangler_secret(
     name: &str,
     value: &str,
-    account_id: &str,
+    account_id: Option<&str>,
     worker_name: &str,
 ) -> Result<(), String> {
     let mut cmd = Command::new("wrangler");
     cmd.args(["secret", "put", name, "--name", worker_name])
-        .env("CLOUDFLARE_ACCOUNT_ID", account_id)
         .env_remove("CLOUDFLARE_API_TOKEN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(id) = account_id {
+        cmd.env("CLOUDFLARE_ACCOUNT_ID", id);
+    }
     setup_gui_env(&mut cmd);
     let mut child = cmd.spawn()
         .map_err(|e| format!("Failed to run wrangler secret put: {e}"))?;

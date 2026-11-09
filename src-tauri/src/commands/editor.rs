@@ -16,6 +16,7 @@ pub async fn sync_editor_state(
     cursor_line: Option<usize>,
     cursor_column: Option<usize>,
     worker_url: Option<String>,
+    worker_key: Option<String>,
     document_structure: Option<String>,
     lint_diagnostics: Option<String>,
     root_path: Option<String>,
@@ -40,6 +41,10 @@ pub async fn sync_editor_state(
     }
     if let Some(wu) = worker_url {
         s.worker_url = Some(wu);
+    }
+    // An empty string clears the key (the frontend only sends it with the URL).
+    if let Some(wk) = worker_key {
+        s.worker_key = (!wk.is_empty()).then_some(wk);
     }
     if let Some(ds) = document_structure {
         s.document_structure = Some(ds);
@@ -95,6 +100,7 @@ pub fn get_mcp_binary_path(app: tauri::AppHandle) -> Result<String> {
 pub fn install_mcp_to_claude_desktop(
     mcp_binary_path: String,
     worker_url: String,
+    worker_key: Option<String>,
 ) -> Result<String> {
     use std::fs;
 
@@ -116,6 +122,9 @@ pub fn install_mcp_to_claude_desktop(
     let mut entry = serde_json::json!({ "command": mcp_binary_path });
     if !worker_url.is_empty() {
         entry["env"] = serde_json::json!({ "MARKUPSIDEDOWN_WORKER_URL": worker_url });
+        if let Some(key) = worker_key.filter(|k| !k.is_empty()) {
+            entry["env"]["MARKUPSIDEDOWN_WORKER_KEY"] = serde_json::json!(key);
+        }
     }
 
     // Add/update markupsidedown entry

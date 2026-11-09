@@ -1,5 +1,5 @@
 import type { Env, ConvertMessage } from "./types.js";
-import { CORS_HEADERS, jsonResponse } from "./utils.js";
+import { CORS_HEADERS, jsonResponse, checkAuth, authErrorResponse } from "./utils.js";
 import { handleHealth } from "./handlers/health.js";
 import { handleFetch } from "./handlers/fetch.js";
 import { handleConvert } from "./handlers/convert.js";
@@ -7,7 +7,7 @@ import { handleRender } from "./handlers/render.js";
 import { handleJson } from "./handlers/json.js";
 import { handleCrawlStart, handleCrawlStatus } from "./handlers/crawl.js";
 import { handleBatchSubmit, handleBatchStatus, handleBatchFile, processBatchQueue } from "./handlers/batch.js";
-import { handlePublish, handleServePublished, handleUnpublish, handlePublishedList } from "./handlers/publish.js";
+import { handlePublish, handleServePublished, handleUnpublish, handlePublishedList, deleteExpiredPublished } from "./handlers/publish.js";
 import { handleEmbed, handleSearch, handleEmbedDelete } from "./handlers/embed.js";
 
 export default {
@@ -18,8 +18,20 @@ export default {
 
     const url = new URL(request.url);
 
+    // Public routes: health check and published documents.
     if (request.method === "GET" && url.pathname === "/health") {
-      return handleHealth(env);
+      return handleHealth(request, env);
+    }
+
+    const publishKeyMatch = url.pathname.match(/^\/p\/(.+)$/);
+    if (request.method === "GET" && publishKeyMatch) {
+      return handleServePublished(publishKeyMatch[1], env);
+    }
+
+    // Everything else requires the API key.
+    const auth = await checkAuth(request, env);
+    if (auth !== "valid") {
+      return authErrorResponse(auth);
     }
 
     if (request.method === "POST" && url.pathname === "/fetch") {
@@ -69,11 +81,6 @@ export default {
       return handlePublishedList(env);
     }
 
-    const publishKeyMatch = url.pathname.match(/^\/p\/(.+)$/);
-    if (request.method === "GET" && publishKeyMatch) {
-      return handleServePublished(publishKeyMatch[1], env);
-    }
-
     const deletePublishMatch = url.pathname.match(/^\/publish\/(.+)$/);
     if (request.method === "DELETE" && deletePublishMatch) {
       return handleUnpublish(deletePublishMatch[1], env);
@@ -97,5 +104,9 @@ export default {
 
   async queue(batch: MessageBatch<ConvertMessage>, env: Env): Promise<void> {
     await processBatchQueue(batch, env);
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    await deleteExpiredPublished(env);
   },
 } satisfies ExportedHandler<Env, ConvertMessage>;

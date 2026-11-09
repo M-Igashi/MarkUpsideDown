@@ -133,6 +133,11 @@ impl BridgeClient {
         serde_json::from_value(val.unwrap_or_default()).map_err(|e| e.to_string())
     }
 
+    pub async fn get_worker_config(&self) -> Result<WorkerConfig, String> {
+        let val = self.request("GET", "/worker", None).await?;
+        serde_json::from_value(val.unwrap_or_default()).map_err(|e| e.to_string())
+    }
+
     pub async fn open_file(&self, path: &str) -> Result<(), String> {
         self.request("POST", "/editor/open-file", Some(serde_json::json!({ "path": path }))).await?;
         Ok(())
@@ -426,6 +431,12 @@ impl BridgeClient {
 pub struct WindowInfo {
     pub label: String,
     pub root: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct WorkerConfig {
+    pub url: Option<String>,
+    pub key: Option<String>,
 }
 
 #[derive(Deserialize, serde::Serialize)]
