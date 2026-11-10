@@ -688,7 +688,7 @@ export function showSettings({
           <div id="settings-mcp-tab-content" class="settings-mcp-tab-content"></div>
         </div>
         <details class="settings-mcp-tools-details">
-          <summary>Available tools (62)</summary>
+          <summary>Available tools (65)</summary>
           <div class="settings-mcp-tools-list">
             <div class="settings-mcp-tool"><code>list_windows</code> &mdash; List all open windows with labels and project roots</div>
             <div class="settings-mcp-tool"><code>get_editor_content</code> &mdash; Get current Markdown from the editor</div>
@@ -736,6 +736,10 @@ export function showSettings({
             <div class="settings-mcp-tool"><code>git_discard_all</code> &mdash; Discard all uncommitted changes</div>
             <div class="settings-mcp-tool"><code>git_log</code> &mdash; Get recent commit history</div>
             <div class="settings-mcp-tool"><code>git_revert</code> &mdash; Revert a commit by creating a new revert commit</div>
+            <div class="settings-mcp-tool"><code>github_status</code> &mdash; Check gh CLI authentication and the project's GitHub repository</div>
+            <div class="settings-mcp-tool"><code>github_list</code> &mdash; List issues or pull requests</div>
+            <div class="settings-mcp-tool"><code>github_view</code> &mdash; Read an issue or pull request with its comments</div>
+            <div class="settings-mcp-tool"><code>github_update</code> &mdash; Replace the title and body of an issue or pull request</div>
             <div class="settings-mcp-tool"><code>list_tags</code> &mdash; List all tag definitions and file-tag assignments</div>
             <div class="settings-mcp-tool"><code>get_file_tags</code> &mdash; Get tags assigned to a specific file</div>
             <div class="settings-mcp-tool"><code>set_file_tags</code> &mdash; Set tags for a file (replaces existing)</div>

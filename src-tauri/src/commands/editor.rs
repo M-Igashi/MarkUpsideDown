@@ -251,6 +251,14 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 | `git_clone` | Clone a git repository |
 | `git_init` | Initialize a new git repository |
 
+### GitHub (issues / pull requests, via the `gh` CLI)
+| Tool | Description |
+|------|-------------|
+| `github_status` | Check gh CLI authentication and the project's GitHub repository |
+| `github_list` | List issues or pull requests |
+| `github_view` | Read an issue or pull request with its comments |
+| `github_update` | Replace the title and body of an issue or pull request |
+
 ### Tags
 | Tool | Description |
 |------|-------------|

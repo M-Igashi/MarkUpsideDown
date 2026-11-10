@@ -144,7 +144,7 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `extract_json` | Extract structured JSON data from a web page using AI (Workers AI LLM) | `url: string`, `prompt?: string`, `response_format?: string` (JSON Schema) |
-| `download_image` | Download an image from URL to a local file | `url: string`, `dest_path: string` |
+| `download_image` | Download an image from URL to a local file (overwrites an existing file) | `url: string`, `dest_path: string` |
 | `fetch_page_title` | Extract `<title>` from a web page | `url: string` |
 
 `extract_json` requires at least one of `prompt` or `response_format`. Uses LLM inference per call. Requires Worker URL (Worker v13+ uses the Browser Run binding, so no API token secrets are needed).
@@ -175,7 +175,7 @@ To convert several files, call `convert_to_markdown` once per file.
 | `crawl_website` | Start a website crawl job (returns `job_id`). Supports markdown and/or JSON output. | `url: string`, `depth?: number`, `limit?: number`, `render?: boolean`, `include_patterns?: string[]`, `exclude_patterns?: string[]`, `formats?: string[]`, `response_format?: string` (JSON Schema) |
 | `crawl_status` | Poll crawl job status and retrieve pages (markdown and/or JSON) | `job_id: string`, `cursor?: string`, `limit?: number` (default 10, max 100) |
 | `crawl_cancel` | Cancel a running crawl job so it stops using browser time. Pages already crawled stay available through `crawl_status` | `job_id: string` |
-| `crawl_save` | Save crawled pages as local Markdown files | `pages: {url, markdown}[]`, `base_dir: string` |
+| `crawl_save` | Save crawled pages as local Markdown files (overwrites existing files) | `pages: {url, markdown}[]`, `base_dir: string` |
 
 Crawl tools need the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` Worker secrets. On the Workers Free plan, Browser Run allows 5 crawls per day and 100 pages per crawl.
 

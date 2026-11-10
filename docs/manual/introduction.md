@@ -27,7 +27,7 @@ A built-in sidebar with file tree, search, sorting, and file tagging. The Git pa
 
 ### AI Agent Integration
 
-A bundled MCP server exposes 62 tools to AI agents like Claude Desktop and Claude Code. Agents can read/write your editor, manage files, convert documents, crawl websites, and run Git operations — all through natural language.
+A bundled MCP server exposes 65 tools to AI agents like Claude Desktop and Claude Code. Agents can read/write your editor, manage files, convert documents, crawl websites, and run Git operations — all through natural language.
 
 ### Publishing & Search
 

@@ -679,7 +679,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "convert_to_markdown", description = "Convert a local document (PDF, DOCX, XLSX, HTML, CSV, XML, images) to Markdown via Workers AI", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
+    #[tool(name = "convert_to_markdown", description = "Convert a local document (PDF, DOCX, XLSX, HTML, CSV, XML, images) to Markdown via Workers AI. The file is uploaded to the Cloudflare Worker for conversion.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn convert_to_markdown(
         &self,
         Parameters(params): Parameters<FilePathParams>,
@@ -1164,7 +1164,7 @@ impl McpTools {
 
     // --- Content & Asset Tools ---
 
-    #[tool(name = "download_image", description = "Download an image from a URL and save it to a local file path", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "download_image", description = "Download an image from a URL and save it to a local file path. Overwrites an existing file at that path.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
     async fn download_image(
         &self,
         Parameters(params): Parameters<DownloadImageParams>,
@@ -1212,7 +1212,7 @@ impl McpTools {
 
     // --- Crawl Save ---
 
-    #[tool(name = "crawl_save", description = "Save crawled pages as local Markdown files. Use with crawl_status results.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
+    #[tool(name = "crawl_save", description = "Save crawled pages as local Markdown files. Use with crawl_status results. Overwrites existing files at the same paths.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
     async fn crawl_save(
         &self,
         Parameters(params): Parameters<CrawlSaveParams>,

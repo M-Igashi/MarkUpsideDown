@@ -56,20 +56,20 @@ Once connected, ask your AI agent to work with your Markdown. Examples:
 
 ## Available Tools
 
-The MCP server exposes **62 tools** organized by category:
+The MCP server exposes **65 tools** organized by category:
 
 | Category | Examples |
 |----------|---------|
-| **Editor** | Read/write editor content, get selection, insert text, normalize |
-| **Content** | Fetch URL, render page, convert file, crawl website |
+| **Editor** | Read/write editor content, insert text, get cursor position, normalize |
+| **Content** | Fetch URL, render page, convert file, extract JSON, crawl website (start, poll, cancel, save) |
 | **File operations** | Read, write, list, create, rename, delete files |
 | **Project context** | List project files, get file tree, search files |
 | **Git** | Status, stage, unstage, commit, push, pull, fetch, diff, log |
+| **GitHub** | Check `gh` status, list, view, and update issues and pull requests |
 | **Tags** | List tags, get/set file tags |
 | **Search** | Index documents, semantic search, remove from index |
 | **Publish** | Publish/unpublish files, list published |
-| **Batch** | Batch import/convert files |
-| **Windows** | List windows, get/set active window |
+| **Windows** | List open windows and their project roots |
 | **Markdown lint** | Validate document structure |
 
 The full tool list is visible in Settings → AI Agent Integration (expand the tools section).
