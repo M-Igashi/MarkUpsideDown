@@ -33,6 +33,7 @@ import {
   isPublished,
   getPublishUrl,
   publishFile,
+  updatePublishedFile,
   unpublishFile,
   type ExpiryOption,
 } from "./publish.ts";
@@ -1541,6 +1542,21 @@ function showContextMenu(event: MouseEvent, entry: DirEntry) {
     if (MD_EXTENSIONS.has(ext)) {
       const relPath = relativeToRoot(rootPath, entry.path);
       if (isPublished(relPath)) {
+        items.push({
+          label: "Update Published Version",
+          action: async () => {
+            try {
+              const content = await invoke<string>("read_text_file", { path: entry.path });
+              await updatePublishedFile(relPath, content);
+              message("The published URL now shows the saved version of this file.", {
+                title: "Published",
+                kind: "info",
+              });
+            } catch (e) {
+              message(`Update failed: ${e}`, { title: "Error", kind: "error" });
+            }
+          },
+        });
         const pubUrl = getPublishUrl(relPath);
         if (pubUrl) {
           items.push({

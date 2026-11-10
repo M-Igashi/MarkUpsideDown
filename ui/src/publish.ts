@@ -78,14 +78,12 @@ const EXPIRY_SECONDS: Record<ExpiryOption, number> = {
   "7d": 604800,
 };
 
-export async function publishFile(
+async function upload(
   relativePath: string,
+  key: string,
   content: string,
-  expiry: ExpiryOption = "permanent",
+  expiresIn: number,
 ): Promise<PublishEntry> {
-  const key = slugifyPath(relativePath);
-  const expiresIn = EXPIRY_SECONDS[expiry];
-
   const resp = await workerFetch<{
     key: string;
     url: string;
@@ -111,6 +109,28 @@ export async function publishFile(
   state.files[relativePath] = entry;
   await savePublishState();
   return entry;
+}
+
+export function publishFile(
+  relativePath: string,
+  content: string,
+  expiry: ExpiryOption = "permanent",
+): Promise<PublishEntry> {
+  return upload(relativePath, slugifyPath(relativePath), content, EXPIRY_SECONDS[expiry]);
+}
+
+/** Replace the published content at the same URL, keeping the original expiry time. */
+export async function updatePublishedFile(
+  relativePath: string,
+  content: string,
+): Promise<PublishEntry> {
+  const entry = state.files[relativePath];
+  if (!entry) throw new Error("This file is not published");
+  const remaining = entry.expiresAt
+    ? Math.ceil((Date.parse(entry.expiresAt) - Date.now()) / 1000)
+    : 0;
+  if (entry.expiresAt && remaining <= 0) throw new Error("The published link has expired");
+  return upload(relativePath, entry.key, content, remaining);
 }
 
 export async function unpublishFile(relativePath: string): Promise<void> {
