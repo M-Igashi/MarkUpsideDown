@@ -1,12 +1,19 @@
 {
   "name": "markupsidedown-converter",
   "main": "src/index.ts",
-  "compatibility_date": "2025-03-14",
+  // 2026-03-27 or later is required by the browser binding's quickAction()
+  // and the AI Search namespace binding.
+  "compatibility_date": "2026-03-27",
   "ai": {
     "binding": "AI"
   },
-  "kv_namespaces": [
-    { "binding": "CACHE" }
+  // Browser Run Quick Actions (/render, /json). No API token needed.
+  "browser": {
+    "binding": "BROWSER"
+  },
+  // Semantic search. The instance is created on first use.
+  "ai_search_namespaces": [
+    { "binding": "AI_SEARCH", "namespace": "default" }
   ],
   "r2_buckets": [
     { "binding": "PUBLISH_BUCKET", "bucket_name": "markupsidedown-publish" }
@@ -14,17 +21,6 @@
   // Set R2_PUBLIC_URL after enabling R2 public access in Cloudflare dashboard.
   // Example: "https://pub-abc123.r2.dev"
   // "vars": { "R2_PUBLIC_URL": "" },
-  "queues": {
-    "producers": [
-      { "binding": "CONVERT_QUEUE", "queue": "markupsidedown-convert" }
-    ],
-    "consumers": [
-      { "queue": "markupsidedown-convert", "max_batch_size": 5, "max_retries": 3 }
-    ]
-  },
-  "vectorize": [
-    { "binding": "VECTORS", "index_name": "markupsidedown-docs" }
-  ],
   // Deletes expired published documents (only kept when the R2 bucket exists).
   "triggers": {
     "crons": ["*/15 * * * *"]

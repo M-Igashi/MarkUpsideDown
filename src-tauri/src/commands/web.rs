@@ -61,7 +61,7 @@ pub(crate) async fn worker_request<T: DeserializeOwned + HasWorkerError>(
 // --- Worker Health Check ---
 
 /// Must match WORKER_VERSION in worker/src/config.ts.
-const EXPECTED_WORKER_VERSION: u32 = 12;
+const EXPECTED_WORKER_VERSION: u32 = 13;
 
 #[derive(Serialize, Default)]
 pub struct WorkerStatus {
@@ -70,8 +70,6 @@ pub struct WorkerStatus {
     pub render_available: bool,
     pub json_available: bool,
     pub crawl_available: bool,
-    pub cache_available: bool,
-    pub batch_available: bool,
     pub publish_available: bool,
     pub search_available: bool,
     pub worker_version: Option<u32>,
@@ -97,8 +95,6 @@ struct HealthCapabilities {
     render: Option<bool>,
     json: Option<bool>,
     crawl: Option<bool>,
-    cache: Option<bool>,
-    batch: Option<bool>,
     publish: Option<bool>,
     search: Option<bool>,
 }
@@ -135,8 +131,6 @@ pub async fn test_worker_url(
                         render_available: caps.render.unwrap_or(false),
                         json_available: caps.json.unwrap_or(false),
                         crawl_available: caps.crawl.unwrap_or(false),
-                        cache_available: caps.cache.unwrap_or(false),
-                        batch_available: caps.batch.unwrap_or(false),
                         publish_available: caps.publish.unwrap_or(false),
                         search_available: caps.search.unwrap_or(false),
                         worker_version: version,
@@ -201,7 +195,7 @@ pub async fn fetch_url_as_markdown(
     })
 }
 
-// --- Browser Rendering (JS-rendered pages) ---
+// --- Browser Run (JS-rendered pages) ---
 
 #[derive(Deserialize)]
 struct RenderWorkerResponse {
@@ -441,6 +435,8 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
         "png" => Some("image/png"),
         "webp" => Some("image/webp"),
         "svg" => Some("image/svg+xml"),
+        "gif" => Some("image/gif"),
+        "bmp" => Some("image/bmp"),
         _ => None,
     }
 }

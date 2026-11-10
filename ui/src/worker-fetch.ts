@@ -1,5 +1,5 @@
 // Shared Worker API fetch helper.
-// Used by batch-import.ts, publish.ts, and semantic-search.ts.
+// Used by crawl.ts, publish.ts, and semantic-search.ts.
 
 import { getWorkerKey, getWorkerUrl } from "./settings.ts";
 

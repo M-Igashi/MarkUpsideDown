@@ -1,9 +1,9 @@
 import { normalizeMarkdown } from "./normalize.ts";
 import { ensureWorkerUrl, getWorkerKey } from "./settings.ts";
 import { escapeHtml } from "./html-utils.ts";
-import { basename as pathBasename, dirname } from "./path-utils.ts";
 import { getRootPath } from "./sidebar.ts";
 import { indexDocuments } from "./semantic-search.ts";
+import { workerFetch } from "./worker-fetch.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog } = window.__TAURI__.dialog;
@@ -33,6 +33,17 @@ interface CrawlSaveResult {
 let statusEl: HTMLElement;
 let onCrawlComplete: (() => void) | null = null;
 let crawlAbort: AbortController | null = null;
+let crawlJobId: string | null = null;
+
+/** Stop polling and cancel the job on Cloudflare so it stops using browser time. */
+function cancelCrawl() {
+  crawlAbort?.abort();
+  if (crawlJobId) {
+    workerFetch(`/crawl/${crawlJobId}`, { method: "DELETE" }).catch(() => {
+      // Older Workers have no cancel endpoint; the job stops at its page limit.
+    });
+  }
+}
 
 export function initCrawl(deps: { statusEl: HTMLElement; onCrawlComplete: () => void }) {
   statusEl = deps.statusEl;
@@ -73,13 +84,16 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
       excludePatterns: options.excludePatterns.length ? options.excludePatterns : null,
     });
 
+    crawlJobId = job_id;
     showCrawlStatus(`Crawl started (job: ${job_id.slice(0, 8)}...)`);
 
     // Step 2: Poll for results
-    const allPages = await pollCrawl(job_id, workerUrl, signal);
+    const { pages: allPages, status } = await pollCrawl(job_id, workerUrl, signal);
+    // e.g. "cancelled_due_to_limits" when the Workers Free plan limits are hit
+    const stopped = status.startsWith("cancelled") ? ` (stopped: ${status})` : "";
 
     if (allPages.length === 0) {
-      statusEl.textContent = "Crawl completed but no pages were found";
+      statusEl.textContent = `Crawl finished but no pages were found${stopped}`;
       return;
     }
 
@@ -90,7 +104,7 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
       baseDir,
     });
 
-    statusEl.textContent = `Crawl complete: ${result.saved_count} pages saved to ${result.base_dir}`;
+    statusEl.textContent = `Crawl complete: ${result.saved_count} pages saved to ${result.base_dir}${stopped}`;
     onCrawlComplete?.();
 
     // Auto-index crawled pages for semantic search (fire and forget)
@@ -104,14 +118,7 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
         } catch {
           relPath = page.url;
         }
-        return {
-          id: relPath,
-          content: page.markdown,
-          metadata: {
-            filename: pathBasename(relPath),
-            dir: dirname(relPath),
-          },
-        };
+        return { id: relPath, content: page.markdown };
       });
       statusEl.textContent += " — Indexing for search…";
       indexDocuments(docs)
@@ -119,7 +126,7 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
           statusEl.textContent = `Crawl complete: ${result.saved_count} pages saved, ${r.indexed} indexed`;
         })
         .catch(() => {
-          // Vectorize not configured — silently ignore
+          // Semantic search not configured — silently ignore
         });
     }
   } catch (e) {
@@ -130,6 +137,7 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
     }
   } finally {
     crawlAbort = null;
+    crawlJobId = null;
     urlBar.classList.remove("loading");
     urlInput.disabled = false;
   }
@@ -144,7 +152,7 @@ function showCrawlStatus(message: string) {
   cancel.style.cursor = "pointer";
   cancel.addEventListener("click", (e) => {
     e.preventDefault();
-    crawlAbort?.abort();
+    cancelCrawl();
   });
   statusEl.appendChild(cancel);
 }
@@ -153,19 +161,20 @@ async function pollCrawl(
   jobId: string,
   workerUrl: string,
   signal: AbortSignal,
-): Promise<CrawlPage[]> {
+): Promise<{ pages: CrawlPage[]; status: string }> {
   const allPages: CrawlPage[] = [];
+  const done = (status: string) => ({ pages: allPages, status });
   const maxAttempts = 300; // 5 minutes at 1s interval
   let lastMsg = "";
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (signal.aborted) return allPages;
+    if (signal.aborted) return done("cancelled_by_user");
 
     let cursor: string | null = null;
 
     // Fetch all available completed pages
     do {
-      if (signal.aborted) return allPages;
+      if (signal.aborted) return done("cancelled_by_user");
 
       const result: CrawlStatusResult = await invoke("crawl_status", {
         jobId,
@@ -188,12 +197,18 @@ async function pollCrawl(
 
       cursor = result.cursor;
 
-      if (result.status === "completed" || result.status === "failed") {
-        if (result.status === "failed") {
+      // Job statuses: running, completed, errored, cancelled_by_user,
+      // cancelled_due_to_limits, cancelled_due_to_timeout
+      if (
+        result.status === "completed" ||
+        result.status === "errored" ||
+        result.status.startsWith("cancelled")
+      ) {
+        if (result.status === "errored") {
           throw new Error("Crawl job failed");
         }
         // Drain remaining pages if cursor exists
-        if (!cursor) return allPages;
+        if (!cursor) return done(result.status);
       }
     } while (cursor);
 
@@ -213,7 +228,7 @@ async function pollCrawl(
   }
 
   // If we got here, we timed out but may still have pages
-  return allPages;
+  return done("timeout");
 }
 
 interface CrawlOptions {
@@ -275,7 +290,7 @@ async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
         <button id="crawl-browse">Browse</button>
       </div>
     </div>
-    <p class="crawl-note">Pages with render=on use Browser Rendering hours ($0.09/hr after free tier).</p>
+    <p class="crawl-note">Render JavaScript uses Browser Run hours ($0.09/hr after the free tier); with it off, crawls are free during the beta. The Workers Free plan allows 5 crawls per day and 100 pages per crawl.</p>
     <div class="crawl-actions">
       <button id="crawl-cancel">Cancel</button>
       <button id="crawl-start" class="primary">Start Crawl</button>

@@ -217,7 +217,7 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 |------|-------------|
 | `get_markdown` | Fetch URL as Markdown (auto-detects JS-rendered pages) |
 | `fetch_markdown` | Fetch URL as Markdown (static only) |
-| `render_markdown` | JS-render a page as Markdown via Browser Rendering |
+| `render_markdown` | JS-render a page as Markdown via Browser Run |
 | `convert_to_markdown` | Convert local file (PDF, DOCX, images, etc.) to Markdown |
 | `extract_json` | Extract structured JSON from a web page using AI |
 | `download_image` | Download an image from a URL to local path |
@@ -228,6 +228,7 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 |------|-------------|
 | `crawl_website` | Start a website crawl job (markdown and/or json output) |
 | `crawl_status` | Poll crawl job status and retrieve pages |
+| `crawl_cancel` | Cancel a running crawl job |
 | `crawl_save` | Save crawled pages as local Markdown files |
 
 ### Git
@@ -263,8 +264,8 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 | Tool | Description |
 |------|-------------|
 | `semantic_search` | Search indexed documents using natural language |
-| `index_documents` | Index documents into Vectorize for semantic search |
-| `remove_document` | Remove a document from the Vectorize index |
+| `index_documents` | Index documents into AI Search for semantic search |
+| `remove_document` | Remove a document from the AI Search index |
 
 ### Publishing
 | Tool | Description |
@@ -272,12 +273,6 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 | `publish_document` | Publish Markdown to a public URL via R2 |
 | `unpublish_document` | Remove a published document from R2 |
 | `list_published` | List all published documents in R2 |
-
-### Batch Conversion
-| Tool | Description |
-|------|-------------|
-| `submit_batch` | Submit files for parallel batch conversion |
-| `get_batch_status` | Poll batch conversion job status |
 
 ## Tips
 
@@ -290,7 +285,6 @@ MarkUpsideDown must be running for editor/file/git tools to work.
 - Use `normalize_document` after editing to clean up formatting (includes CJK emphasis spacing)
 - Use `publish_document` to share Markdown at a public URL (permanent or time-limited)
 - Use `index_documents` + `semantic_search` for AI-powered document retrieval
-- Use `submit_batch` + `get_batch_status` for bulk file conversion
 "#;
     let claude_md_path = expanded.join("CLAUDE.md");
     if !claude_md_path.exists() {

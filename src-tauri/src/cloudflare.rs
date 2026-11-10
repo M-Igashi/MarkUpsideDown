@@ -17,7 +17,6 @@ const WORKER_HANDLER_CONVERT_TS: &str = include_str!("../../worker/src/handlers/
 const WORKER_HANDLER_RENDER_TS: &str = include_str!("../../worker/src/handlers/render.ts");
 const WORKER_HANDLER_JSON_TS: &str = include_str!("../../worker/src/handlers/json.ts");
 const WORKER_HANDLER_CRAWL_TS: &str = include_str!("../../worker/src/handlers/crawl.ts");
-const WORKER_HANDLER_BATCH_TS: &str = include_str!("../../worker/src/handlers/batch.ts");
 const WORKER_HANDLER_PUBLISH_TS: &str = include_str!("../../worker/src/handlers/publish.ts");
 const WORKER_HANDLER_EMBED_TS: &str = include_str!("../../worker/src/handlers/embed.ts");
 const WORKER_WRANGLER_JSONC: &str = include_str!("../../worker/wrangler.jsonc");
@@ -219,24 +218,12 @@ fn build_wrangler_config(resources: &ResourceFlags, worker_name: Option<&str>) -
         config["name"] = serde_json::Value::String(name.to_string());
     }
 
-    // KV binding has no id — wrangler v4 auto-provisions on deploy
-
     // Remove R2 binding (and the expired-document cleanup cron) if bucket not created
     if !resources.r2_bucket {
         config.as_object_mut().map(|o| {
             o.remove("r2_buckets");
             o.remove("triggers");
         });
-    }
-
-    // Remove Queue bindings if queue not created
-    if !resources.queue {
-        config.as_object_mut().map(|o| o.remove("queues"));
-    }
-
-    // Remove Vectorize binding if index not created
-    if !resources.vectorize {
-        config.as_object_mut().map(|o| o.remove("vectorize"));
     }
 
     serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail")
@@ -326,7 +313,6 @@ fn write_temp_worker_files(
         ("render.ts", WORKER_HANDLER_RENDER_TS),
         ("json.ts", WORKER_HANDLER_JSON_TS),
         ("crawl.ts", WORKER_HANDLER_CRAWL_TS),
-        ("batch.ts", WORKER_HANDLER_BATCH_TS),
         ("publish.ts", WORKER_HANDLER_PUBLISH_TS),
         ("embed.ts", WORKER_HANDLER_EMBED_TS),
     ];
@@ -344,19 +330,17 @@ fn write_temp_worker_files(
 
 // --- Resource creation ---
 
+/// Resources that must exist before deploy. The other bindings (AI, Browser
+/// Run, AI Search) need no setup: the AI Search instance is created on first use.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct ResourceFlags {
     pub r2_bucket: bool,
-    pub queue: bool,
-    pub vectorize: bool,
 }
 
 #[derive(Serialize)]
 pub struct ResourceSetupResult {
     pub resources: ResourceFlags,
     pub r2_error: Option<String>,
-    pub queue_error: Option<String>,
-    pub vectorize_error: Option<String>,
 }
 
 fn create_r2_bucket(account_id: &str) -> Result<(), String> {
@@ -371,71 +355,17 @@ fn create_r2_bucket(account_id: &str) -> Result<(), String> {
     }
 }
 
-fn create_queue(account_id: &str) -> Result<(), String> {
-    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
-    match run_wrangler(
-        &["queues", "create", "markupsidedown-convert"],
-        None, 30, &env,
-    ) {
-        Ok(_) => Ok(()),
-        Err(e) if e.contains("already exists") || e.contains("already taken") || e.contains("already been taken") => Ok(()),
-        Err(e) => Err(e),
-    }
-}
-
-fn create_vectorize_index(account_id: &str) -> Result<(), String> {
-    let env = [("CLOUDFLARE_ACCOUNT_ID", account_id)];
-    match run_wrangler(
-        &[
-            "vectorize", "create", "markupsidedown-docs",
-            "--dimensions=768", "--metric=cosine",
-        ],
-        None, 30, &env,
-    ) {
-        Ok(_) => Ok(()),
-        Err(e) if e.contains("already exists") || e.contains("duplicate_name") => Ok(()),
-        Err(e) => Err(e),
-    }
-}
-
 #[tauri::command]
 pub async fn setup_cloudflare_resources(account_id: String) -> ResourceSetupResult {
-    // KV is auto-provisioned by wrangler v4 on deploy — no manual creation needed.
-    let a1 = account_id.clone();
-    let a2 = account_id.clone();
-    let a3 = account_id;
-
-    let (r2, queue, vectorize) = tokio::join!(
-        tokio::task::spawn_blocking(move || create_r2_bucket(&a1)),
-        tokio::task::spawn_blocking(move || create_queue(&a2)),
-        tokio::task::spawn_blocking(move || create_vectorize_index(&a3)),
-    );
-
-    let (r2_ok, r2_err) = match r2 {
-        Ok(Ok(())) => (true, None),
-        Ok(Err(e)) => (false, Some(e)),
-        Err(e) => (false, Some(format!("Task error: {e}"))),
-    };
-    let (queue_ok, queue_err) = match queue {
-        Ok(Ok(())) => (true, None),
-        Ok(Err(e)) => (false, Some(e)),
-        Err(e) => (false, Some(format!("Task error: {e}"))),
-    };
-    let (vec_ok, vec_err) = match vectorize {
-        Ok(Ok(())) => (true, None),
-        Ok(Err(e)) => (false, Some(e)),
-        Err(e) => (false, Some(format!("Task error: {e}"))),
-    };
-
+    let (r2_bucket, r2_error) =
+        match tokio::task::spawn_blocking(move || create_r2_bucket(&account_id)).await {
+            Ok(Ok(())) => (true, None),
+            Ok(Err(e)) => (false, Some(e)),
+            Err(e) => (false, Some(format!("Task error: {e}"))),
+        };
     ResourceSetupResult {
-        resources: ResourceFlags {
-            r2_bucket: r2_ok,
-            queue: queue_ok,
-            vectorize: vec_ok,
-        },
-        r2_error: r2_err,
-        queue_error: queue_err,
-        vectorize_error: vec_err,
+        resources: ResourceFlags { r2_bucket },
+        r2_error,
     }
 }
 
@@ -525,27 +455,34 @@ pub async fn deploy_worker(
         .ok_or_else(|| AppError::Wrangler(format!("Worker deployed but could not parse URL from output:\n{output}")))
 }
 
-#[tauri::command]
-pub async fn setup_worker_secrets(
-    account_id: String,
-    worker_name: Option<String>,
-) -> crate::error::Result<()> {
-    // Always use wrangler login OAuth session to create a scoped token.
-    // Environment variable fallbacks were removed to avoid picking up
-    // tokens with insufficient scopes.
-    let api_token = create_api_token_via_oauth(&account_id)
-        .await
-        .map_err(crate::error::AppError::Wrangler)?;
-    set_secrets_with_token(account_id, api_token, worker_name).await
-}
-
+/// Store the crawl secrets. Only /crawl needs them: it is the one Browser Run
+/// endpoint that the Worker's browser binding does not cover. The token has
+/// to come from the user, because wrangler's OAuth login cannot create API
+/// tokens.
 #[tauri::command]
 pub async fn setup_worker_secrets_with_token(
     account_id: String,
     api_token: String,
     worker_name: Option<String>,
 ) -> crate::error::Result<()> {
-    set_secrets_with_token(account_id, api_token, worker_name).await
+    use crate::error::AppError;
+    let name = worker_name.unwrap_or_else(|| "markupsidedown-converter".to_string());
+    let name1 = name.clone();
+    let name2 = name;
+    let acct_for_r1 = account_id.clone();
+    let acct_for_r2 = account_id.clone();
+    let (r1, r2) = tokio::join!(
+        tokio::task::spawn_blocking(move || {
+            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id, Some(&acct_for_r1), &name1)
+        }),
+        tokio::task::spawn_blocking(move || {
+            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, Some(&acct_for_r2), &name2)
+        }),
+    );
+    r1?.map_err(AppError::Wrangler)?;
+    r2?.map_err(AppError::Wrangler)?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -576,31 +513,6 @@ pub async fn set_worker_api_key(
     })
     .await?
     .map_err(AppError::Wrangler)?;
-    Ok(())
-}
-
-async fn set_secrets_with_token(
-    account_id: String,
-    api_token: String,
-    worker_name: Option<String>,
-) -> crate::error::Result<()> {
-    use crate::error::AppError;
-    let name = worker_name.unwrap_or_else(|| "markupsidedown-converter".to_string());
-    let name1 = name.clone();
-    let name2 = name;
-    let acct_for_r1 = account_id.clone();
-    let acct_for_r2 = account_id.clone();
-    let (r1, r2) = tokio::join!(
-        tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id, Some(&acct_for_r1), &name1)
-        }),
-        tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, Some(&acct_for_r2), &name2)
-        }),
-    );
-    r1?.map_err(AppError::Wrangler)?;
-    r2?.map_err(AppError::Wrangler)?;
-
     Ok(())
 }
 
@@ -638,111 +550,4 @@ fn set_wrangler_secret(
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!("Failed to set secret {name}: {stderr}"))
     }
-}
-
-/// Extract the actual token from `wrangler auth token` output, skipping the banner lines.
-fn extract_wrangler_token(output: &str) -> Option<String> {
-    output
-        .lines()
-        .rev()
-        .find(|line| {
-            let trimmed = line.trim();
-            !trimmed.is_empty() && !trimmed.starts_with('⛅') && !trimmed.starts_with('─')
-        })
-        .map(|line| line.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-/// Try to create a scoped API token using wrangler's OAuth token.
-async fn create_api_token_via_oauth(account_id: &str) -> Result<String, String> {
-    let oauth_token = tokio::task::spawn_blocking(|| {
-        run_wrangler(&["auth", "token"], None, 10, &[])
-            .map_err(|e| format!("Failed to get auth token: {e}"))
-            .and_then(|output| {
-                extract_wrangler_token(&output)
-                    .ok_or_else(|| "Could not extract OAuth token from wrangler output".to_string())
-            })
-    })
-    .await
-    .map_err(|e| format!("Task error: {e}"))??;
-
-    create_scoped_api_token(&oauth_token, account_id).await
-}
-
-async fn create_scoped_api_token(oauth_token: &str, account_id: &str) -> Result<String, String> {
-    let client = reqwest::Client::new();
-
-    // Look up permission group IDs
-    let groups_resp: serde_json::Value = client
-        .get("https://api.cloudflare.com/client/v4/user/tokens/permission_groups")
-        .bearer_auth(oauth_token)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch permission groups: {e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse permission groups: {e}"))?;
-
-    let groups = groups_resp["result"].as_array().ok_or_else(|| {
-        if groups_resp["success"].as_bool() == Some(false) {
-            let errors = &groups_resp["errors"];
-            format!("Permission groups API error: {errors}. Try setting CLOUDFLARE_API_TOKEN env var instead")
-        } else {
-            format!("Unexpected permission groups response: {groups_resp}")
-        }
-    })?;
-
-    let browser_rendering_id = groups
-        .iter()
-        .find(|g| {
-            let name = g["name"].as_str().unwrap_or("");
-            name.contains("Browser Rendering") && name.contains("Edit")
-        })
-        .and_then(|g| g["id"].as_str())
-        .ok_or("Could not find Browser Rendering Edit permission group")?;
-
-    let workers_ai_id = groups
-        .iter()
-        .find(|g| {
-            let name = g["name"].as_str().unwrap_or("");
-            name.contains("Workers AI") && name.contains("Read")
-        })
-        .and_then(|g| g["id"].as_str())
-        .ok_or("Could not find Workers AI Read permission group")?;
-
-    // Create the scoped token
-    let body = serde_json::json!({
-        "name": "MarkUpsideDown Worker (auto-created)",
-        "policies": [{
-            "effect": "allow",
-            "resources": {
-                format!("com.cloudflare.api.account.{account_id}"): "*"
-            },
-            "permission_groups": [
-                { "id": browser_rendering_id },
-                { "id": workers_ai_id }
-            ]
-        }]
-    });
-
-    let token_resp: serde_json::Value = client
-        .post("https://api.cloudflare.com/client/v4/user/tokens")
-        .bearer_auth(oauth_token)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to create API token: {e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse token response: {e}"))?;
-
-    if token_resp["success"].as_bool() != Some(true) {
-        let errors = &token_resp["errors"];
-        return Err(format!("Failed to create API token: {errors}"));
-    }
-
-    token_resp["result"]["value"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "API token created but value not found in response".to_string())
 }

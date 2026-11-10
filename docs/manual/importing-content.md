@@ -10,15 +10,15 @@ Type a URL into the URL bar and click **Get**. The page is fetched and converted
 
 ![URL bar with Get and Render options](images/importing-content/url-bar.png)
 
-This works well for most web pages — articles, documentation, blog posts. Results are cached in KV to avoid redundant conversions.
+This works well for most web pages — articles, documentation, blog posts. Relative links and images are resolved to absolute URLs, so they keep working in the saved file.
 
 ![Fetch result showing converted Markdown](images/importing-content/fetch-result.png)
 
 ### JavaScript-Rendered Pages (Render)
 
-For pages that rely on JavaScript to render content (SPAs, dynamic sites), use the **Render** option. This uses Cloudflare Browser Rendering to load the page in a headless browser, wait for JavaScript to execute, then convert the rendered HTML to Markdown.
+For pages that rely on JavaScript to render content (SPAs, dynamic sites), use the **Render** option. This uses Cloudflare Browser Run to load the page in a headless browser, wait for JavaScript to execute, then convert the rendered page to Markdown.
 
-Rendering requires `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` secrets in your Worker (see [Installation & Setup](installation.md)).
+Rendering works right after the Worker is deployed and needs no API token. Cloudflare caches rendered results for 1 hour, so rendering the same URL again within that time is fast and uses no browser time.
 
 ### Auto Link Title
 
@@ -46,24 +46,21 @@ Click the **Import** button in the toolbar to open a file picker. Select a docum
 | HTML | `.html`, `.htm` |
 | CSV | `.csv` |
 | XML | `.xml` |
-| Images (OCR) | `.jpg`, `.png`, `.webp`, `.svg` |
+| Images (OCR) | `.jpg`, `.png`, `.webp`, `.svg`, `.gif`, `.bmp` |
 
 You can also **drag and drop** supported files onto the editor to import them.
 
 ### How It Works
 
-Files are sent to your Cloudflare Worker, which uses `AI.toMarkdown()` to convert them. For images, OCR is performed to extract text.
+Files are sent to your Cloudflare Worker, which uses `AI.toMarkdown()` to convert them. For images, OCR is performed to extract text. For PDFs, the document metadata block (producer, PDF version, and so on) is left out of the result.
 
 ## Batch Import
 
-For converting multiple files at once, MarkUpsideDown supports batch import. This uses a queue-based parallel conversion pipeline:
+For converting multiple files at once, MarkUpsideDown supports batch import:
 
-1. Select multiple files to import
-2. Files are queued and converted in parallel via the Worker
-3. Progress is tracked per file
+1. Select multiple supported files in the sidebar
+2. Right-click and choose **Batch Convert N Files…**
+3. The app converts the files through your Worker, 4 at a time, and saves each result as a `.md` file in the project root
+4. When it finishes, a summary shows how many files were converted and lists any that failed
 
-Batch import requires the **CONVERT_QUEUE** Queue binding and **CACHE** KV binding in your Worker.
-
-## Caching
-
-Converted content is cached in Cloudflare KV (when the CACHE binding is available). Fetching the same URL or converting the same file again will return the cached result instantly.
+Batch import needs only the Worker URL.

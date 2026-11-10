@@ -1,54 +1,67 @@
 import type { Env } from "../types.js";
-import { EMBEDDING_MODEL, MAX_CHUNK_CHARS, VECTORIZE_UPSERT_MAX, EMBED_DELETE_MAX_CHUNKS } from "../config.js";
+import { SEARCH_INSTANCE, SEARCH_LIMIT_DEFAULT } from "../config.js";
 import { jsonResponse, parseJsonBody } from "../utils.js";
+
+// Semantic search on AI Search: chunking, embedding (a multilingual model),
+// and hybrid keyword + vector retrieval are handled by the managed instance.
+
+const SEARCH_MISSING_ERROR =
+  "AI Search binding is missing on this Worker. Click Update Worker in MarkUpsideDown Settings.";
+
+// Max chunks requested per query. Several chunks can come from one document.
+const SEARCH_CHUNKS_MAX = 50;
+
+const INSTANCE_CONFIG: AiSearchConfig = {
+  id: SEARCH_INSTANCE,
+  index_method: { vector: true, keyword: true },
+  // Trigram keyword matching works for CJK text, which has no word spaces.
+  indexing_options: { keyword_tokenizer: "trigram" },
+  custom_metadata: [{ field_name: "doc_id", data_type: "text" }],
+};
 
 interface EmbedDocument {
   id: string;
   content: string;
-  metadata?: Record<string, string>;
 }
 
-/** Split a Markdown document into heading-based chunks. */
-function chunkDocument(id: string, content: string): { chunkId: string; text: string }[] {
-  const lines = content.split("\n");
-  const chunks: { chunkId: string; text: string }[] = [];
-  let current = "";
-  let headingPrefix = "";
-  let chunkIndex = 0;
-
-  for (const line of lines) {
-    const headingMatch = line.match(/^(#{1,3})\s+(.+)/);
-    if (headingMatch) {
-      if (current.trim()) {
-        chunks.push({ chunkId: `${id}#${chunkIndex}`, text: `${headingPrefix}\n${current}`.trim() });
-        chunkIndex++;
-      }
-      headingPrefix = line;
-      current = "";
-    } else {
-      current += line + "\n";
-      if (current.length > MAX_CHUNK_CHARS) {
-        chunks.push({ chunkId: `${id}#${chunkIndex}`, text: `${headingPrefix}\n${current}`.trim() });
-        chunkIndex++;
-        current = "";
-      }
-    }
-  }
-  if (current.trim()) {
-    chunks.push({ chunkId: `${id}#${chunkIndex}`, text: `${headingPrefix}\n${current}`.trim() });
-  }
-
-  return chunks.length > 0 ? chunks : [{ chunkId: `${id}#0`, text: content.slice(0, MAX_CHUNK_CHARS) }];
+function isNotFound(e: unknown): boolean {
+  return e instanceof Error && (e.name.includes("NotFound") || /not[\s_-]?found/i.test(e.message));
 }
 
-async function getEmbeddings(texts: string[], env: Env): Promise<number[][]> {
-  const result = await env.AI.run(EMBEDDING_MODEL, { text: texts });
-  return (result as { data: number[][] }).data;
+// AI Search picks the parser from the key's extension, so content converted
+// from e.g. "report.pdf" is stored as "report.pdf.md".
+function itemKey(docId: string): string {
+  return docId.endsWith(".md") ? docId : `${docId}.md`;
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Get the search instance, creating it on first use. */
+async function getInstance(ns: AiSearchNamespace): Promise<AiSearchInstance> {
+  const instance = ns.get(SEARCH_INSTANCE);
+  try {
+    await instance.info();
+    return instance;
+  } catch (e) {
+    if (!isNotFound(e)) throw e;
+  }
+  try {
+    return await ns.create(INSTANCE_CONFIG);
+  } catch (createError) {
+    // Another request may have created it in the meantime.
+    await instance.info().catch(() => {
+      throw createError;
+    });
+    return instance;
+  }
 }
 
 export async function handleEmbed(request: Request, env: Env): Promise<Response> {
-  if (!env.VECTORS) {
-    return jsonResponse({ error: "Vectorize index not configured" }, 500);
+  const ns = env.AI_SEARCH;
+  if (!ns) {
+    return jsonResponse({ error: SEARCH_MISSING_ERROR }, 500);
   }
 
   const body = await parseJsonBody<{ documents: EmbedDocument[] }>(request);
@@ -58,35 +71,32 @@ export async function handleEmbed(request: Request, env: Env): Promise<Response>
     return jsonResponse({ error: "Missing 'documents' array" }, 400);
   }
 
-  const chunkCounts = await Promise.all(
-    body.documents.map(async (doc) => {
-      const chunks = chunkDocument(doc.id, doc.content);
-      const texts = chunks.map((c) => c.text);
-      const embeddings = await getEmbeddings(texts, env);
+  let instance: AiSearchInstance;
+  try {
+    instance = await getInstance(ns);
+  } catch (e) {
+    return jsonResponse({ error: `AI Search unavailable: ${errorMessage(e)}` }, 500);
+  }
 
-      const vectors = chunks.map((c, i) => ({
-        id: c.chunkId,
-        values: embeddings[i],
-        metadata: {
-          docId: doc.id,
-          ...(doc.metadata ?? {}),
-        },
-      }));
-
-      for (let i = 0; i < vectors.length; i += VECTORIZE_UPSERT_MAX) {
-        await env.VECTORS!.upsert(vectors.slice(i, i + VECTORIZE_UPSERT_MAX));
-      }
-      return chunks.length;
-    }),
+  // Upload is an upsert, so re-indexing a document replaces its old chunks.
+  // Indexing continues in the background after the upload returns.
+  const results = await Promise.allSettled(
+    body.documents.map((doc) => instance.items.upload(itemKey(doc.id), doc.content, { metadata: { doc_id: doc.id } })),
   );
-  const totalChunks = chunkCounts.reduce((a, b) => a + b, 0);
+  const errors = results.flatMap((r, i) =>
+    r.status === "rejected" ? [`${body.documents[i].id}: ${errorMessage(r.reason)}`] : [],
+  );
+  const indexed = results.length - errors.length;
+  if (indexed === 0) {
+    return jsonResponse({ error: `Indexing failed: ${errors[0]}` }, 500);
+  }
 
-  return jsonResponse({ indexed: body.documents.length, chunks: totalChunks });
+  return jsonResponse({ indexed, ...(errors.length > 0 ? { errors } : {}) });
 }
 
 export async function handleSearch(request: Request, env: Env): Promise<Response> {
-  if (!env.VECTORS) {
-    return jsonResponse({ error: "Vectorize index not configured" }, 500);
+  if (!env.AI_SEARCH) {
+    return jsonResponse({ error: SEARCH_MISSING_ERROR }, 500);
   }
 
   const body = await parseJsonBody<{ query: string; limit?: number }>(request);
@@ -96,35 +106,44 @@ export async function handleSearch(request: Request, env: Env): Promise<Response
     return jsonResponse({ error: "Missing 'query' field" }, 400);
   }
 
-  const [queryEmbedding] = await getEmbeddings([body.query], env);
-  const results = await env.VECTORS.query(queryEmbedding, {
-    topK: body.limit ?? 10,
-    returnMetadata: "all",
-  });
+  const limit = Math.max(1, Math.min(body.limit ?? SEARCH_LIMIT_DEFAULT, SEARCH_CHUNKS_MAX));
+  let response: AiSearchSearchResponse;
+  try {
+    response = await env.AI_SEARCH.get(SEARCH_INSTANCE).search({
+      query: body.query,
+      ai_search_options: { retrieval: { max_num_results: Math.min(limit * 3, SEARCH_CHUNKS_MAX) } },
+    });
+  } catch (e) {
+    // Nothing has been indexed yet.
+    if (isNotFound(e)) return jsonResponse({ results: [] });
+    return jsonResponse({ error: `Search failed: ${errorMessage(e)}` }, 500);
+  }
 
-  return jsonResponse({
-    results: results.matches.map((m) => ({
-      id: m.id,
-      score: m.score,
-      metadata: m.metadata,
-    })),
-  });
+  // One result per document, keeping its best-scoring chunk.
+  const best = new Map<string, { id: string; score: number; text: string }>();
+  for (const chunk of response.chunks) {
+    const id = typeof chunk.item.metadata?.doc_id === "string" ? chunk.item.metadata.doc_id : chunk.item.key;
+    const current = best.get(id);
+    if (!current || chunk.score > current.score) {
+      best.set(id, { id, score: chunk.score, text: chunk.text });
+    }
+  }
+  const results = [...best.values()].sort((a, b) => b.score - a.score).slice(0, limit);
+
+  return jsonResponse({ results });
 }
 
 export async function handleEmbedDelete(docId: string, env: Env): Promise<Response> {
-  if (!env.VECTORS) {
-    return jsonResponse({ error: "Vectorize index not configured" }, 500);
+  if (!env.AI_SEARCH) {
+    return jsonResponse({ error: SEARCH_MISSING_ERROR }, 500);
   }
 
-  // Chunk IDs are sequential; delete in batches, probing past each batch so
-  // documents larger than one batch are fully removed.
-  let start = 0;
-  for (;;) {
-    const ids = Array.from({ length: EMBED_DELETE_MAX_CHUNKS }, (_, i) => `${docId}#${start + i}`);
-    await env.VECTORS.deleteByIds(ids);
-    start += EMBED_DELETE_MAX_CHUNKS;
-    const probe = await env.VECTORS.getByIds([`${docId}#${start}`]);
-    if (probe.length === 0) break;
+  const instance = env.AI_SEARCH.get(SEARCH_INSTANCE);
+  try {
+    const { result } = await instance.items.list({ key: itemKey(docId) });
+    await Promise.all(result.map((item) => instance.items.delete(item.id)));
+  } catch (e) {
+    if (!isNotFound(e)) return jsonResponse({ error: `Delete failed: ${errorMessage(e)}` }, 500);
   }
 
   return jsonResponse({ deleted: docId });

@@ -1,17 +1,16 @@
-import type { Env, ConvertMessage } from "./types.js";
+import type { Env } from "./types.js";
 import { CORS_HEADERS, jsonResponse, checkAuth, authErrorResponse } from "./utils.js";
 import { handleHealth } from "./handlers/health.js";
 import { handleFetch } from "./handlers/fetch.js";
 import { handleConvert } from "./handlers/convert.js";
 import { handleRender } from "./handlers/render.js";
 import { handleJson } from "./handlers/json.js";
-import { handleCrawlStart, handleCrawlStatus } from "./handlers/crawl.js";
-import { handleBatchSubmit, handleBatchStatus, handleBatchFile, processBatchQueue } from "./handlers/batch.js";
+import { handleCrawlStart, handleCrawlStatus, handleCrawlCancel } from "./handlers/crawl.js";
 import { handlePublish, handleServePublished, handleUnpublish, handlePublishedList, deleteExpiredPublished } from "./handlers/publish.js";
 import { handleEmbed, handleSearch, handleEmbedDelete } from "./handlers/embed.js";
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS_HEADERS });
     }
@@ -35,11 +34,11 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/fetch") {
-      return handleFetch(request, env, ctx);
+      return handleFetch(request, env);
     }
 
     if (request.method === "GET" && url.pathname === "/render") {
-      return handleRender(url, env, ctx);
+      return handleRender(url, env);
     }
 
     if (request.method === "POST" && url.pathname === "/convert") {
@@ -58,19 +57,8 @@ export default {
     if (request.method === "GET" && crawlMatch) {
       return handleCrawlStatus(crawlMatch[1], url, env);
     }
-
-    if (request.method === "POST" && url.pathname === "/batch") {
-      return handleBatchSubmit(request, env);
-    }
-
-    const batchMatch = url.pathname.match(/^\/batch\/([a-zA-Z0-9_-]+)$/);
-    if (request.method === "GET" && batchMatch) {
-      return handleBatchStatus(batchMatch[1], env);
-    }
-
-    const batchFileMatch = url.pathname.match(/^\/batch\/([a-zA-Z0-9_-]+)\/(\d+)$/);
-    if (request.method === "GET" && batchFileMatch) {
-      return handleBatchFile(batchFileMatch[1], parseInt(batchFileMatch[2]), env);
+    if (request.method === "DELETE" && crawlMatch) {
+      return handleCrawlCancel(crawlMatch[1], env);
     }
 
     if (request.method === "PUT" && url.pathname === "/publish") {
@@ -96,17 +84,19 @@ export default {
 
     const embedDeleteMatch = url.pathname.match(/^\/embed\/(.+)$/);
     if (request.method === "DELETE" && embedDeleteMatch) {
-      return handleEmbedDelete(embedDeleteMatch[1], env);
+      let docId: string;
+      try {
+        docId = decodeURIComponent(embedDeleteMatch[1]);
+      } catch {
+        return jsonResponse({ error: "Invalid document ID" }, 400);
+      }
+      return handleEmbedDelete(docId, env);
     }
 
     return jsonResponse({ error: "Not found" }, 404);
   },
 
-  async queue(batch: MessageBatch<ConvertMessage>, env: Env): Promise<void> {
-    await processBatchQueue(batch, env);
-  },
-
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     await deleteExpiredPublished(env);
   },
-} satisfies ExportedHandler<Env, ConvertMessage>;
+} satisfies ExportedHandler<Env>;

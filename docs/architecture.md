@@ -25,22 +25,22 @@ MCP Server (mcp-server-rs/)
 └──────────┼───────────────────────────────────────────────┘
            │ HTTP
            ▼
-┌──────────────────────────────────────┐
+┌───────────────────────────────────────┐
 │  Cloudflare Worker                    │
 │  GET  /health   → capability check    │
-│  POST /fetch    → AI.toMarkdown()    │
-│  POST /convert  → AI.toMarkdown()    │
-│  GET  /render   → Browser Rendering   │
-│       (/content → AI.toMarkdown())   │
+│  POST /fetch    → AI.toMarkdown()     │
+│  POST /convert  → AI.toMarkdown()     │
+│  GET  /render   → Browser Run         │
+│       (markdown Quick Action)         │
+│  POST /json     → Browser Run (AI)    │
 │  POST /crawl    → start site crawl    │
 │  GET  /crawl/:id → poll crawl results │
-│  POST /batch    → Queue-based batch   │
-│  GET  /batch/:id → poll batch results │
+│  DELETE /crawl/:id → cancel crawl     │
 │  PUT  /publish  → publish to R2       │
 │  GET  /p/:key   → serve published MD  │
-│  POST /embed    → index in Vectorize  │
+│  POST /embed    → index in AI Search  │
 │  POST /search   → semantic search     │
-└──────────────────────────────────────┘
+└───────────────────────────────────────┘
 ```
 
 ## Components
@@ -91,9 +91,9 @@ MCP Server (mcp-server-rs/)
 | Storage utils | `getStorageBool()`, `setStorageBool()` | `ui/src/storage-utils.ts` |
 | Storage keys | Centralized localStorage key registry | `ui/src/storage-keys.ts` |
 | Worker fetch | Shared Worker API fetch helper | `ui/src/worker-fetch.ts` |
-| Batch import | Queue-based parallel batch conversion | `ui/src/batch-import.ts` |
+| Batch import | Converts multiple files via Worker `/convert`, 4 at a time | `ui/src/batch-import.ts` |
 | Publish | Publish Markdown to R2 (permanent or time-limited) | `ui/src/publish.ts` |
-| Semantic search | Natural language search via Vectorize | `ui/src/semantic-search.ts` |
+| Semantic search | Natural language search via AI Search | `ui/src/semantic-search.ts` |
 | Update toast | App update availability notification | `ui/src/update-toast.ts` |
 | Backend commands | Rust (Tauri IPC) | `src-tauri/src/commands/` |
 | Auto-setup | Wrangler CLI (login, deploy, secrets) | `src-tauri/src/cloudflare.rs` |
@@ -107,23 +107,23 @@ MCP Server (mcp-server-rs/)
 | `GET /health` | Capability check (all feature availability) | — |
 | `POST /fetch` | Fetch URL → Markdown | Workers AI `AI.toMarkdown()` |
 | `POST /convert` | Document/image → Markdown | Workers AI `AI.toMarkdown()` |
-| `GET /render?url=` | JS-rendered page → Markdown | Browser Rendering `/content` API + Workers AI `AI.toMarkdown()` |
-| `POST /crawl` | Start website crawl (returns `job_id`) | Browser Rendering `/crawl` REST API |
-| `GET /crawl/:job_id` | Poll crawl status and retrieve results | Browser Rendering `/crawl` REST API |
-| `POST /batch` | Submit batch conversion job | Queue + KV |
-| `GET /batch/:id` | Poll batch status | KV |
+| `GET /render?url=` | JS-rendered page → Markdown | Browser Run `markdown` Quick Action (`browser` binding) |
+| `POST /json` | Extract structured JSON from a page with AI | Browser Run `json` Quick Action (`browser` binding) |
+| `POST /crawl` | Start website crawl (returns `job_id`) | Browser Run `/crawl` REST API |
+| `GET /crawl/:job_id` | Poll crawl status and retrieve results | Browser Run `/crawl` REST API |
+| `DELETE /crawl/:job_id` | Cancel a running crawl | Browser Run `/crawl` REST API |
 | `PUT /publish` | Publish Markdown to R2 | R2 |
 | `GET /p/:key` | Serve published Markdown | R2 |
 | `DELETE /publish/:key` | Unpublish | R2 |
-| `POST /embed` | Index documents as vectors | Vectorize + Workers AI |
-| `POST /search` | Semantic search query | Vectorize + Workers AI |
-| `DELETE /embed/:id` | Remove document from index | Vectorize |
+| `POST /embed` | Index documents for semantic search | AI Search (`ai_search_namespaces` binding) |
+| `POST /search` | Semantic search query (one result per document: `{ id, score, text }`) | AI Search |
+| `DELETE /embed/:id` | Remove document from index | AI Search |
 
-The `/render` endpoint pipeline:
+The `/render` endpoint calls Browser Run's `markdown` Quick Action through the Worker's `browser` binding (`env.BROWSER.quickAction`), which loads the page in a headless browser (skipping images, media, fonts, and stylesheets) and returns Markdown. Browser Run caches the result for 1 hour (`cacheTTL`); `?nocache=1` disables the cache. `/json` uses the `json` Quick Action the same way. Neither needs an API token. Only `/crawl` uses the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` secrets, because Browser Run offers it through the REST API only.
 
-1. **Content extraction** — `POST /content` via Browser Rendering API gets the JS-rendered HTML
-2. **Markdown conversion** — `AI.toMarkdown()` converts HTML to Markdown
-3. **Caching** — Responses cached for 1 hour via `caches.default`
+Conversion details: `/fetch` passes the page URL to `AI.toMarkdown()` as `conversionOptions.html.hostname`, so relative links and images become absolute URLs. `/convert` skips the PDF metadata block (`pdf.metadata: false`). Results are not cached in the Worker.
+
+Semantic search uses the AI Search instance `markupsidedown-docs` in the `default` namespace. The Worker creates it on first use with hybrid (vector + keyword) retrieval, a trigram keyword tokenizer for CJK text, and the default multilingual embedding model. Uploading a document with an existing ID replaces its previous content.
 
 Authentication: every endpoint except `GET /health` and `GET /p/:key` requires `Authorization: Bearer <API_KEY>`, where `API_KEY` is a Worker secret set by the setup wizard (compared in constant time). A Cron Trigger (every 15 minutes) deletes expired published documents, which matters when R2 public URLs bypass the Worker.
 
@@ -134,7 +134,7 @@ Security: SSRF prevention validates URLs and blocks private/reserved IP ranges v
 | Component | Role |
 |-----------|------|
 | `main.rs` | Entry point, stdio transport |
-| `tools.rs` | 66 MCP tools (editor, project, files, content, conversion, crawl, git, github, tags, search, publish, batch, windows) |
+| `tools.rs` | 65 MCP tools (editor, project, files, content, conversion, crawl, git, github, tags, search, publish, and windows) |
 | `bridge.rs` | HTTP client to Tauri bridge (auto-discovers port) |
 
 Communication: MCP server (Rust sidecar binary) reads the bridge port from `~/.markupsidedown-bridge-port` and sends HTTP requests to the Tauri backend's axum server.
@@ -245,8 +245,7 @@ Backed by the `gh` CLI, scoped to the `owner/name` parsed from the project's `or
 | `check_wrangler_status` | Check wrangler installation and login state | `cloudflare.rs` |
 | `wrangler_login` | Run `wrangler login` | `cloudflare.rs` |
 | `deploy_worker` | Deploy Worker from embedded source files | `cloudflare.rs` |
-| `setup_worker_secrets` | Auto-configure Worker secrets (OAuth attempt) | `cloudflare.rs` |
-| `setup_worker_secrets_with_token` | Configure secrets with user-provided token | `cloudflare.rs` |
+| `setup_worker_secrets_with_token` | Configure the crawl secrets with a user-provided token | `cloudflare.rs` |
 
 ### Menu
 
@@ -353,9 +352,9 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | File tree browse | `list_directory` → `git check-ignore` (via `spawn_blocking`) |
 | URL fetch (standard) | reqwest → target URL (with `Accept: text/markdown`) |
 | URL fetch (Worker) | reqwest → Worker `/fetch` → `AI.toMarkdown()` |
-| URL fetch (rendered) | reqwest → Worker `/render` → Browser Rendering `/content` → `AI.toMarkdown()` |
+| URL fetch (rendered) | reqwest → Worker `/render` → Browser Run `markdown` Quick Action |
 | Document import | reqwest → Worker `/convert` → Workers AI `AI.toMarkdown()` |
-| Website crawl | reqwest → Worker `/crawl` → Browser Rendering → poll → save .md files |
+| Website crawl | reqwest → Worker `/crawl` → Browser Run `/crawl` REST API → poll → save .md files |
 | SVG inlining | reqwest → SVG URL → sanitize (string-based) → inline DOM |
 | Git operations | `git` CLI subprocess (via `spawn_blocking`) |
 | Git clone | `git` CLI subprocess |

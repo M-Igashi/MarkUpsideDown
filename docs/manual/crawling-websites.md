@@ -16,7 +16,7 @@ MarkUpsideDown can crawl an entire website and save each page as a Markdown file
 |--------|---------|-------------|
 | **Max depth** | 3 | How many link levels to follow from the starting page |
 | **Page limit** | 50 | Maximum number of pages to crawl |
-| **Render JavaScript** | On | Use Browser Rendering for JavaScript-heavy sites |
+| **Render JavaScript** | On | Use a headless browser (Browser Run) for JavaScript-heavy sites |
 | **Include patterns** | (empty) | Only crawl URLs matching these patterns (e.g., `/articles/**`, `/blog/**`) |
 | **Exclude patterns** | (empty) | Skip URLs matching these patterns (e.g., `/tag/**`, `/author/**`) |
 | **Save to** | (auto) | Directory where crawled Markdown files will be saved. Click **Browse** to change. |
@@ -26,23 +26,25 @@ MarkUpsideDown can crawl an entire website and save each page as a Markdown file
 After clicking **Start Crawl**:
 
 - The status bar shows live progress: "Crawling... 12/50 pages (12 saved)"
-- A **[Cancel]** link in the status bar lets you stop the crawl at any time
+- A **[Cancel]** link in the status bar lets you stop the crawl at any time. It also cancels the job on Cloudflare, so it stops using browser time
 - Pages are saved as they are converted — you don't have to wait for the full crawl to finish
 
 ## Results
 
 Crawled pages are saved as individual `.md` files in the target directory. The file tree in the sidebar updates to show the new files.
 
+If Cloudflare stops the crawl early (for example, when the Workers Free plan limits are reached), the pages crawled so far are still saved and the status bar shows the reason, such as `stopped: cancelled_due_to_limits`.
+
 ## Requirements
 
-Crawling uses Cloudflare Browser Rendering's `/crawl` API. It requires:
+Crawling uses Cloudflare Browser Run's `/crawl` API. It is the only feature that requires:
 
 - `CLOUDFLARE_ACCOUNT_ID` secret in your Worker
 - `CLOUDFLARE_API_TOKEN` secret in your Worker
 
 These are configured during the Cloudflare Worker setup (see [Installation & Setup](installation.md)).
 
-> **Billing note:** Browser Rendering usage is billed by Cloudflare. The crawl dialog shows a note about this. Check [Cloudflare's pricing page](https://developers.cloudflare.com/browser-rendering/) for current rates.
+> **Billing note:** With **Render JavaScript** on, crawls use Browser Run hours ($0.09/hr after the free tier). With it off, crawls are free during the beta. The Workers Free plan allows 5 crawls per day and 100 pages per crawl. The crawl dialog shows a note about this. Check [Cloudflare's pricing page](https://developers.cloudflare.com/browser-run/pricing/) for current rates.
 
 ## Tips
 

@@ -16,12 +16,12 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 | Feature | How it works |
 |---------|-------------|
 | **Fetch URL** | Cloudflare [Markdown for Agents](https://developers.cloudflare.com/agents/guides/markdown-for-agents/) — fast, free |
-| **Fetch URL (Render JS)** | [Browser Rendering](https://developers.cloudflare.com/browser-rendering/) — SPAs, dynamic sites |
-| **Crawl website** | [Browser Rendering `/crawl` API](https://developers.cloudflare.com/browser-rendering/rest-api/crawl-endpoint/) — crawl entire sites to Markdown files |
+| **Fetch URL (Render JS)** | [Browser Run](https://developers.cloudflare.com/browser-run/) — SPAs, dynamic sites |
+| **Crawl website** | [Browser Run `/crawl` API](https://developers.cloudflare.com/browser-run/quick-actions/crawl-endpoint/) — crawl entire sites to Markdown files |
 | **Import documents** | [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/) — PDF, DOCX, XLSX, HTML, CSV, XML |
-| **Import images** | Workers AI OCR — JPG, PNG, WebP, SVG |
+| **Import images** | Workers AI OCR — JPG, PNG, WebP, SVG, GIF, BMP |
 | **Paste / Drop images** | Paste from clipboard or drag & drop — saves to `./assets/` with Markdown link |
-| **Batch import** | Queue-based parallel conversion of multiple files via Worker |
+| **Batch import** | Convert multiple files at once from the sidebar (4 in parallel via the Worker) |
 | **Drag & Drop** | Drop any supported file onto the editor to import |
 
 ### Editor
@@ -44,7 +44,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 - **Auto link title** — Paste a URL to auto-fetch the page title and format as `[Title](url)`
 - **Smart typography** — Auto-convert `...` → `…`, `--` → `–`, `---` → `—` as you type
 - **Note refactor** — Extract selected text into a new linked Markdown file
-- **Semantic search** — Natural language search across indexed documents via Vectorize (<kbd>Cmd</kbd>+<kbd>5</kbd> or `?` in command palette); crawled and imported files are auto-indexed
+- **Semantic search** — Natural language search across indexed documents via Cloudflare AI Search, with hybrid keyword and vector matching that works for any language (<kbd>Cmd</kbd>+<kbd>5</kbd> or `?` in command palette); crawled and imported files are auto-indexed
 - **Multi-window** — Open multiple windows with per-window state isolation and session restoration
 - **Auto-save & auto-reload** — File-backed tabs auto-save; external changes detected and reloaded
 - **SVG inlining** — Remote SVG images rendered inline with sanitization
@@ -69,7 +69,7 @@ Powered by [Tauri v2](https://v2.tauri.app/), [CodeMirror 6](https://codemirror.
 
 ### AI Agent Integration
 
-- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, lint/normalize documents, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (66 tools). See [docs/ai-integration.md](docs/ai-integration.md) for setup.
+- **MCP Server** — AI agents (Claude Desktop, Claude Code, Cowork) can read/write editor content, manage files, browse projects, crawl websites, lint/normalize documents, and convert documents via [Model Context Protocol](https://modelcontextprotocol.io/) (65 tools). See [docs/ai-integration.md](docs/ai-integration.md) for setup.
 - **File-watcher sync** — External edits by AI agents are automatically detected and reloaded in the editor
 
 ### Keyboard Shortcuts
@@ -96,7 +96,7 @@ brew install M-Igashi/tap/markupsidedown
 
 The Worker powers document import and JS-rendered page fetching.
 
-**Automatic setup (recommended):** On first launch, click **Setup with Cloudflare** in the Settings panel. This runs `wrangler login`, creates Cloudflare resources (KV, R2, Queue, Vectorize), deploys the Worker with a randomized URL, and configures secrets — all from within the app.
+**Automatic setup (recommended):** On first launch, click **Setup with Cloudflare** in the Settings panel. This runs `wrangler login`, creates the R2 bucket for publishing, deploys the Worker with a randomized URL, protects it with an API key, and configures the secrets for website crawling — all from within the app.
 
 **Manual setup:** See [docs/worker-deployment.md](docs/worker-deployment.md) for step-by-step instructions.
 
@@ -134,7 +134,7 @@ cargo tauri build      # production build
 | Document | Contents |
 |----------|----------|
 | [docs/ai-integration.md](docs/ai-integration.md) | AI agent setup guide (quick start) |
-| [docs/mcp-server.md](docs/mcp-server.md) | MCP server reference (66 tools, standalone mode) |
+| [docs/mcp-server.md](docs/mcp-server.md) | MCP server reference (65 tools, standalone mode) |
 | [docs/worker-deployment.md](docs/worker-deployment.md) | Worker deployment, API tokens, pricing |
 | [docs/architecture.md](docs/architecture.md) | Data flow, components, IPC/bridge API reference |
 | [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md) | All keyboard shortcuts |

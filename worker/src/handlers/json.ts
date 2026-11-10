@@ -1,10 +1,11 @@
 import type { Env } from "../types.js";
-import { jsonResponse, parseJsonBody, hasSecrets, wrapJsonSchema } from "../utils.js";
+import { BROWSER_RUN_GOTO } from "../config.js";
+import { jsonResponse, parseJsonBody, wrapJsonSchema, browserRunError, BROWSER_MISSING_ERROR } from "../utils.js";
 import { validateUrlForSsrf } from "../ssrf.js";
 
 export async function handleJson(request: Request, env: Env): Promise<Response> {
-  if (!hasSecrets(env)) {
-    return jsonResponse({ error: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required for JSON extraction" }, 500);
+  if (!env.BROWSER) {
+    return jsonResponse({ error: BROWSER_MISSING_ERROR }, 500);
   }
 
   const body = await parseJsonBody<{
@@ -27,48 +28,37 @@ export async function handleJson(request: Request, env: Env): Promise<Response> 
     return jsonResponse({ error: ssrfError }, 400);
   }
 
-  const jsonUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-rendering/json`;
-  const jsonBody: Record<string, unknown> = {
+  const options = {
     url: body.url,
-    gotoOptions: { waitUntil: "networkidle2", timeout: 45000 },
+    gotoOptions: BROWSER_RUN_GOTO,
     rejectResourceTypes: ["image", "media", "font"],
-  };
-  if (body.prompt) jsonBody.prompt = body.prompt;
-  if (body.response_format) {
-    jsonBody.response_format = wrapJsonSchema(body.response_format);
-  }
+    ...(body.prompt ? { prompt: body.prompt } : {}),
+    ...(body.response_format ? { response_format: wrapJsonSchema(body.response_format) } : {}),
+  } as BrowserRunJsonOptions;
 
   try {
-    const response = await fetch(jsonUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(jsonBody),
-    });
-
-    const status = response.status;
-    const data = await response.json<{ success: boolean; result: unknown; errors?: unknown[]; rawAiResponse?: string }>();
-
-    if (!response.ok) {
-      return jsonResponse({ error: `Browser Rendering JSON API error (${status})`, details: data.errors }, status);
-    }
+    const response = await env.BROWSER.quickAction("json", options);
+    const data = await response.json<
+      { success: boolean; result?: unknown; errors?: unknown[]; rawAiResponse?: string }
+    >();
 
     if (data.success && data.result) {
       return jsonResponse({ data: data.result });
     }
 
+    // The model sometimes returns valid JSON that fails schema validation.
     if (data.rawAiResponse) {
       try {
-        const parsed = JSON.parse(data.rawAiResponse);
-        return jsonResponse({ data: parsed });
+        return jsonResponse({ data: JSON.parse(data.rawAiResponse) });
       } catch {
         return jsonResponse({ data: data.rawAiResponse });
       }
     }
 
-    return jsonResponse({ error: "No data in response", details: data.errors }, 500);
+    return jsonResponse(
+      { error: `Browser Run JSON extraction failed (${response.status}): ${browserRunError(data)}` },
+      response.ok ? 500 : response.status,
+    );
   } catch (e) {
     return jsonResponse({ error: `JSON extraction failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
   }

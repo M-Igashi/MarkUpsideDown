@@ -19,6 +19,8 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
         "png" => Some("image/png"),
         "webp" => Some("image/webp"),
         "svg" => Some("image/svg+xml"),
+        "gif" => Some("image/gif"),
+        "bmp" => Some("image/bmp"),
         _ => None,
     }
 }
@@ -136,6 +138,12 @@ pub struct CrawlStatusParams {
     pub cursor: Option<String>,
     #[schemars(description = "Max number of records per page (default 10, max 100)")]
     pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CrawlCancelParams {
+    #[schemars(description = "Job ID returned by crawl_website")]
+    pub job_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -342,7 +350,7 @@ pub struct SemanticSearchParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct IndexDocumentsParams {
-    #[schemars(description = "Array of documents to index. Each document needs an 'id' (unique identifier, e.g. file path) and 'content' (Markdown text). Optional 'metadata' object for additional context.")]
+    #[schemars(description = "Array of documents to index. Each document needs an 'id' (unique identifier, e.g. file path) and 'content' (Markdown text). Re-indexing an id replaces its previous content.")]
     pub documents: Vec<IndexDocumentEntry>,
 }
 
@@ -352,13 +360,11 @@ pub struct IndexDocumentEntry {
     pub id: String,
     #[schemars(description = "Markdown content to index")]
     pub content: String,
-    #[schemars(description = "Optional metadata key-value pairs")]
-    pub metadata: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RemoveDocumentParams {
-    #[schemars(description = "Document ID to remove from the Vectorize index")]
+    #[schemars(description = "Document ID to remove from the search index")]
     pub id: String,
 }
 
@@ -378,26 +384,6 @@ pub struct PublishDocumentParams {
 pub struct UnpublishDocumentParams {
     #[schemars(description = "Key of the published document to remove")]
     pub key: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct SubmitBatchParams {
-    #[schemars(description = "Array of files to convert. Each needs 'name' (filename with extension) and 'content' (base64-encoded file content).")]
-    pub files: Vec<BatchFileEntry>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct BatchFileEntry {
-    #[schemars(description = "Filename with extension (e.g., 'report.pdf')")]
-    pub name: String,
-    #[schemars(description = "Base64-encoded file content")]
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct GetBatchStatusParams {
-    #[schemars(description = "Batch ID returned by submit_batch")]
-    pub batch_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -618,7 +604,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "render_markdown", description = "Fetch a JavaScript-rendered page as Markdown via Browser Rendering (explicit). Use get_markdown instead for automatic SPA detection.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "render_markdown", description = "Fetch a JavaScript-rendered page as Markdown via Browser Run (explicit). Use get_markdown instead for automatic SPA detection.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn render_markdown(
         &self,
         Parameters(params): Parameters<UrlParams>,
@@ -631,7 +617,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "get_markdown", description = "Fetch a URL and return its content as Markdown. Automatically detects JavaScript-rendered pages and uses Browser Rendering when available. Recommended over fetch_markdown/render_markdown for most use cases.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "get_markdown", description = "Fetch a URL and return its content as Markdown. Automatically detects JavaScript-rendered pages and uses Browser Run when available. Recommended over fetch_markdown/render_markdown for most use cases.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn get_markdown(
         &self,
         Parameters(params): Parameters<UrlParams>,
@@ -669,11 +655,11 @@ impl McpTools {
                 let markdown = data.markdown.unwrap_or_default();
                 let spa_detected = data.spa_detected.unwrap_or(false);
 
-                // 2a. If SPA detected, try Browser Rendering
+                // 2a. If SPA detected, try Browser Run
                 if spa_detected {
                     if let Ok(rendered) = self.render_via_worker(&params.url).await {
                         if !rendered.is_empty() {
-                            return Ok(format!("--- Browser Rendering (auto) ---\n\n{rendered}"));
+                            return Ok(format!("--- Browser Run (auto) ---\n\n{rendered}"));
                         }
                     }
                     // Render failed — return fetch result
@@ -1014,7 +1000,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Rendering. Returns a job_id to poll with crawl_status. Supports markdown and/or json output formats.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Run. Returns a job_id to poll with crawl_status, or stop it with crawl_cancel. Supports markdown and/or json output formats.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn crawl_website(
         &self,
         Parameters(params): Parameters<CrawlWebsiteParams>,
@@ -1149,6 +1135,24 @@ impl McpTools {
             }
 
             Ok(output)
+        }
+        .await;
+
+        match result {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
+    }
+
+    #[tool(name = "crawl_cancel", description = "Cancel a running crawl job so it stops crawling and using browser time. Pages already crawled stay available through crawl_status.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
+    async fn crawl_cancel(
+        &self,
+        Parameters(params): Parameters<CrawlCancelParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let result = async {
+            let path = format!("/crawl/{}", urlencoding::encode(&params.job_id));
+            self.worker_call(reqwest::Method::DELETE, &path, None, 30).await?;
+            Ok::<_, String>(format!("Cancelled crawl job: {}", params.job_id))
         }
         .await;
 
@@ -1521,20 +1525,16 @@ impl McpTools {
         }
     }
 
-    // --- Worker-direct Tools (publish, embed, batch) ---
+    // --- Worker-direct Tools (publish, embed) ---
 
-    #[tool(name = "index_documents", description = "Index documents into Vectorize for semantic search. Each document is chunked and embedded automatically. Requires Vectorize binding in the Worker.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "index_documents", description = "Index documents into AI Search for semantic search. Each document is chunked and embedded automatically (multilingual), and indexing finishes in the background. Requires the AI Search binding in the Worker.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
     async fn index_documents(
         &self,
         Parameters(params): Parameters<IndexDocumentsParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
             let documents: Vec<serde_json::Value> = params.documents.iter().map(|d| {
-                let mut doc = serde_json::json!({ "id": d.id, "content": d.content });
-                if let Some(ref meta) = d.metadata {
-                    doc["metadata"] = serde_json::json!(meta);
-                }
-                doc
+                serde_json::json!({ "id": d.id, "content": d.content })
             }).collect();
 
             let data = self
@@ -1542,8 +1542,13 @@ impl McpTools {
                 .await?;
 
             let indexed = data["indexed"].as_u64().unwrap_or(0);
-            let chunks = data["chunks"].as_u64().unwrap_or(0);
-            Ok::<_, String>(format!("Indexed {indexed} documents ({chunks} chunks)"))
+            let mut output = format!("Indexed {indexed} documents");
+            if let Some(errors) = data["errors"].as_array() {
+                for e in errors.iter().filter_map(|e| e.as_str()) {
+                    output.push_str(&format!("\nFailed: {e}"));
+                }
+            }
+            Ok::<_, String>(output)
         }
         .await;
 
@@ -1553,7 +1558,7 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "remove_document", description = "Remove a document from the Vectorize index. Deletes all chunks associated with the document ID.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
+    #[tool(name = "remove_document", description = "Remove a document from the semantic search index. Deletes all chunks associated with the document ID.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
     async fn remove_document(
         &self,
         Parameters(params): Parameters<RemoveDocumentParams>,
@@ -1645,49 +1650,6 @@ impl McpTools {
         }
     }
 
-    #[tool(name = "submit_batch", description = "Submit multiple files for parallel batch conversion to Markdown via Queue. Returns a batch_id to poll with get_batch_status. Requires Queue and KV bindings in the Worker.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
-    async fn submit_batch(
-        &self,
-        Parameters(params): Parameters<SubmitBatchParams>,
-    ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let files: Vec<serde_json::Value> = params.files.iter().map(|f| {
-                serde_json::json!({ "name": f.name, "content": f.content })
-            }).collect();
-
-            let data = self
-                .worker_call(reqwest::Method::POST, "/batch", Some(serde_json::json!({ "files": files })), 30)
-                .await?;
-
-            let batch_id = data["batch_id"].as_str().unwrap_or("unknown");
-            Ok::<_, String>(format!("Batch submitted. batch_id: {batch_id}\n\nUse get_batch_status with this batch_id to poll for results."))
-        }
-        .await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
-    }
-
-    #[tool(name = "get_batch_status", description = "Poll the status of a batch conversion job. Returns overall progress and per-file status (queued/done/failed).", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
-    async fn get_batch_status(
-        &self,
-        Parameters(params): Parameters<GetBatchStatusParams>,
-    ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let path = format!("/batch/{}", params.batch_id);
-            let data = self.worker_call(reqwest::Method::GET, &path, None, 30).await?;
-            Ok::<_, String>(serde_json::to_string_pretty(&data).unwrap_or_default())
-        }
-        .await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
-    }
-
     // --- Git Extended Tools ---
 
     #[tool(name = "git_stage_all", description = "Stage all changes for commit (git add -A). Stages new, modified, and deleted files.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -1742,7 +1704,7 @@ impl McpTools {
 
     // --- Semantic Search ---
 
-    #[tool(name = "semantic_search", description = "Search across indexed Markdown documents using natural language. Returns ranked results with file paths and relevance scores. Requires Vectorize to be configured in the Worker.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "semantic_search", description = "Search across indexed Markdown documents using natural language (hybrid keyword + vector search, multilingual). Returns ranked results with file paths, relevance scores, and the best-matching passage. Requires the AI Search binding in the Worker.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn semantic_search(
         &self,
         Parameters(params): Parameters<SemanticSearchParams>,
@@ -1765,6 +1727,10 @@ impl McpTools {
                         let doc_id = if let Some(pos) = id.rfind('#') { &id[..pos] } else { id };
                         let score = r["score"].as_f64().unwrap_or(0.0);
                         output.push_str(&format!("- **{}** (score: {:.2})\n", doc_id, score));
+                        if let Some(text) = r["text"].as_str() {
+                            let snippet = truncate_chars(text, 200).replace('\n', " ");
+                            output.push_str(&format!("  {snippet}\n"));
+                        }
                     }
                     Ok::<_, String>(output)
                 }

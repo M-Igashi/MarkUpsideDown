@@ -5,11 +5,13 @@
 MarkUpsideDown uses a Cloudflare Worker for four features:
 
 1. **Document Import** — Convert PDF, Office docs, images, etc. to Markdown via [Workers AI `AI.toMarkdown()`](https://developers.cloudflare.com/workers-ai/markdown-conversion/)
-2. **Rendered Fetch** — Fetch JavaScript-rendered pages as Markdown via [Browser Rendering](https://developers.cloudflare.com/browser-rendering/rest-api/markdown-endpoint/)
-3. **Structured Extraction** — Extract structured JSON data from web pages using AI (Browser Rendering + Workers AI LLM)
-4. **Website Crawl** — Crawl an entire website and save all pages as Markdown files via [Browser Rendering `/crawl` API](https://developers.cloudflare.com/browser-rendering/rest-api/crawl-endpoint/)
+2. **Rendered Fetch** — Fetch JavaScript-rendered pages as Markdown via [Browser Run](https://developers.cloudflare.com/browser-run/quick-actions/markdown-endpoint/)
+3. **Structured Extraction** — Extract structured JSON data from web pages using AI (Browser Run + Workers AI LLM)
+4. **Website Crawl** — Crawl an entire website and save all pages as Markdown files via [Browser Run `/crawl` API](https://developers.cloudflare.com/browser-run/quick-actions/crawl-endpoint/)
 
-Each user deploys their own Worker instance.
+Rendered Fetch and Structured Extraction use the Worker's `browser` binding, so they need no API token and work right after deploy. Only Website Crawl needs the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` secrets, because Browser Run offers `/crawl` through the REST API only.
+
+The Worker also powers publishing to R2 and semantic search via [AI Search](https://developers.cloudflare.com/ai-search/). Each user deploys their own Worker instance.
 
 ## Automatic Setup (Recommended)
 
@@ -17,15 +19,13 @@ On first launch, MarkUpsideDown opens the Settings panel with a **Setup with Clo
 
 1. Checks that `wrangler` is installed globally
 2. Runs `wrangler login` (opens browser for Cloudflare OAuth)
-3. **Creates Cloudflare resources** — KV namespace (cache), R2 bucket (publish), Queue (batch conversion), Vectorize index (semantic search). Each is optional and created in parallel; failures are non-fatal
+3. **Creates the R2 bucket** for publishing. It is optional: if it fails, the Worker deploys without the R2 binding and only publishing is unavailable. No other resources need setup, since the AI Search instance for semantic search is created on first use
 4. Deploys the Worker with a **randomized URL** (e.g. `markupsidedown-a3f8k2xp7m9qb.example.workers.dev`) to prevent third-party URL guessing
 5. Sets a random **API key** as the `API_KEY` Worker secret and saves it in the app. Every endpoint except `GET /health` and `GET /p/:key` requires it
-6. **(Optional)** Configures secrets for Render JS via OAuth — creates a scoped API token automatically
+6. **(Optional)** Asks for an API token and stores it, with your account ID, as the Website Crawl secrets. Create the token in the dashboard with **Account > Browser Run > Edit** and **Account > Workers AI > Read** (wrangler's OAuth login cannot create API tokens)
 7. Verifies the deployment
 
-After step 5, Document Import is ready to use. Step 6 (secrets) is only needed for Render JS (fetching JavaScript-rendered pages). If OAuth token creation fails, you can add secrets later via `wrangler secret put`.
-
-Resources created in step 3 enable additional features (see [Feature Status](#feature-status)). If a resource fails to create, the Worker still deploys without that binding — features degrade gracefully.
+After step 5, Document Import, Rendered Fetch, Structured Extraction, and semantic search are ready to use. Step 6 (secrets) is only needed for Website Crawl. If you skip it, you can add the secrets later via `wrangler secret put`.
 
 If you have multiple Cloudflare accounts, you'll be prompted to select one.
 
@@ -40,13 +40,13 @@ If you have multiple Cloudflare accounts, you'll be prompted to select one.
 
 ### API Token
 
-Create a single API token that covers deployment, document import, and rendered fetch:
+Create a single API token that covers deployment and website crawl:
 
 1. Go to [API Tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Token**
 2. Use the **"Edit Cloudflare Workers"** template → **Use template**
 3. Add these additional permissions:
    - `Account` → `Workers AI` → `Read`
-   - `Account` → `Browser Rendering` → `Edit`
+   - `Account` → `Browser Run` → `Edit` (formerly named `Browser Rendering`)
 4. Account Resources: select your account
 5. Create the token and save it
 
@@ -54,7 +54,7 @@ Create a single API token that covers deployment, document import, and rendered 
 |-------|-----------|---------|
 | Account > Workers Scripts | Edit | `wrangler deploy` |
 | Account > Workers AI | Read | `AI.toMarkdown()` (document import) |
-| Account > Browser Rendering | Edit | `/render` and `/crawl` endpoints |
+| Account > Browser Run | Edit | `/crawl` endpoint (Website Crawl) |
 
 ### Deploy
 
@@ -77,7 +77,7 @@ Until `API_KEY` is set, protected endpoints return `500` with an error explainin
 
 ### Set Worker Secrets
 
-The secrets are required for the `/render` and `/crawl` endpoints (Rendered Fetch and Website Crawl). If you only need Document Import, you can skip this — `/convert` uses the AI binding directly.
+The secrets are required only for the `/crawl` endpoint (Website Crawl). If you don't crawl websites, you can skip this — `/render` and `/json` use the `browser` binding, and `/convert` uses the AI binding directly.
 
 Get your **Account ID** from [Cloudflare Dashboard](https://dash.cloudflare.com/) → Workers & Pages → right sidebar.
 
@@ -124,27 +124,27 @@ The URL and API key are saved in localStorage and persist across sessions.
 | Blog or wiki archival | **Crawl** |
 | Building a local Markdown corpus for AI/RAG | **Crawl** |
 
-The Render pipeline strips boilerplate (nav, header, footer, cookie banners, ads) using HTMLRewriter before converting to Markdown, producing cleaner output than raw HTML conversion.
+The Render pipeline uses Browser Run's `markdown` Quick Action, which loads the page in a headless browser (skipping images, media, fonts, and stylesheets) and returns Markdown. Results are cached by Browser Run for 1 hour; `GET /render?url=...&nocache=1` bypasses the cache.
 
-The Crawl feature uses the Browser Rendering `/crawl` REST API to discover and convert pages starting from a URL. Results are saved as organized `.md` files under a local directory (e.g. `domain/path.md`).
+The Crawl feature uses the Browser Run `/crawl` REST API to discover and convert pages starting from a URL. Results are saved as organized `.md` files under a local directory (e.g. `domain/path.md`).
 
 ## Pricing
 
-### Browser Rendering
+### Browser Run
 
 | Plan | Browser Time | Rate Limit | Cost |
 |------|-------------|------------|------|
 | **Free** | 10 min/day | 6 req/min | Free |
-| **Paid** | 10 hrs/month | 600 req/min | $5/month |
+| **Paid** | 10 hrs/month | 30 req/s | $5/month |
 
-The free tier is sufficient for occasional use. Render responses are cached for 1 hour. Crawl with `render: true` (default) is billed as Browser Rendering hours; `render: false` runs on Workers and is free during beta. The app defaults to a 50-page limit to prevent accidental cost overrun. See [Browser Rendering Pricing](https://developers.cloudflare.com/browser-rendering/pricing/).
+The free tier is sufficient for occasional use. Render responses are cached by Browser Run for 1 hour, so repeated renders of the same URL do not use browser time. Crawl with `render: true` (default) is billed as Browser Run hours; `render: false` runs on Workers and is free during the beta. The Workers Free plan also limits crawls to 5 per day and 100 pages per crawl. The app defaults to a 50-page limit to prevent accidental cost overrun. See [Browser Run Pricing](https://developers.cloudflare.com/browser-run/pricing/) and [Browser Run Limits](https://developers.cloudflare.com/browser-run/limits/).
 
 ### Document Import
 
 | Format | Cost |
 |--------|------|
 | PDF, DOCX, XLSX, HTML, CSV, XML | **Free** (no AI Neurons) |
-| Images (JPG, PNG, WebP, SVG) | **AI Neurons** (OCR) |
+| Images (JPG, PNG, WebP, SVG, GIF, BMP) | **AI Neurons** (OCR) |
 
 The app shows a confirmation dialog before processing images.
 
@@ -154,7 +154,7 @@ The app shows a confirmation dialog before processing images.
 |----------|-----------|
 | Documents | `.pdf`, `.docx`, `.xlsx` |
 | Web/data | `.html`, `.htm`, `.csv`, `.xml` |
-| Images | `.jpg`, `.jpeg`, `.png`, `.webp`, `.svg` |
+| Images | `.jpg`, `.jpeg`, `.png`, `.webp`, `.svg`, `.gif`, `.bmp` |
 
 ## Troubleshooting
 
@@ -162,13 +162,17 @@ The app shows a confirmation dialog before processing images.
 
 Ensure `CLOUDFLARE_API_TOKEN` is set and the token has `Workers Scripts: Edit` permission. See [API Token](#api-token).
 
-### "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required"
+### "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required for crawling"
 
-Set the secrets as described in [Set Worker Secrets](#set-worker-secrets). This is required for Render and Crawl features.
+Set the secrets as described in [Set Worker Secrets](#set-worker-secrets). They are only required for Website Crawl.
 
-### Browser Rendering API errors
+### "Browser Run binding is missing on this Worker" or "AI Search binding is missing on this Worker"
 
-- **403**: Check that your API token has `Browser Rendering - Edit` permission
+The deployed Worker predates v13. Click **Update Worker** in Settings.
+
+### Browser Run API errors
+
+- **403** (crawl only): Check that your API token has `Browser Run - Edit` permission
 - **429**: Rate limit exceeded (free tier: 6 req/min)
 - **Timeout**: Complex pages may take longer; try standard fetch instead
 
@@ -184,7 +188,7 @@ The Worker code is v12 or later but the secret was never set (for example, after
 
 If the app can't auto-detect your API token, it will prompt you to paste one manually. Create a token with the permissions listed in [API Token](#api-token).
 
-If you skip this step, the Worker is still deployed and Document Import works — only Render and Crawl require the secrets.
+If you skip this step, the Worker is still deployed and every feature except Website Crawl works.
 
 ### Updating the Worker
 
@@ -199,19 +203,29 @@ The URL stays the same. Secrets and resource bindings persist across deploys. Up
 The Worker exposes its version via `GET /health`:
 
 ```json
-{ "status": "ok", "version": 12, "auth": "valid", "capabilities": { "fetch": true, "convert": true, "render": true, "json": true, "crawl": true, "cache": true, "batch": true, "publish": true, "search": true } }
+{ "status": "ok", "version": 13, "auth": "valid", "capabilities": { "fetch": true, "convert": true, "render": true, "json": true, "crawl": true, "publish": true, "search": true } }
 ```
 
 `auth` reports the API key check for the request: `valid`, `invalid`, `missing` (no `Authorization` header), or `unconfigured` (the `API_KEY` secret is not set).
 
 The `capabilities` object shows which features are available:
-- `render`, `json`, `crawl` — require Worker secrets (`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`)
-- `cache` — requires KV namespace binding
-- `batch` — requires Queue + KV bindings
+- `render`, `json` — require the Browser Run `browser` binding (Worker v13+)
+- `crawl` — requires Worker secrets (`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`)
 - `publish` — requires R2 bucket binding
-- `search` — requires Vectorize index binding
+- `search` — requires the AI Search `ai_search_namespaces` binding (Worker v13+)
 
-If capabilities show `false`, the corresponding resource was not created during setup. Re-run setup or create resources manually.
+If `publish` shows `false`, the R2 bucket was not created during setup. Re-run setup or create the bucket manually. If `render`, `json`, or `search` shows `false`, click **Update Worker**.
+
+### Removing resources from older setups
+
+Worker v13 no longer uses Workers KV, Queues, or Vectorize: render results are cached by Browser Run, batch conversion runs in the app, and semantic search moved to AI Search. Documents indexed in the old Vectorize index are not migrated; they are indexed again the next time they are converted or crawled. If an older setup created these resources, you can delete them:
+
+```bash
+wrangler vectorize delete markupsidedown-docs
+wrangler queues delete markupsidedown-convert
+wrangler kv namespace list      # find the namespace created for the Worker's CACHE binding
+wrangler kv namespace delete --namespace-id <id>
+```
 
 ### CORS
 

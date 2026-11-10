@@ -35,7 +35,7 @@ The MCP server can run **without the desktop app** for conversion and crawl work
 | `fetch_markdown` | Yes (calls URL directly, no Worker needed) |
 | `render_markdown`, `convert_to_markdown` | Yes (calls Worker directly via env var) |
 | `extract_json` | Yes (calls Worker directly via env var) |
-| `crawl_website`, `crawl_status` | Yes (calls Worker directly via env var) |
+| `crawl_website`, `crawl_status`, `crawl_cancel` | Yes (calls Worker directly via env var) |
 | `crawl_save` | No (saves files via the app bridge) |
 | Editor, file, git, content tools | No (require the running app) |
 
@@ -80,7 +80,7 @@ Check Worker health and version: `curl https://your-worker-url/health`
 
 The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit.
 
-## Available Tools (66)
+## Available Tools (65)
 
 <details>
 <summary><strong>Window Tools</strong> — 1 tool (require the app to be running)</summary>
@@ -147,7 +147,7 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 | `download_image` | Download an image from URL to a local file | `url: string`, `dest_path: string` |
 | `fetch_page_title` | Extract `<title>` from a web page | `url: string` |
 
-`extract_json` requires at least one of `prompt` or `response_format`. Uses LLM inference per call. Requires Worker URL with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`.
+`extract_json` requires at least one of `prompt` or `response_format`. Uses LLM inference per call. Requires Worker URL (Worker v13+ uses the Browser Run binding, so no API token secrets are needed).
 
 </details>
 
@@ -158,21 +158,26 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 |------|-------------|------------|
 | `get_markdown` | Fetch a URL as Markdown with automatic SPA detection and fallback | `url: string` |
 | `fetch_markdown` | Fetch a URL as Markdown via Markdown for Agents (static only) | `url: string` |
-| `render_markdown` | Fetch a JS-rendered page as Markdown via Browser Rendering | `url: string` |
+| `render_markdown` | Fetch a JS-rendered page as Markdown via Browser Run | `url: string` |
 | `convert_to_markdown` | Convert a local file to Markdown via Workers AI | `file_path: string` |
 
-**Supported formats:** PDF, DOCX, XLSX, HTML, HTM, CSV, XML, JPG, JPEG, PNG, WebP, SVG
+**Supported formats:** PDF, DOCX, XLSX, HTML, HTM, CSV, XML, JPG, JPEG, PNG, WebP, SVG, GIF, BMP
+
+To convert several files, call `convert_to_markdown` once per file.
 
 </details>
 
 <details>
-<summary><strong>Crawl Tools</strong> — 3 tools (require Worker URL)</summary>
+<summary><strong>Crawl Tools</strong> — 4 tools (require Worker URL)</summary>
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `crawl_website` | Start a website crawl job (returns `job_id`). Supports markdown and/or JSON output. | `url: string`, `depth?: number`, `limit?: number`, `render?: boolean`, `include_patterns?: string[]`, `exclude_patterns?: string[]`, `formats?: string[]`, `response_format?: string` (JSON Schema) |
 | `crawl_status` | Poll crawl job status and retrieve pages (markdown and/or JSON) | `job_id: string`, `cursor?: string`, `limit?: number` (default 10, max 100) |
+| `crawl_cancel` | Cancel a running crawl job so it stops using browser time. Pages already crawled stay available through `crawl_status` | `job_id: string` |
 | `crawl_save` | Save crawled pages as local Markdown files | `pages: {url, markdown}[]`, `base_dir: string` |
+
+Crawl tools need the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` Worker secrets. On the Workers Free plan, Browser Run allows 5 crawls per day and 100 pages per crawl.
 
 </details>
 
@@ -229,15 +234,15 @@ Tags are stored in `.markupsidedown/tags.json` per project. Changes made via MCP
 </details>
 
 <details>
-<summary><strong>Search & Indexing</strong> — 3 tools (require Worker URL + Vectorize)</summary>
+<summary><strong>Search & Indexing</strong> — 3 tools (require Worker URL + AI Search)</summary>
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `semantic_search` | Search indexed documents using natural language | `query: string`, `limit?: number` |
-| `index_documents` | Index documents into Vectorize for semantic search | `documents: {id, content, metadata?}[]` |
-| `remove_document` | Remove a document from the Vectorize index | `id: string` |
+| `semantic_search` | Search indexed documents using natural language (hybrid keyword + vector, multilingual). Returns one result per document with its score and best-matching passage | `query: string`, `limit?: number` |
+| `index_documents` | Index documents into AI Search for semantic search. Re-indexing an `id` replaces its previous content | `documents: {id, content}[]` |
+| `remove_document` | Remove a document from the search index | `id: string` |
 
-Requires Vectorize to be configured in the Worker. Documents are auto-indexed when crawled or imported/converted via the app. Use `index_documents` for manual indexing and `remove_document` to clean up stale entries.
+Requires the AI Search binding in the Worker (Worker v13+). The AI Search instance is created on first use, and indexing finishes in the background shortly after `index_documents` returns. Documents are auto-indexed when crawled or imported/converted via the app. Use `index_documents` for manual indexing and `remove_document` to clean up stale entries.
 
 </details>
 
@@ -251,18 +256,6 @@ Requires Vectorize to be configured in the Worker. Documents are auto-indexed wh
 | `list_published` | List all published documents in R2 | — |
 
 Published documents are accessible at `{worker_url}/p/{key}` as `text/markdown`.
-
-</details>
-
-<details>
-<summary><strong>Batch Conversion</strong> — 2 tools (require Worker URL + Queue + KV)</summary>
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `submit_batch` | Submit files for parallel batch conversion | `files: {name, content}[]` (content is base64-encoded) |
-| `get_batch_status` | Poll batch conversion job status | `batch_id: string` |
-
-Batch conversion uses Queue-based parallel processing. Submit files with `submit_batch`, then poll with `get_batch_status` until all files are `done` or `failed`.
 
 </details>
 
@@ -304,7 +297,7 @@ You can verify the running binary version with:
 
 ### `extract_json` timeout
 
-`extract_json` with `response_format` on JS-heavy pages can take over 60 seconds due to Browser Rendering + LLM inference. The MCP server uses a 120-second timeout. If you encounter timeouts:
+`extract_json` with `response_format` on JS-heavy pages can take over 60 seconds due to Browser Run + LLM inference. The MCP server uses a 120-second timeout. If you encounter timeouts:
 
 - Try without `response_format` (prompt-only mode is faster)
 - Use `get_markdown` as a fallback and let the AI agent parse the Markdown

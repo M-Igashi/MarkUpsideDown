@@ -16,7 +16,10 @@ export async function handleConvert(request: Request, env: Env): Promise<Respons
     const originalSize = body.byteLength;
     const blob = new Blob([body], { type: mimeType });
     const fileName = mimeToFilename(mimeType, MIME_TO_EXT);
-    const result = await env.AI.toMarkdown([{ name: fileName, blob }]);
+    // Skip the PDF "## Metadata" block (PDFFormatVersion, Producer, ...).
+    const result = await env.AI.toMarkdown([{ name: fileName, blob }], {
+      conversionOptions: { pdf: { metadata: false } },
+    });
     const markdown = toMarkdownText(result);
     const warning = isUnconvertedHtml(markdown) ? "Conversion result may contain unconverted HTML" : undefined;
     return jsonResponse({ markdown, is_image: isImage, original_size: originalSize, warning });

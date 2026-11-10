@@ -34,8 +34,6 @@ interface WorkerStatus {
   render_available: boolean;
   json_available: boolean;
   crawl_available: boolean;
-  cache_available: boolean;
-  batch_available: boolean;
   publish_available: boolean;
   search_available: boolean;
   worker_version: number | null;
@@ -134,7 +132,6 @@ function featureRows(status: WorkerStatus | null) {
   const hasRender = Boolean(status && status.render_available);
   const hasJson = Boolean(status && status.json_available);
   const hasCrawl = Boolean(status && status.crawl_available);
-  const hasCache = Boolean(status && status.cache_available);
   const hasWorker = Boolean(status && status.reachable);
 
   return [
@@ -153,31 +150,17 @@ function featureRows(status: WorkerStatus | null) {
     {
       name: "JS Rendering (auto-fallback)",
       ok: hasRender,
-      hint: hasRender ? "Ready" : hasWorker ? "Needs Worker secrets" : "Needs Worker URL + secrets",
+      hint: hasRender ? "Ready" : hasWorker ? "Needs Worker update" : "Needs Worker URL",
     },
     {
       name: "Extract JSON (AI)",
       ok: hasJson,
-      hint: hasJson ? "Ready" : hasWorker ? "Needs Worker secrets" : "Needs Worker URL + secrets",
+      hint: hasJson ? "Ready" : hasWorker ? "Needs Worker update" : "Needs Worker URL",
     },
     {
       name: "Website Crawl",
       ok: hasCrawl,
       hint: hasCrawl ? "Ready" : hasWorker ? "Needs Worker secrets" : "Needs Worker URL + secrets",
-    },
-    {
-      name: "Conversion Cache (KV)",
-      ok: hasCache,
-      hint: hasCache ? "Ready" : hasWorker ? "Auto-provisioned on deploy" : "Needs Worker URL",
-    },
-    {
-      name: "Batch Import (Queue)",
-      ok: Boolean(status && status.batch_available),
-      hint: status?.batch_available
-        ? "Ready"
-        : hasWorker
-          ? "Needs Queue"
-          : "Needs Worker URL + Queue",
     },
     {
       name: "Publish to R2",
@@ -189,13 +172,13 @@ function featureRows(status: WorkerStatus | null) {
           : "Needs Worker URL + R2",
     },
     {
-      name: "Semantic Search (Vectorize)",
+      name: "Semantic Search (AI Search)",
       ok: Boolean(status && status.search_available),
       hint: status?.search_available
         ? "Ready"
         : hasWorker
-          ? "Needs Vectorize index"
-          : "Needs Worker URL + Vectorize",
+          ? "Needs Worker update"
+          : "Needs Worker URL",
     },
   ];
 }
@@ -219,24 +202,20 @@ function renderFeatureList(container: HTMLElement | null, status: WorkerStatus |
 
 interface ResourceFlags {
   r2_bucket: boolean;
-  queue: boolean;
-  vectorize: boolean;
 }
 
 interface ResourceSetupResult {
   resources: ResourceFlags;
   r2_error: string | null;
-  queue_error: string | null;
-  vectorize_error: string | null;
 }
 
 const SETUP_STEPS = [
   { id: "wrangler", label: "Check wrangler" },
   { id: "login", label: "Cloudflare login" },
-  { id: "resources", label: "Create resources (R2, Queue, Vectorize)" },
+  { id: "resources", label: "Create R2 bucket" },
   { id: "deploy", label: "Deploy Worker" },
   { id: "auth", label: "Protect Worker with API key" },
-  { id: "secrets", label: "Configure secrets (via OAuth)" },
+  { id: "secrets", label: "Configure crawl secrets (optional)" },
   { id: "verify", label: "Verify" },
 ];
 
@@ -271,15 +250,12 @@ function renderSetupProgress(container: HTMLElement, stepStates: Record<string, 
   }).join("");
 }
 
-/** Create optional Cloudflare resources and aggregate per-resource errors. */
+/** Create the optional R2 bucket used for publishing. */
 async function setupResources(
   accountId: string,
 ): Promise<{ resources: ResourceFlags; failed: string[] }> {
   const result = await invoke<ResourceSetupResult>("setup_cloudflare_resources", { accountId });
-  const failed: string[] = [];
-  if (result.r2_error) failed.push(`R2: ${result.r2_error}`);
-  if (result.queue_error) failed.push(`Queue: ${result.queue_error}`);
-  if (result.vectorize_error) failed.push(`Vectorize: ${result.vectorize_error}`);
+  const failed = result.r2_error ? [`R2: ${result.r2_error}`] : [];
   return { resources: result.resources, failed };
 }
 
@@ -352,29 +328,18 @@ async function startAutoSetup(
   // Generate a stable, non-guessable Worker name (e.g. "markupsidedown-a3f8k2xp7m9qb")
   const workerName = `markupsidedown-${getWorkerSuffix()}`;
 
-  // Step 3: Create resources (R2, Queue, Vectorize) — KV is auto-provisioned by wrangler v4
+  // Step 3: Create the R2 bucket. The other bindings need no setup.
   update("resources", "running");
-  let resourceFlags: ResourceFlags = {
-    r2_bucket: false,
-    queue: false,
-    vectorize: false,
-  };
+  let resourceFlags: ResourceFlags = { r2_bucket: false };
   try {
     const { resources, failed } = await setupResources(accountId);
     resourceFlags = resources;
-    if (failed.length === 3) {
+    if (failed.length > 0) {
       update("resources", "error");
       showSetupMessage(
         progressContainer,
-        "setup-error",
-        `All resources failed:\n${failed.join("\n")}`,
-      );
-    } else if (failed.length > 0) {
-      update("resources", "done");
-      showSetupMessage(
-        progressContainer,
         "setup-info",
-        `Some resources failed (features will be limited):\n${failed.join("\n")}`,
+        `Publishing will be unavailable:\n${failed.join("\n")}`,
       );
     } else {
       update("resources", "done");
@@ -408,26 +373,20 @@ async function startAutoSetup(
   keyInput.value = workerKey;
   update("auth", "done");
 
-  // Step 5: Secrets (needed for Render JS, Crawl, Extract JSON)
-  // Try OAuth first, fall back to manual token input.
+  // Step 5: Secrets (needed for Website Crawl only). wrangler's OAuth login
+  // cannot create API tokens, so the user provides one or skips this step.
   update("secrets", "running");
   let secretsOk = false;
   try {
-    await invoke("setup_worker_secrets", { accountId, workerName });
+    const userToken = await showApiTokenInput(progressContainer, accountId);
+    await invoke("setup_worker_secrets_with_token", {
+      accountId,
+      apiToken: userToken,
+      workerName,
+    });
     secretsOk = true;
   } catch {
-    // OAuth cannot create API tokens — ask user for a token
-    try {
-      const userToken = await showApiTokenInput(progressContainer, accountId);
-      await invoke("setup_worker_secrets_with_token", {
-        accountId,
-        apiToken: userToken,
-        workerName,
-      });
-      secretsOk = true;
-    } catch {
-      // User skipped
-    }
+    // User skipped
   }
   update("secrets", secretsOk ? "done" : "skipped");
 
@@ -442,7 +401,7 @@ async function startAutoSetup(
     cacheTestStatus(testStatus, workerUrl);
     if (testStatus.reachable) {
       update("verify", "done");
-      if (testStatus.render_available) {
+      if (testStatus.crawl_available) {
         showSetupMessage(
           progressContainer,
           "setup-success",
@@ -452,7 +411,7 @@ async function startAutoSetup(
         showSetupMessage(
           progressContainer,
           "setup-info",
-          `Worker ready at ${workerUrl}\nImport works. To enable Render JS, add secrets later from the panel below.`,
+          `Worker ready at ${workerUrl}\nTo enable Website Crawl, add secrets later from the panel below.`,
         );
       }
       if (testStatus.publish_available) {
@@ -534,14 +493,14 @@ function showApiTokenInput(container: HTMLElement, accountId: string): Promise<s
   div.className = "setup-token-input";
   div.innerHTML = `
     <div class="setup-token-label">
-      <strong>API Token required</strong> for Render JS, Website Crawl, and Extract JSON.<br>
+      <strong>API Token required</strong> for Website Crawl.<br>
       Create a token at <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" style="color:var(--accent)">dash.cloudflare.com/profile/api-tokens</a>
     </div>
     <div class="setup-token-scopes">
       <strong>Required scopes:</strong>
       <ul style="margin:4px 0 0 16px;padding:0;font-size:12px">
         <li>Account &gt; Workers AI &gt; Read</li>
-        <li>Account &gt; Browser Rendering &gt; Edit</li>
+        <li>Account &gt; Browser Run &gt; Edit</li>
       </ul>
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
         Account ID: <code>${escapeHtml(accountId)}</code>
@@ -743,11 +702,12 @@ export function showSettings({
             <div class="settings-mcp-tool"><code>save_file</code> &mdash; Save content to a file</div>
             <div class="settings-mcp-tool"><code>get_markdown</code> &mdash; Fetch URL as Markdown (auto-detects JS-rendered pages)</div>
             <div class="settings-mcp-tool"><code>fetch_markdown</code> &mdash; Fetch URL as Markdown (static only)</div>
-            <div class="settings-mcp-tool"><code>render_markdown</code> &mdash; JS-render a page as Markdown via Browser Rendering</div>
+            <div class="settings-mcp-tool"><code>render_markdown</code> &mdash; JS-render a page as Markdown via Browser Run</div>
             <div class="settings-mcp-tool"><code>convert_to_markdown</code> &mdash; Convert local file (PDF, DOCX, images, etc.) to Markdown</div>
             <div class="settings-mcp-tool"><code>extract_json</code> &mdash; Extract structured JSON from a web page using AI</div>
             <div class="settings-mcp-tool"><code>crawl_website</code> &mdash; Start a website crawl job (markdown and/or json output)</div>
             <div class="settings-mcp-tool"><code>crawl_status</code> &mdash; Poll crawl job status and retrieve pages</div>
+            <div class="settings-mcp-tool"><code>crawl_cancel</code> &mdash; Cancel a running crawl job</div>
             <div class="settings-mcp-tool"><code>crawl_save</code> &mdash; Save crawled pages as local Markdown files</div>
             <div class="settings-mcp-tool"><code>list_directory</code> &mdash; List files and directories in the project</div>
             <div class="settings-mcp-tool"><code>read_file</code> &mdash; Read a text file from the project</div>
@@ -782,13 +742,11 @@ export function showSettings({
             <div class="settings-mcp-tool"><code>create_tag</code> &mdash; Create a new tag definition with a color</div>
             <div class="settings-mcp-tool"><code>delete_tag</code> &mdash; Delete a tag and remove from all files</div>
             <div class="settings-mcp-tool"><code>semantic_search</code> &mdash; Search indexed documents using natural language</div>
-            <div class="settings-mcp-tool"><code>index_documents</code> &mdash; Index documents into Vectorize for semantic search</div>
-            <div class="settings-mcp-tool"><code>remove_document</code> &mdash; Remove a document from the Vectorize index</div>
+            <div class="settings-mcp-tool"><code>index_documents</code> &mdash; Index documents into AI Search for semantic search</div>
+            <div class="settings-mcp-tool"><code>remove_document</code> &mdash; Remove a document from the AI Search index</div>
             <div class="settings-mcp-tool"><code>publish_document</code> &mdash; Publish Markdown to a public URL via R2</div>
             <div class="settings-mcp-tool"><code>unpublish_document</code> &mdash; Remove a published document from R2</div>
             <div class="settings-mcp-tool"><code>list_published</code> &mdash; List all published documents in R2</div>
-            <div class="settings-mcp-tool"><code>submit_batch</code> &mdash; Submit files for parallel batch conversion</div>
-            <div class="settings-mcp-tool"><code>get_batch_status</code> &mdash; Poll batch conversion job status</div>
             <div class="settings-mcp-tool"><code>git_stage_all</code> &mdash; Stage all changes for commit (git add -A)</div>
             <div class="settings-mcp-tool"><code>git_show</code> &mdash; Show the patch for a specific commit</div>
             <div class="settings-mcp-tool"><code>git_clone</code> &mdash; Clone a git repository</div>
@@ -904,13 +862,8 @@ export function showSettings({
     updateResult.textContent = "Re-deploying Worker\u2026";
 
     try {
-      // Re-create resources before re-deploy to ensure bindings are valid
-      // KV is auto-provisioned by wrangler v4 on deploy
-      let updateResources: ResourceFlags = {
-        r2_bucket: false,
-        queue: false,
-        vectorize: false,
-      };
+      // Re-create the R2 bucket before re-deploy so its binding is valid
+      let updateResources: ResourceFlags = { r2_bucket: false };
       if (resolvedAccountId) {
         try {
           const { resources, failed } = await setupResources(resolvedAccountId);
@@ -992,12 +945,12 @@ export function showSettings({
         testResult.className = "settings-test-result test-warn";
         testResult.textContent =
           "Worker update available \u2014 click Update Worker to get new features";
-      } else if (status.render_available) {
+      } else if (status.crawl_available) {
         testResult.className = "settings-test-result test-ok";
         testResult.textContent = "Fully configured \u2014 all features available";
       } else if (status.convert_available) {
         testResult.className = "settings-test-result test-warn";
-        testResult.textContent = "Connected \u2014 Import works, but Render JS needs secrets";
+        testResult.textContent = "Connected \u2014 Website Crawl needs secrets";
       } else {
         testResult.className = "settings-test-result test-warn";
         testResult.textContent = status.error || "Reachable but returned unexpected response";

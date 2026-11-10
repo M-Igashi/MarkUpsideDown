@@ -67,7 +67,7 @@ This works for most web pages and saves you from manually copying titles.
 Right-click any link in the preview pane to see a context menu with:
 
 - **Fetch** — convert the linked page to Markdown (static)
-- **Render** — convert using Browser Rendering (JavaScript-heavy pages)
+- **Render** — convert using Browser Run (JavaScript-heavy pages)
 - **Crawl** — start a website crawl from that URL
 
 ## Smart Typography
