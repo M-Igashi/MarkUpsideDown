@@ -24,6 +24,10 @@ The file is uploaded to R2 and you receive a shareable URL. By default, the URL 
 
 Published files show an indicator in the sidebar, so you can see at a glance which files have been shared.
 
+## Updating a Published File
+
+Publishing uploads a snapshot. After you edit and save the file, right-click it and select **Update Published Version** to replace the content at the same URL. A time-limited link keeps its original expiry time. Unsaved changes in the editor are not included.
+
 ## Unpublishing
 
 To remove a published file, use the unpublish option from the context menu. The content is deleted from R2 and the URL stops working.
@@ -35,6 +39,6 @@ To remove a published file, use the unpublish option from the context menu. The 
 - Time-limited URLs automatically expire — the content is removed when the time is up
 - No authentication is required to view published files (anyone with the URL can access them)
 
-> **Note:** Published URLs are not easily guessable (they use generated keys), but they are not password-protected. Don't publish sensitive content.
+> **Note:** The key in a published URL is derived from the file's path (for example `/p/notes/meeting`), so treat the URL as unlisted rather than secret. It is not password-protected: anyone with the URL can read the content. Don't publish sensitive content.
 >
-> **Note:** If using R2 public access, time-limited URLs will remain accessible until the R2 object is deleted. The Worker's `/p/:key` endpoint enforces expiration, but the R2 public URL does not.
+> **Note:** If using R2 public access, a time-limited URL can stay accessible for up to 15 minutes after it expires. The Worker's `/p/:key` endpoint enforces expiration immediately, while the R2 public URL serves the object until the Worker's scheduled cleanup (every 15 minutes) deletes it.
