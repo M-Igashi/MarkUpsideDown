@@ -45,6 +45,8 @@ export const IMPORT_EXTENSIONS = [
   "png",
   "webp",
   "svg",
+  "gif",
+  "bmp",
 ];
 
 function formatBytes(bytes: number) {
@@ -326,7 +328,7 @@ export async function convertFile(filePath: string) {
     // Auto-index converted file for semantic search (fire and forget)
     const rootPath = getRootPath();
     const docId = rootPath ? relativeToRoot(rootPath, filePath) : fileName;
-    indexDocument(docId, markdown, { filename: fileName }).catch(() => {});
+    indexDocument(docId, markdown).catch(() => {});
   } catch (e) {
     statusEl.textContent = `Convert error: ${e}`;
   }

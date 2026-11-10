@@ -36,23 +36,24 @@ Click **Settings** in the toolbar to open the Settings dialog.
 
 ### Auto Setup (Recommended)
 
-Click **"Setup with Cloudflare"** to start the automated setup wizard. It walks through 6 steps:
+Click **"Setup with Cloudflare"** to start the automated setup wizard. It walks through 7 steps:
 
 
 | Step | What it does |
 |------|-------------|
 | 1. Check wrangler | Verifies that `wrangler` CLI is installed (`npm install -g wrangler`) |
 | 2. Cloudflare login | Opens your browser for Cloudflare OAuth (skipped if already logged in) |
-| 3. Create resources | Creates KV namespace, R2 bucket, Queue, and Vectorize index in parallel |
+| 3. Create R2 bucket | Creates the R2 bucket used for publishing (semantic search needs no setup: its AI Search instance is created on first use) |
 | 4. Deploy Worker | Deploys the Worker with a randomized URL (e.g., `markupsidedown-a3f8k2.workers.dev`) |
-| 5. Configure secrets | Creates a scoped API token and sets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as Worker secrets |
-| 6. Verify | Tests the deployed Worker and confirms which features are available |
+| 5. Protect Worker with API key | Sets a random `API_KEY` Worker secret and saves it in the app |
+| 6. Configure crawl secrets (optional) | Asks for an API token (**Account > Browser Run > Edit** and **Account > Workers AI > Read**) and sets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as Worker secrets (only needed for Website Crawl) |
+| 7. Verify | Tests the deployed Worker and confirms which features are available |
 
 
 Each step shows its status: pending (○), running (●), done (✓), error (✗), or skipped (—).
 
 
-> **If step 5 fails:** A fallback form appears asking you to paste a manually-created API token. You can also click "Skip for now" — the Worker will still work for document import, but Render JS, Crawl, and Extract JSON won't be available until you add secrets later.
+> **Step 6 is optional:** Paste an API token created at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens), or click "Skip for now". Every feature except Website Crawl works without it, and you can add the secrets later.
 
 ### Manual Setup
 
@@ -80,14 +81,13 @@ The Feature Status section shows a green checkmark or amber dot for each capabil
 | Get URL as Markdown | Nothing (always works) |
 | Table Editor / Copy Rich Text | Nothing (always works) |
 | Import documents | Worker URL |
-| JS Rendering | Worker URL + secrets |
+| JS Rendering | Worker URL |
+| Extract JSON (AI) | Worker URL |
 | Website Crawl | Worker URL + secrets |
-| Conversion Cache | KV namespace |
-| Batch Import | Queue + KV |
 | Publish to R2 | R2 bucket |
-| Semantic Search | Vectorize index |
+| Semantic Search (AI Search) | Worker URL |
 
-Features that show an amber dot are available once their requirements are met. The auto setup creates all resources, so everything should show green after a successful setup.
+Features that show an amber dot are available once their requirements are met. The auto setup creates everything needed, so all features should show green after a successful setup. If JS Rendering, Extract JSON, or Semantic Search shows "Needs Worker update", click **Update Worker**.
 
 ## Editor Settings
 

@@ -39,7 +39,7 @@ async function fetchPipeline(
         workerKey: getWorkerKey() || null,
       });
 
-      // 2a. If SPA detected and render available, auto-fallback to Browser Rendering
+      // 2a. If SPA detected and render available, auto-fallback to Browser Run
       if (autoRender && fetchResult.spa_detected && isRenderAvailable()) {
         try {
           onStatus?.("JS detected, rendering…");
@@ -48,7 +48,7 @@ async function fetchPipeline(
             workerUrl,
             workerKey: getWorkerKey() || null,
           });
-          return { content: normalizeMarkdown(rendered), method: "Browser Rendering (auto)" };
+          return { content: normalizeMarkdown(rendered), method: "Browser Run (auto)" };
         } catch {
           // Render failed — use fetch result as best effort
         }
@@ -87,7 +87,7 @@ export function fetchUrlAsMarkdown(
 }
 
 /**
- * Render a URL via Browser Rendering and convert to Markdown.
+ * Render a URL via Browser Run and convert to Markdown.
  */
 export async function renderUrlAsMarkdown(url: string, workerUrl: string): Promise<string> {
   const markdown = await invoke<string>("fetch_rendered_url_as_markdown", {

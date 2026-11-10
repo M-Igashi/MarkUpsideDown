@@ -2,7 +2,7 @@ import { isValidYamlLine } from "./document-structure.ts";
 
 /**
  * Post-conversion Markdown normalization.
- * Applied after AI.toMarkdown() / Browser Rendering output, before loading into editor.
+ * Applied after AI.toMarkdown() / Browser Run output, before loading into editor.
  * Deterministic, fast, no AI involved.
  *
  * ## Escaping contract

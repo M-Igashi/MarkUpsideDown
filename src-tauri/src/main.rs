@@ -192,7 +192,6 @@ fn main() {
             cloudflare::wrangler_login,
             cloudflare::setup_cloudflare_resources,
             cloudflare::deploy_worker,
-            cloudflare::setup_worker_secrets,
             cloudflare::setup_worker_secrets_with_token,
             cloudflare::set_r2_public_url,
             cloudflare::set_worker_api_key,

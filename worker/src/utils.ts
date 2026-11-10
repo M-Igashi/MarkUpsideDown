@@ -57,61 +57,44 @@ export function authErrorResponse(status: Exclude<AuthStatus, "valid">): Respons
 
 // --- Capability checks ---
 
-export function hasSecrets(env: Env): boolean {
+export function hasCrawlSecrets(env: Env): boolean {
   return Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN);
-}
-
-export function hasCache(env: Env): boolean {
-  return Boolean(env.CACHE);
-}
-
-export function hasBatch(env: Env): boolean {
-  return Boolean(env.CONVERT_QUEUE && env.CACHE);
 }
 
 export function hasPublish(env: Env): boolean {
   return Boolean(env.PUBLISH_BUCKET);
 }
 
-export function hasSearch(env: Env): boolean {
-  return Boolean(env.VECTORS);
-}
+// --- Browser Run ---
 
-// --- KV cache helpers ---
+export const BROWSER_MISSING_ERROR =
+  "Browser Run binding is missing on this Worker. Click Update Worker in MarkUpsideDown Settings.";
 
-export async function sha256(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-export function shouldBypassCache(request: Request): boolean {
-  return request.headers.get("cache-control") === "no-cache";
-}
-
-export async function kvGet(env: Env, key: string): Promise<string | null> {
-  if (!env.CACHE) return null;
-  return env.CACHE.get(key);
-}
-
-export async function kvPut(env: Env, key: string, value: string, ttl: number, metadata: Record<string, string>): Promise<void> {
-  if (!env.CACHE) return;
-  await env.CACHE.put(key, value, { expirationTtl: ttl, metadata });
+/** Join the error messages of a failed Browser Run response. */
+export function browserRunError(data: unknown): string {
+  const errors = (data as { errors?: { message?: string }[] } | null)?.errors;
+  return errors?.map((e) => e.message).filter(Boolean).join("; ") || "unknown error";
 }
 
 // --- AI conversion helpers ---
 
 /** Flatten an AI.toMarkdown() result into a single Markdown string. */
-export function toMarkdownText(result: { format: string; data: string }[]): string {
+export function toMarkdownText(result: ConversionResponse[]): string {
+  const failed = result.find((r) => r.format === "error");
+  if (failed?.format === "error") throw new Error(failed.error);
   return result
-    .filter((r) => r.format === "markdown")
-    .map((r) => r.data)
+    .map((r) => (r.format === "error" ? "" : r.data))
+    .filter(Boolean)
     .join("\n\n");
 }
 
-export async function htmlToMarkdown(html: string, env: Env): Promise<string> {
+/** Convert HTML to Markdown, resolving relative links against the page URL. */
+export async function htmlToMarkdown(html: string, pageUrl: string, env: Env): Promise<string> {
   const blob = new Blob([html], { type: "text/html" });
-  return toMarkdownText(await env.AI.toMarkdown([{ name: "page.html", blob }]));
+  const result = await env.AI.toMarkdown([{ name: "page.html", blob }], {
+    conversionOptions: { html: { hostname: pageUrl } },
+  });
+  return toMarkdownText(result);
 }
 
 // --- SPA detection ---
@@ -159,7 +142,7 @@ export function isUnconvertedHtml(text: string): boolean {
 
 // --- JSON Schema wrapper ---
 
-/** Wrap a raw JSON Schema into the format expected by Browser Rendering APIs. */
+/** Wrap a raw JSON Schema into the format expected by Browser Run APIs. */
 export function wrapJsonSchema(schema: unknown): unknown {
   if (typeof schema === "object" && schema !== null && "type" in schema && (schema as Record<string, unknown>).type === "json_schema") {
     return schema;

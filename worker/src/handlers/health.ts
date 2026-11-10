@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
 import { WORKER_VERSION } from "../config.js";
-import { jsonResponse, checkAuth, hasSecrets, hasCache, hasBatch, hasPublish, hasSearch } from "../utils.js";
+import { jsonResponse, checkAuth, hasCrawlSecrets, hasPublish } from "../utils.js";
 
 export async function handleHealth(request: Request, env: Env): Promise<Response> {
   return jsonResponse({
@@ -10,13 +10,11 @@ export async function handleHealth(request: Request, env: Env): Promise<Response
     capabilities: {
       fetch: true,
       convert: true,
-      render: hasSecrets(env),
-      json: hasSecrets(env),
-      crawl: hasSecrets(env),
-      cache: hasCache(env),
-      batch: hasBatch(env),
+      render: Boolean(env.BROWSER),
+      json: Boolean(env.BROWSER),
+      crawl: hasCrawlSecrets(env),
       publish: hasPublish(env),
-      search: hasSearch(env),
+      search: Boolean(env.AI_SEARCH),
     },
   });
 }

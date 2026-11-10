@@ -1,7 +1,7 @@
 import { createGitBadge, applyGitNameStyle, refresh as refreshGitPanel } from "./git-panel.ts";
 import { refresh as refreshGitHubPanel } from "./github-panel.ts";
 import { IMPORT_EXTENSIONS, convertFile } from "./file-ops.ts";
-import { submitBatch, pollBatch, saveBatchResults } from "./batch-import.ts";
+import { convertFiles } from "./batch-import.ts";
 import {
   basename,
   dirname,
@@ -1671,21 +1671,18 @@ function showMultiContextMenu(event: MouseEvent) {
         label: `Batch Convert ${convertiblePaths.length} Files…`,
         action: async () => {
           try {
-            const { batchId, total } = await submitBatch(convertiblePaths);
-            message(`Batch submitted: ${total} files. Converting…`, {
+            message(`Converting ${convertiblePaths.length} files…`, {
               title: "Batch Import",
               kind: "info",
             });
-            const progress = await pollBatch(batchId, (p) => {
-              // Progress is tracked internally; final result reported below
-              void p;
-            });
-            const saved = await saveBatchResults(batchId, progress, rootPath!);
+            const result = await convertFiles(convertiblePaths, rootPath!);
+            if (!result) return;
             refreshTree();
-            message(`Batch complete: ${saved.length} converted, ${progress.failed} failed.`, {
-              title: "Batch Import",
-              kind: "info",
-            });
+            const errors = result.failed.map((f) => `${f.name}: ${f.error}`).join("\n");
+            message(
+              `Batch complete: ${result.saved.length} converted, ${result.failed.length} failed.${errors ? `\n\n${errors}` : ""}`,
+              { title: "Batch Import", kind: result.failed.length > 0 ? "warning" : "info" },
+            );
           } catch (e) {
             message(`Batch conversion failed: ${e}`, { title: "Error", kind: "error" });
           }
