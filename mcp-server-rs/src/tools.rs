@@ -178,6 +178,8 @@ pub struct CrawlStatusParams {
     pub cursor: Option<String>,
     #[schemars(description = "Max number of records per page (default 10, max 100)")]
     pub limit: Option<u32>,
+    #[schemars(description = "Return each page's full Markdown instead of a 200-character preview (use this before crawl_save)")]
+    pub full: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -529,10 +531,9 @@ impl McpTools {
     /// (used by the tag tools, which key files by relative path).
     async fn resolve_rel_path(&self, path: &str) -> String {
         let root = self.bridge.get_project_root().await.ok().flatten().unwrap_or_default();
-        if !root.is_empty() && path.starts_with(&root) {
-            path[root.len()..].trim_start_matches('/').to_string()
-        } else {
-            path.to_string()
+        match std::path::Path::new(path).strip_prefix(&root) {
+            Ok(rel) if !root.is_empty() => rel.to_string_lossy().into_owned(),
+            _ => path.to_string(),
         }
     }
 
@@ -573,7 +574,7 @@ impl McpTools {
         text_result(self.bridge.get_editor_content().await)
     }
 
-    #[tool(name = "set_editor_content", description = "Replace the editor content with the provided Markdown", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
+    #[tool(name = "set_editor_content", description = "Replace the editor content with the provided Markdown", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
     async fn set_editor_content(
         &self,
         Parameters(params): Parameters<SetContentParams>,
@@ -719,7 +720,7 @@ impl McpTools {
         text_result(self.bridge.open_file(&params.path).await.map(|()| format!("Opened: {}", params.path)))
     }
 
-    #[tool(name = "save_file", description = "Save the current editor content to a file", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
+    #[tool(name = "save_file", description = "Save the current editor content to a file", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
     async fn save_file(
         &self,
         Parameters(params): Parameters<SaveFileParams>,
@@ -900,7 +901,7 @@ impl McpTools {
         text_result(result)
     }
 
-    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Run. Returns a job_id to poll with crawl_status, or stop it with crawl_cancel. Supports markdown and/or json output formats.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Run. Returns a job_id to poll with crawl_status, or stop it with crawl_cancel. Supports markdown and/or json output formats.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
     async fn crawl_website(
         &self,
         Parameters(params): Parameters<CrawlWebsiteParams>,
@@ -944,14 +945,15 @@ impl McpTools {
         text_result(result)
     }
 
-    #[tool(name = "crawl_status", description = "Poll a crawl job's status and retrieve completed pages. Returns status, progress, pages (with markdown and/or json depending on crawl formats), and a cursor for pagination.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "crawl_status", description = "Poll a crawl job's status and retrieve completed pages. Returns status, progress, pages (markdown is a 200-character preview unless full=true; json depending on crawl formats), and a cursor for pagination.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn crawl_status(
         &self,
         Parameters(params): Parameters<CrawlStatusParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let limit = params.limit.unwrap_or(10);
-            let mut status_path = format!("/crawl/{}?limit={limit}&status=completed", params.job_id);
+            let limit = params.limit.unwrap_or(10).clamp(1, 100);
+            let full = params.full.unwrap_or(false);
+            let mut status_path = format!("/crawl/{}?limit={limit}&status=completed", urlencoding::encode(&params.job_id));
             if let Some(ref c) = params.cursor {
                 status_path.push_str(&format!("&cursor={}", urlencoding::encode(c)));
             }
@@ -994,7 +996,7 @@ impl McpTools {
                     if let Some(ref url) = r.url {
                         output.push_str(&format!("\n\n## {url}"));
                         if let Some(ref md) = r.markdown {
-                            let preview = truncate_chars(md, 200);
+                            let preview = if full { md.as_str() } else { truncate_chars(md, 200) };
                             output.push_str(&format!("\n{preview}"));
                             if preview.len() < md.len() {
                                 output.push_str("...");
@@ -1068,7 +1070,7 @@ impl McpTools {
 
     // --- Crawl Save ---
 
-    #[tool(name = "crawl_save", description = "Save crawled pages as local Markdown files. Use with crawl_status results. Overwrites existing files at the same paths.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
+    #[tool(name = "crawl_save", description = "Save crawled pages as local Markdown files. Pass the full Markdown from crawl_status with full=true. Overwrites existing files at the same paths.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
     async fn crawl_save(
         &self,
         Parameters(params): Parameters<CrawlSaveParams>,
@@ -1224,7 +1226,7 @@ impl McpTools {
         Parameters(params): Parameters<CreateTagParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            if params.name.is_empty() || params.name.len() > 24 {
+            if params.name.is_empty() || params.name.chars().count() > 24 {
                 return Err("Tag name must be 1-24 characters".to_string());
             }
 
@@ -1325,7 +1327,7 @@ impl McpTools {
         text_result(result.map(|_| format!("Removed document: {}", params.id)))
     }
 
-    #[tool(name = "publish_document", description = "Publish Markdown content to a public URL via R2 storage. Returns the public URL. Supports permanent or time-limited publishing.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "publish_document", description = "Publish Markdown content to a public URL via R2 storage. Returns the public URL. Supports permanent or time-limited publishing.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
     async fn publish_document(
         &self,
         Parameters(params): Parameters<PublishDocumentParams>,

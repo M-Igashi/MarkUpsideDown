@@ -173,9 +173,9 @@ To convert several files, call `convert_to_markdown` once per file.
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `crawl_website` | Start a website crawl job (returns `job_id`). Supports markdown and/or JSON output. | `url: string`, `depth?: number`, `limit?: number`, `render?: boolean`, `include_patterns?: string[]`, `exclude_patterns?: string[]`, `formats?: string[]`, `response_format?: string` (JSON Schema) |
-| `crawl_status` | Poll crawl job status and retrieve pages (markdown and/or JSON) | `job_id: string`, `cursor?: string`, `limit?: number` (default 10, max 100) |
+| `crawl_status` | Poll crawl job status and retrieve pages (markdown and/or JSON). Markdown is a 200-character preview unless `full` is true | `job_id: string`, `cursor?: string`, `limit?: number` (default 10, max 100), `full?: boolean` |
 | `crawl_cancel` | Cancel a running crawl job so it stops using browser time. Pages already crawled stay available through `crawl_status` | `job_id: string` |
-| `crawl_save` | Save crawled pages as local Markdown files (overwrites existing files) | `pages: {url, markdown}[]`, `base_dir: string` |
+| `crawl_save` | Save crawled pages as local Markdown files (overwrites existing files). Use `crawl_status` with `full: true` to get the page content | `pages: {url, markdown}[]`, `base_dir: string` |
 
 Crawl tools need the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` Worker secrets. On the Workers Free plan, Browser Run allows 5 crawls per day and 100 pages per crawl.
 
