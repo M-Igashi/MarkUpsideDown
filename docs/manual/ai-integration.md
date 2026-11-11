@@ -79,7 +79,7 @@ The full tool list is visible in Settings → AI Agent Integration (expand the t
 ## Bridge Details
 
 - **Port**: 31415 (fallback: 31416–31420)
-- **Port file**: `~/.markupsidedown-bridge-port` — agents read this to find the active port
+- **Port file**: `~/.markupsidedown-bridge-port`. Agents read the active port and an access token from it; only your user can read it
 - The bridge runs as long as the app is open
 
 ## Recommended Workflow

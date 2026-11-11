@@ -25,7 +25,14 @@ fn timeout_for(path: &str) -> Duration {
     if LONG.iter().any(|p| path.starts_with(p)) { LONG_TIMEOUT } else { TIMEOUT }
 }
 
-static CACHED_BRIDGE_URL: Mutex<Option<String>> = Mutex::new(None);
+/// Bridge base URL and token, read from the port file.
+#[derive(Clone)]
+struct BridgeTarget {
+    url: String,
+    token: String,
+}
+
+static CACHED_BRIDGE: Mutex<Option<BridgeTarget>> = Mutex::new(None);
 
 fn port_file_path() -> PathBuf {
     let home = std::env::var_os("HOME")
@@ -34,29 +41,29 @@ fn port_file_path() -> PathBuf {
     home.join(".markupsidedown-bridge-port")
 }
 
-fn discover_bridge_url() -> Option<String> {
-    let port = std::fs::read_to_string(port_file_path()).ok()?;
-    let port = port.trim();
-    if port.is_empty() {
-        return None;
-    }
-    Some(format!("http://127.0.0.1:{port}"))
+/// The port file holds the port on the first line and the bridge token on the second.
+fn discover_bridge() -> Option<BridgeTarget> {
+    let contents = std::fs::read_to_string(port_file_path()).ok()?;
+    let mut lines = contents.lines().map(str::trim);
+    let port: u16 = lines.next()?.parse().ok()?;
+    let token = lines.next().unwrap_or_default().to_string();
+    Some(BridgeTarget { url: format!("http://127.0.0.1:{port}"), token })
 }
 
-fn get_bridge_url() -> Result<String, String> {
-    let mut cached = CACHED_BRIDGE_URL.lock().unwrap();
-    if let Some(ref url) = *cached {
-        return Ok(url.clone());
+fn get_bridge() -> Result<BridgeTarget, String> {
+    let mut cached = CACHED_BRIDGE.lock().unwrap();
+    if let Some(ref target) = *cached {
+        return Ok(target.clone());
     }
-    let url = discover_bridge_url()
+    let target = discover_bridge()
         .ok_or_else(|| "MarkUpsideDown app is not running (no bridge port file found)".to_string())?;
-    *cached = Some(url.clone());
-    Ok(url)
+    *cached = Some(target.clone());
+    Ok(target)
 }
 
-/// Clear the cached bridge URL so the next call re-discovers it from the port file.
+/// Clear the cached bridge so the next call re-reads the port file.
 fn clear_bridge_url_cache() {
-    *CACHED_BRIDGE_URL.lock().unwrap() = None;
+    *CACHED_BRIDGE.lock().unwrap() = None;
 }
 
 pub struct BridgeClient {
@@ -71,8 +78,13 @@ impl BridgeClient {
     /// Send a request, parse the JSON response (empty body -> Null), and
     /// surface the bridge's `error` field as Err.
     async fn request_json(&self, method: Method, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
-        let url = format!("{}{path}", get_bridge_url()?);
-        let mut req = self.client.request(method, url).timeout(timeout_for(path));
+        let bridge = get_bridge()?;
+        let url = format!("{}{path}", bridge.url);
+        let mut req = self
+            .client
+            .request(method, url)
+            .bearer_auth(&bridge.token)
+            .timeout(timeout_for(path));
         if let Some(body) = body {
             req = req.json(&body);
         }
@@ -86,6 +98,10 @@ impl BridgeClient {
         })?;
 
         let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            // The app restarted with a new token; re-read the port file next time
+            clear_bridge_url_cache();
+        }
         let text = response.text().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
             let detail = serde_json::from_str::<serde_json::Value>(&text)

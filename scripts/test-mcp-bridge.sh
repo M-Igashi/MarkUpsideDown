@@ -36,13 +36,21 @@ NC='\033[0m'
 
 discover_port() {
   if [[ -f "$PORT_FILE" ]]; then
-    cat "$PORT_FILE"
+    sed -n 1p "$PORT_FILE"
   else
     echo ""
   fi
 }
 
 BASE_URL=""
+BRIDGE_TOKEN=""
+
+# curl with the bridge token (second line of the port file). Only for bridge
+# calls: the token must never be sent to the Worker.
+bcurl() {
+  curl -H "Authorization: Bearer ${BRIDGE_TOKEN}" "$@"
+}
+
 setup_base_url() {
   local port
   port=$(discover_port)
@@ -52,8 +60,9 @@ setup_base_url() {
     exit 1
   fi
   BASE_URL="http://127.0.0.1:${port}"
+  BRIDGE_TOKEN=$(sed -n 2p "$PORT_FILE")
   # Health check
-  if ! curl -sf "${BASE_URL}/health" > /dev/null 2>&1; then
+  if ! bcurl -sf "${BASE_URL}/health" > /dev/null 2>&1; then
     echo -e "${RED}ERROR: Bridge not responding at ${BASE_URL}${NC}"
     exit 1
   fi
@@ -66,7 +75,7 @@ test_get() {
   local name="$1" path="$2" check="$3"
   local url="${BASE_URL}${path}"
   local resp
-  resp=$(curl -sf "$url" 2>&1) || {
+  resp=$(bcurl -sf "$url" 2>&1) || {
     echo -e "  ${RED}FAIL${NC} $name — HTTP error"
     FAIL=$((FAIL + 1))
     FAILURES+=("$name")
@@ -95,7 +104,7 @@ test_post() {
   local name="$1" path="$2" body="$3" check="$4"
   local url="${BASE_URL}${path}"
   local resp
-  resp=$(curl -sf -X POST -H "Content-Type: application/json" -d "$body" "$url" 2>&1) || {
+  resp=$(bcurl -sf -X POST -H "Content-Type: application/json" -d "$body" "$url" 2>&1) || {
     echo -e "  ${RED}FAIL${NC} $name — HTTP error"
     FAIL=$((FAIL + 1))
     FAILURES+=("$name")
@@ -167,7 +176,7 @@ if should_run "editor-write"; then
     skip_test "switch_tab" "--readonly"
   else
     # Save original content for restore
-    ORIGINAL=$(curl -sf "${BASE_URL}/editor/content" | jq -r '.content // ""')
+    ORIGINAL=$(bcurl -sf "${BASE_URL}/editor/content" | jq -r '.content // ""')
 
     test_post "set_editor_content" "/editor/content" \
       '{"content":"# Test\n\nHello from MCP test script."}' ""
@@ -181,7 +190,7 @@ if should_run "editor-write"; then
 
     # Restore original content
     if [[ -n "$ORIGINAL" ]]; then
-      curl -sf -X POST -H "Content-Type: application/json" \
+      bcurl -sf -X POST -H "Content-Type: application/json" \
         -d "{\"content\":$(echo "$ORIGINAL" | jq -Rs .)}" \
         "${BASE_URL}/editor/content" > /dev/null 2>&1
       echo -e "  ${GREEN}(restored original content)${NC}"
@@ -201,7 +210,7 @@ if should_run "files"; then
     '.matches | type == "array"'
 
   # read_file — read CLAUDE.md as a known file
-  ROOT=$(curl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
+  ROOT=$(bcurl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
   if [[ -n "$ROOT" ]]; then
     ENCODED_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${ROOT}/CLAUDE.md'))")
     test_get "read_file (CLAUDE.md)" "/files/read?path=${ENCODED_PATH}" 'has("content")'
@@ -223,7 +232,7 @@ if should_run "file-ops"; then
     skip_test "rename_entry" "--readonly"
     skip_test "delete_entry" "--readonly"
   else
-    ROOT=$(curl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
+    ROOT=$(bcurl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
     if [[ -z "$ROOT" ]]; then
       skip_test "file-ops" "no project root"
     else
@@ -254,8 +263,8 @@ if should_run "file-ops"; then
         "{\"path\":\"${TEST_DIR}/renamed.md\"}" '.ok == true'
 
       # Delete remaining files
-      for f in $(curl -sf "${BASE_URL}/files/list?path=${TEST_DIR}" | jq -r '.entries[]?.path // empty'); do
-        curl -sf -X POST -H "Content-Type: application/json" \
+      for f in $(bcurl -sf "${BASE_URL}/files/list?path=${TEST_DIR}" | jq -r '.entries[]?.path // empty'); do
+        bcurl -sf -X POST -H "Content-Type: application/json" \
           -d "{\"path\":\"$f\"}" "${BASE_URL}/files/delete" > /dev/null 2>&1
       done
 
@@ -278,7 +287,7 @@ if should_run "git"; then
   test_get "git_diff (CLAUDE.md)" "/git/diff?path=CLAUDE.md" 'has("diff")'
 
   # git_show — get latest commit hash and show it
-  LATEST_HASH=$(curl -sf "${BASE_URL}/git/log?limit=1" | jq -r '.entries[0].hash // ""')
+  LATEST_HASH=$(bcurl -sf "${BASE_URL}/git/log?limit=1" | jq -r '.entries[0].hash // ""')
   if [[ -n "$LATEST_HASH" ]]; then
     test_get "git_show" "/git/show?commit_hash=${LATEST_HASH}" 'has("output")'
   else
@@ -304,7 +313,7 @@ if should_run "git-write"; then
     skip_test "git_clone" "--readonly"
     skip_test "git_init" "--readonly"
   else
-    ROOT=$(curl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
+    ROOT=$(bcurl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
     if [[ -z "$ROOT" ]]; then
       skip_test "git-write" "no project root"
     else
@@ -321,14 +330,14 @@ if should_run "git-write"; then
       test_post "git_stage_all" "/git/stage-all" '{}' '.ok == true'
 
       # Unstage again so we don't commit
-      curl -sf -X POST -H "Content-Type: application/json" \
+      bcurl -sf -X POST -H "Content-Type: application/json" \
         -d '{"path":".mcp-git-test.tmp"}' "${BASE_URL}/git/unstage" > /dev/null 2>&1
 
       test_post "git_discard" "/git/discard" \
         '{"path":".mcp-git-test.tmp"}' '.ok == true'
 
       # git_pull (may fail if no remote, but endpoint should respond)
-      resp=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+      resp=$(bcurl -s -o /dev/null -w "%{http_code}" -X POST \
         -H "Content-Type: application/json" -d '{}' "${BASE_URL}/git/pull")
       if [[ "$resp" == "200" || "$resp" == "500" ]]; then
         echo -e "  ${GREEN}PASS${NC} git_pull (endpoint responds: HTTP $resp)"
@@ -342,13 +351,13 @@ if should_run "git-write"; then
       # git_commit + git_revert: create temp commit then revert it
       TEMP_REVERT_FILE="${ROOT}/.mcp-revert-test.tmp"
       echo "revert-test" > "$TEMP_REVERT_FILE"
-      curl -sf -X POST -H "Content-Type: application/json" \
+      bcurl -sf -X POST -H "Content-Type: application/json" \
         -d '{"path":".mcp-revert-test.tmp"}' "${BASE_URL}/git/stage" > /dev/null 2>&1
 
       test_post "git_commit" "/git/commit" \
         '{"message":"test: temp commit for git_revert E2E test"}' 'has("output")'
 
-      REVERT_HASH=$(curl -sf "${BASE_URL}/git/log?limit=1" | jq -r '.entries[0].hash // ""')
+      REVERT_HASH=$(bcurl -sf "${BASE_URL}/git/log?limit=1" | jq -r '.entries[0].hash // ""')
       if [[ -n "$REVERT_HASH" ]]; then
         test_post "git_revert" "/git/revert" \
           "{\"commit_hash\":\"${REVERT_HASH}\"}" 'has("output")'
@@ -397,7 +406,7 @@ if should_run "tags"; then
     skip_test "delete_tag" "--readonly"
   else
     # Save original tags for restore
-    ORIGINAL_TAGS=$(curl -sf "${BASE_URL}/tags/list")
+    ORIGINAL_TAGS=$(bcurl -sf "${BASE_URL}/tags/list")
 
     # create_tag — we do this via tags/set (same as MCP server implementation)
     # The MCP server reads current tags, adds the new one, and writes back
@@ -408,7 +417,7 @@ if should_run "tags"; then
       "{\"tags\":{\"tags\":$(echo "$NEW_TAGS"),\"files\":$(echo "$FILES_OBJ")}}" '.ok == true'
 
     # Verify tag was created
-    VERIFY=$(curl -sf "${BASE_URL}/tags/list" | jq -r '.tags.__mcp_test__ // ""')
+    VERIFY=$(bcurl -sf "${BASE_URL}/tags/list" | jq -r '.tags.__mcp_test__ // ""')
     if [[ "$VERIFY" == "#ff0000" ]]; then
       echo -e "  ${GREEN}PASS${NC} create_tag (verified)"
       PASS=$((PASS + 1))
@@ -419,7 +428,7 @@ if should_run "tags"; then
     fi
 
     # set_file_tags — assign test tag to CLAUDE.md
-    CUR=$(curl -sf "${BASE_URL}/tags/list")
+    CUR=$(bcurl -sf "${BASE_URL}/tags/list")
     CUR_TAGS=$(echo "$CUR" | jq '.tags // {}')
     CUR_FILES=$(echo "$CUR" | jq '.files // {}')
     NEW_FILES=$(echo "$CUR_FILES" | jq '. + {"CLAUDE.md": ["__mcp_test__"]}')
@@ -427,7 +436,7 @@ if should_run "tags"; then
       "{\"tags\":{\"tags\":$(echo "$CUR_TAGS"),\"files\":$(echo "$NEW_FILES")}}" '.ok == true'
 
     # get_file_tags — verify via list_tags (MCP server filters locally)
-    FILE_TAGS=$(curl -sf "${BASE_URL}/tags/list" | jq -r '.files["CLAUDE.md"] // []')
+    FILE_TAGS=$(bcurl -sf "${BASE_URL}/tags/list" | jq -r '.files["CLAUDE.md"] // []')
     if echo "$FILE_TAGS" | jq -e 'index("__mcp_test__") != null' > /dev/null 2>&1; then
       echo -e "  ${GREEN}PASS${NC} get_file_tags (verified)"
       PASS=$((PASS + 1))
@@ -454,7 +463,7 @@ if should_run "content"; then
   if $READONLY; then
     skip_test "download_image" "--readonly"
   else
-    ROOT=$(curl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
+    ROOT=$(bcurl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
     if [[ -n "$ROOT" ]]; then
       DL_DEST="${ROOT}/.mcp-test-img.png"
       test_post "download_image" "/content/download-image" \
@@ -475,7 +484,7 @@ if should_run "crawl"; then
   if $READONLY; then
     skip_test "crawl_save" "--readonly"
   else
-    ROOT=$(curl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
+    ROOT=$(bcurl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
     if [[ -n "$ROOT" ]]; then
       CRAWL_DIR="${ROOT}/.mcp-crawl-test"
       mkdir -p "$CRAWL_DIR"
@@ -500,7 +509,7 @@ if should_run "open-save"; then
     skip_test "open_file" "--readonly"
     skip_test "save_file" "--readonly"
   else
-    ROOT=$(curl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
+    ROOT=$(bcurl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
     if [[ -n "$ROOT" && -f "${ROOT}/CLAUDE.md" ]]; then
       test_post "open_file" "/editor/open-file" \
         "{\"path\":\"${ROOT}/CLAUDE.md\"}" ""
@@ -517,7 +526,7 @@ fi
 # ============================================================
 if should_run "worker"; then
   # Discover Worker URL from bridge
-  WORKER_URL=$(curl -sf "${BASE_URL}/editor/state" | jq -r '.worker_url // ""')
+  WORKER_URL=$(bcurl -sf "${BASE_URL}/editor/state" | jq -r '.worker_url // ""')
   if [[ -z "$WORKER_URL" ]]; then
     echo -e "${CYAN}=== Worker-Dependent Tools (SKIPPED — no Worker URL) ===${NC}"
     skip_test "fetch_markdown" "no Worker URL"
