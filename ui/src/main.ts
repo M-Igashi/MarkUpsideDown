@@ -113,7 +113,7 @@ import {
   initDragDrop,
 } from "./file-ops.ts";
 import { initClipboard, copyRichText, copyMarkdown } from "./clipboard.ts";
-import { initMcpSync, syncEditorState, initBridgeListeners } from "./mcp-sync.ts";
+import { initMcpSync, syncEditorState, initBridgeListeners, listenToWindow } from "./mcp-sync.ts";
 import { initCrawl, crawlUrl } from "./crawl.ts";
 import { normalizeMarkdown } from "./normalize.ts";
 import {
@@ -550,8 +550,10 @@ async function openFileByPath(path: string) {
     statusEl.textContent = `Failed to open: ${e}`;
   }
 }
-window.__TAURI__.event?.listen<string>("cli:open-file", (e) => openFileByPath(e.payload));
-window.__TAURI__.event?.listen<string>("menu:open-recent", (e) => openFileByPath(e.payload));
+if (window.__TAURI__.event) {
+  listenToWindow<string>("cli:open-file", (e) => openFileByPath(e.payload));
+  listenToWindow<string>("menu:open-recent", (e) => openFileByPath(e.payload));
+}
 
 async function openSearchResult(filePath: string) {
   const root = getRootPath();

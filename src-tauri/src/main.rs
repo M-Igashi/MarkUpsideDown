@@ -10,7 +10,7 @@ mod util;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_cli::CliExt;
 
 /// Resolve file path strings to absolute paths, filtering to files that exist.
@@ -44,7 +44,7 @@ fn emit_open_files_delayed(handle: tauri::AppHandle, paths: Vec<String>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         for path in paths {
-            let _ = handle.emit("cli:open-file", path);
+            util::emit_to_focused(&handle, "cli:open-file", path);
         }
     });
 }
@@ -90,7 +90,7 @@ fn main() {
             let base_dir = PathBuf::from(cwd);
             let paths = resolve_file_paths(args.iter().skip(1).map(|s| s.as_str()), &base_dir);
             for path in paths {
-                let _ = app.emit("cli:open-file", path);
+                util::emit_to_focused(app, "cli:open-file", path);
             }
         }))
         .manage(editor_states_managed)
@@ -107,7 +107,8 @@ fn main() {
                     let url = WebviewUrl::App("index.html".into());
                     let mut builder = WebviewWindowBuilder::new(app, &entry.label, url)
                         .title("MarkUpsideDown")
-                        .inner_size(entry.width, entry.height);
+                        .inner_size(entry.width, entry.height)
+                        .disable_drag_drop_handler();
                     if let (Some(x), Some(y)) = (entry.x, entry.y) {
                         builder = builder.position(x, y);
                     }
@@ -211,9 +212,16 @@ fn main() {
                     // Remove this window's editor state
                     editor_states_events.remove_window(window.label());
 
-                    let remaining = window.app_handle().webview_windows().len();
+                    // Count the other windows. Whether the destroyed window is
+                    // still listed at this point depends on the runtime's order.
+                    let remaining = window
+                        .app_handle()
+                        .webview_windows()
+                        .keys()
+                        .filter(|l| l.as_str() != window.label())
+                        .count();
                     // Remove closed window from registry (if app stays open)
-                    if remaining > 1 {
+                    if remaining > 0 {
                         let label = window.label().to_string();
                         let handle = window.app_handle().clone();
                         if let Ok(mut entries) = commands::load_window_registry(handle.clone()) {
@@ -223,7 +231,7 @@ fn main() {
                     }
 
                     // Only clean up bridge when the last window closes
-                    if remaining <= 1 {
+                    if remaining == 0 {
                         bridge::cleanup();
                     }
                 }

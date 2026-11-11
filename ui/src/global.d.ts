@@ -21,6 +21,7 @@ interface TauriEvent {
 
 interface TauriWebviewWindow {
   label: string;
+  listen<T = unknown>(event: string, handler: (event: { payload: T }) => void): Promise<() => void>;
 }
 
 interface TauriWebviewWindowModule {

@@ -111,6 +111,15 @@ export function syncEditorState(cachedContent?: string) {
 
 let unlistenFns: Array<() => void> = [];
 
+/**
+ * Listen for events addressed to this window. The global `event.listen`
+ * also receives events the backend sends to other windows.
+ */
+export function listenToWindow<T>(event: string, handler: (event: { payload: T }) => void) {
+  const win = window.__TAURI__.webviewWindow?.getCurrentWebviewWindow();
+  return win ? win.listen<T>(event, handler) : window.__TAURI__.event!.listen<T>(event, handler);
+}
+
 export function initBridgeListeners() {
   if (!window.__TAURI__?.event) return;
 
@@ -118,7 +127,7 @@ export function initBridgeListeners() {
   for (const fn of unlistenFns) fn();
   unlistenFns = [];
 
-  const { listen } = window.__TAURI__.event;
+  const listen = listenToWindow;
   const { invoke } = window.__TAURI__.core;
 
   const track = (p: Promise<() => void>) => {

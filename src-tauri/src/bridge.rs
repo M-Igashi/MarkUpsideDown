@@ -23,18 +23,9 @@ struct BridgeState {
 }
 
 impl BridgeState {
-    /// Emit an event to the focused window, or broadcast if no window is focused.
     fn emit_to_focused<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
-        if let Some(label) = self.editor.get_focused_label() {
-            if let Some(win) = self.app.webview_windows().get(&label) {
-                let _ = win.emit(event, payload);
-                return;
-            }
-        }
-        // Fallback: broadcast to all windows
-        let _ = self.app.emit(event, payload);
+        crate::util::emit_to_focused(&self.app, event, payload);
     }
-
 }
 
 fn port_file_path() -> PathBuf {
@@ -859,7 +850,8 @@ async fn tags_set(
     Json(body): Json<TagsSetRequest>,
 ) -> BridgeResult {
     write_tags(&get_repo_path(&state)?, &body.tags).await?;
-    state.emit_to_focused("bridge:tags-changed", ());
+    // Tags are per project, so every window refreshes its view
+    let _ = state.app.emit("bridge:tags-changed", ());
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

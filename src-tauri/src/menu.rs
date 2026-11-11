@@ -1,6 +1,6 @@
 use serde_json::json;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu, SubmenuBuilder};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_store::StoreExt;
 
 const STORE_FILE: &str = "recent-files.json";
@@ -145,6 +145,8 @@ pub fn handle_event(handle: &AppHandle, event: &MenuEvent) {
         let _ = WebviewWindowBuilder::new(handle, &label, WebviewUrl::App("index.html?fresh=1".into()))
             .title("MarkUpsideDown")
             .inner_size(1200.0, 800.0)
+            // Same as the main window: drops are handled by HTML5 drag and drop
+            .disable_drag_drop_handler()
             .build();
         return;
     }
@@ -154,27 +156,11 @@ pub fn handle_event(handle: &AppHandle, event: &MenuEvent) {
         return;
     }
 
-    if let Some(idx_str) = id.strip_prefix("recent_") {
-        if let Ok(idx) = idx_str.parse::<usize>() {
-            let files = get_recent_files(handle);
-            if let Some(path) = files.get(idx) {
-                // Emit to focused window if available, otherwise broadcast
-                let editor_states = handle
-                    .try_state::<std::sync::Arc<crate::commands::EditorStates>>();
-                let mut emitted = false;
-                if let Some(states) = editor_states {
-                    if let Some(label) = states.get_focused_label() {
-                        if let Some(win) = handle.webview_windows().get(&label) {
-                            let _ = win.emit("menu:open-recent", path.clone());
-                            emitted = true;
-                        }
-                    }
-                }
-                if !emitted {
-                    let _ = handle.emit("menu:open-recent", path.clone());
-                }
-            }
-        }
+    if let Some(idx_str) = id.strip_prefix("recent_")
+        && let Ok(idx) = idx_str.parse::<usize>()
+        && let Some(path) = get_recent_files(handle).get(idx)
+    {
+        crate::util::emit_to_focused(handle, "menu:open-recent", path.clone());
     }
 }
 
