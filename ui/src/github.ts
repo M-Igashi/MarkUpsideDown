@@ -104,17 +104,17 @@ export function buildDocument(detail: GhItemDetail): string {
   return lines.join("\n");
 }
 
-/** Recover the pushable title and body from an edited document. */
-export function parseDocument(
-  content: string,
-  fallbackTitle: string,
-): { title: string; body: string } {
+/**
+ * Recover the pushable title and body from an edited document. The title is
+ * undefined when the frontmatter has none, so the remote title is kept.
+ */
+export function parseDocument(content: string): { title?: string; body: string } {
   const markerIndex = content.indexOf(COMMENTS_MARKER);
   const head = markerIndex >= 0 ? content.slice(0, markerIndex) : content;
 
   const lines = head.split("\n");
   const fm = parseFrontmatter(lines);
-  const title = fm?.parsed?.title?.trim() || fallbackTitle;
+  const title = fm?.parsed?.title?.trim() || undefined;
   const bodyLines = fm ? lines.slice(fm.endLine) : lines;
 
   return { title, body: bodyLines.join("\n").trim() };
@@ -146,9 +146,8 @@ export async function pushRemoteTab(
   const remote = tab.remote;
   if (!remote) throw new Error("Tab is not backed by a remote item");
 
-  const { title, body } = parseDocument(content, tab.name);
-  const expectedBody =
-    tab.savedContent !== null ? parseDocument(tab.savedContent, tab.name).body : undefined;
+  const { title, body } = parseDocument(content);
+  const expectedBody = tab.savedContent !== null ? parseDocument(tab.savedContent).body : undefined;
 
   const detail = await invoke<GhItemDetail>("gh_update", {
     repo: remote.repo,

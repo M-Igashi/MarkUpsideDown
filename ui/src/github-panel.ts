@@ -110,12 +110,13 @@ export async function refresh() {
 async function openItem(item: GhItem) {
   if (!status?.repo || !onItemOpen) return;
   const repo = status.repo;
+  const itemKind = kind;
   errorMessage = "";
   loading = true;
   render();
   try {
-    const detail = await ghView(repo, kind, item.number);
-    onItemOpen(repo, kind, detail);
+    const detail = await ghView(repo, itemKind, item.number);
+    onItemOpen(repo, itemKind, detail);
   } catch (e) {
     errorMessage = String(e);
   } finally {

@@ -123,10 +123,17 @@ async function saveRemoteTab(content: string) {
   try {
     const { document: updated } = await pushRemoteTab(tab, content);
     // GitHub may normalize the body, and comments may have moved on. Adopt the
-    // round-tripped document so the next save compares against the truth.
-    setTabContent(tab.id, updated);
-    if (updated !== content && getActiveTab()?.id === tab.id) applyEditorContent(updated);
-    markTabSaved(tab.id);
+    // round-tripped document so the next save compares against the truth, but
+    // keep anything typed while the push was in flight (the tab stays dirty).
+    const active = getActiveTab()?.id === tab.id;
+    const current = active ? editor.state.doc.toString() : tab.content;
+    if (current === content) {
+      setTabContent(tab.id, updated);
+      if (active && updated !== content) applyEditorContent(updated);
+      markTabSaved(tab.id);
+    } else {
+      markTabSaved(tab.id, updated);
+    }
     statusEl.textContent = `Saved ${label} to GitHub`;
   } catch (e) {
     statusEl.textContent = `Save failed: ${e}`;

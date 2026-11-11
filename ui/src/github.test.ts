@@ -24,7 +24,7 @@ test("round trips title and body without touching comments", () => {
   expect(doc).toContain(COMMENTS_MARKER);
   expect(doc).toContain("Any update?");
 
-  const parsed = parseDocument(doc, "fallback");
+  const parsed = parseDocument(doc);
   expect(parsed.title).toBe("Fix: the thing, quickly");
   expect(parsed.body).toBe(detail.body.trim());
 });
@@ -33,20 +33,20 @@ test("keeps edits and drops the comment log", () => {
   const edited = buildDocument(detail)
     .replace("title: Fix: the thing, quickly", "title: Renamed")
     .replace("Something is broken.", "Something is very broken.");
-  const parsed = parseDocument(edited, "fallback");
+  const parsed = parseDocument(edited);
   expect(parsed.title).toBe("Renamed");
   expect(parsed.body).toContain("Something is very broken.");
   expect(parsed.body).not.toContain("Any update?");
 });
 
-test("falls back when the frontmatter is deleted", () => {
-  const parsed = parseDocument("just a body\n", "Original Title");
-  expect(parsed.title).toBe("Original Title");
+test("omits the title when the frontmatter is deleted", () => {
+  const parsed = parseDocument("just a body\n");
+  expect(parsed.title).toBeUndefined();
   expect(parsed.body).toBe("just a body");
 });
 
 test("handles an item with no comments", () => {
   const doc = buildDocument({ ...detail, comments: [] });
   expect(doc).not.toContain(COMMENTS_MARKER);
-  expect(parseDocument(doc, "x").body).toBe(detail.body.trim());
+  expect(parseDocument(doc).body).toBe(detail.body.trim());
 });
