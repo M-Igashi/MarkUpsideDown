@@ -147,8 +147,34 @@ async function runGit(
 const stageFile = (filePath: string) => runGit("git_stage", { filePath }, "Stage");
 const stageAll = () => runGit("git_stage_all", {}, "Stage all");
 const unstageFile = (filePath: string) => runGit("git_unstage", { filePath }, "Unstage");
-const discardFile = (filePath: string) => runGit("git_discard", { filePath }, "Discard", true);
-const discardAll = () => runGit("git_discard_all", {}, "Discard all", true);
+async function discardFile(file: GitFile) {
+  const untracked = file.status === "?";
+  const ok = await window.__TAURI__.dialog.confirm(
+    untracked
+      ? `Move the new file "${file.path}" to the Trash?`
+      : `Discard your changes to "${file.path}"? This cannot be undone.`,
+    { title: "Discard Changes", kind: "warning", okLabel: "Discard" },
+  );
+  if (ok) await runGit("git_discard", { filePath: file.path }, "Discard", true);
+}
+
+async function discardAll() {
+  const files = gitData?.files ?? [];
+  const untracked = files.filter((f) => f.status === "?").length;
+  const tracked = new Set(files.filter((f) => f.status !== "?").map((f) => f.path)).size;
+  const parts = [];
+  if (tracked > 0)
+    parts.push(`discard changes to ${tracked} file${tracked === 1 ? "" : "s"} (cannot be undone)`);
+  if (untracked > 0)
+    parts.push(`move ${untracked} new file${untracked === 1 ? "" : "s"} to the Trash`);
+  if (parts.length === 0) return;
+  const ok = await window.__TAURI__.dialog.confirm(`This will ${parts.join(" and ")}. Continue?`, {
+    title: "Discard All Changes",
+    kind: "warning",
+    okLabel: "Discard All",
+  });
+  if (ok) await runGit("git_discard_all", {}, "Discard all", true);
+}
 
 async function commitChanges(mode: "staged" | "tracked") {
   if (!repoPath || !commitMessage.trim()) return;
@@ -178,6 +204,7 @@ async function revertCommit(commitHash: string) {
   }
 }
 
+/** Run fetch/pull/push. Only pull changes the working tree, so only it reloads tabs. */
 async function gitRemoteAction(command: string, label: string, btn: HTMLButtonElement) {
   if (!repoPath) return;
   const original = btn.innerHTML;
@@ -189,7 +216,7 @@ async function gitRemoteAction(command: string, label: string, btn: HTMLButtonEl
     btn.disabled = false;
     showStatus(`${label} completed`, false);
     await refresh();
-    onFilesChangedCb?.();
+    if (command === "git_pull") onFilesChangedCb?.();
   } catch (e) {
     btn.innerHTML = original;
     btn.disabled = false;
@@ -547,7 +574,7 @@ function createSection(title: string, files: GitFile[], isStaged: boolean): HTML
       discardBtn.textContent = "⟲";
       discardBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        discardFile(file.path);
+        discardFile(file);
       });
       row.appendChild(discardBtn);
     }

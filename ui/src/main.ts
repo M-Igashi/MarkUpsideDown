@@ -395,9 +395,32 @@ function refreshGitAfterAutoSave(path: string) {
 }
 
 /** Reload all open file-backed tabs from disk (after git ops that modify files). */
+/** Reload open files after a git operation, asking before dropping unsaved edits. */
 async function reloadAllOpenTabs() {
   const fileTabs = getTabs().filter((t) => t.path);
-  await Promise.allSettled(fileTabs.map((tab) => reloadTabFromDisk(tab.path!)));
+  const reads = await Promise.all(
+    fileTabs.map((tab) =>
+      invoke<string>("read_text_file", { path: tab.path! }).then(
+        (content) => ({ tab, content }),
+        () => null,
+      ),
+    ),
+  );
+  const conflicts: { tab: Tab; content: string }[] = [];
+  for (const read of reads) {
+    // Unchanged on disk since it was loaded: keep any unsaved edits
+    if (!read || read.content === read.tab.savedContent) continue;
+    if (isTabDirty(read.tab)) conflicts.push(read);
+    else if (read.content !== read.tab.content) applyDiskContent(read.tab, read.content);
+  }
+  if (conflicts.length > 0) {
+    const names = conflicts.map((c) => c.tab.name).join(", ");
+    const reload = await confirmDialog(
+      `Changed on disk: ${names}\n\nReload and discard your unsaved changes?`,
+      { title: "Files Changed", kind: "warning" },
+    );
+    if (reload) for (const c of conflicts) applyDiskContent(c.tab, c.content);
+  }
   refreshTree();
 }
 

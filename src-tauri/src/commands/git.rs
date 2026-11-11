@@ -8,8 +8,11 @@ use crate::error::{AppError, Result};
 // --- CLI Command Runner ---
 
 pub(super) fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new(cmd)
-        .args(args)
+    run_command(Command::new(cmd).args(args), cmd)
+}
+
+fn run_command(command: &mut Command, cmd: &str) -> Result<String> {
+    let output = command
         .output()
         .map_err(|e| AppError::Git(format!("Failed to run {cmd}: {e}")))?;
 
@@ -222,7 +225,13 @@ pub async fn git_status(repo_path: String, include_stats: Option<bool>) -> Resul
             }
             let index_status = bytes[0] as char;
             let work_status = bytes[1] as char;
-            let raw_path = &line[3..];
+            let mut raw_path = &line[3..];
+            // Renames and copies are reported as "old -> new"
+            if matches!(index_status, 'R' | 'C')
+                && let Some((_, new)) = raw_path.split_once(" -> ")
+            {
+                raw_path = new;
+            }
             let file_path = if raw_path.starts_with('"') && raw_path.ends_with('"') {
                 unquote_git_path(raw_path)
             } else {
@@ -322,7 +331,16 @@ pub async fn git_commit(repo_path: String, message: String) -> Result<String> {
 
 async fn git_remote_command(repo_path: String, cmd: &'static str) -> Result<String> {
     spawn_blocking(move || {
-        let output = run_git(&repo_path, &[cmd])?;
+        reject_option_like("repository path", &repo_path)?;
+        // Fetch and push do not touch the index, so they run outside GIT_LOCK
+        // and cannot stall status polling while the network is slow.
+        let _guard = (cmd == "pull").then(|| GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner()));
+        let output = run_command(
+            Command::new("git")
+                .args(["-C", &repo_path, cmd])
+                .env("GIT_TERMINAL_PROMPT", "0"),
+            "git",
+        )?;
         Ok(output.trim().to_string())
     })
     .await
@@ -371,9 +389,10 @@ pub async fn git_discard(repo_path: String, file_path: String) -> Result<()> {
         let is_untracked = status_output.lines().any(|l| l.starts_with("??"));
 
         if is_untracked {
+            // Files and whole untracked directories go to the Trash, not oblivion
             let full_path = std::path::Path::new(&repo_path).join(&file_path);
-            std::fs::remove_file(&full_path)
-                .map_err(|e| AppError::Io(format!("Failed to delete {}: {e}", file_path)))?;
+            trash::delete(&full_path)
+                .map_err(|e| AppError::Io(format!("Failed to move {file_path} to the Trash: {e}")))?;
         } else {
             run_git_unlocked(&repo_path, &["checkout", "--", &file_path])?;
         }
@@ -385,12 +404,26 @@ pub async fn git_discard(repo_path: String, file_path: String) -> Result<()> {
 #[tauri::command]
 pub async fn git_discard_all(repo_path: String) -> Result<()> {
     spawn_blocking(move || {
+        let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Move untracked files and directories to the Trash (what `git clean -fd`
+        // would delete permanently)
+        let untracked = run_git_unlocked(
+            &repo_path,
+            &["ls-files", "--others", "--exclude-standard", "--directory", "-z"],
+        )?;
+        let paths: Vec<_> = untracked
+            .split('\0')
+            .filter(|p| !p.is_empty())
+            .map(|p| std::path::Path::new(&repo_path).join(p.trim_end_matches('/')))
+            .collect();
+        if !paths.is_empty() {
+            trash::delete_all(&paths)
+                .map_err(|e| AppError::Io(format!("Failed to move untracked files to the Trash: {e}")))?;
+        }
         // Unstage everything first (handles staged deletions)
-        let _ = run_git(&repo_path, &["reset", "HEAD", "--", "."]);
+        let _ = run_git_unlocked(&repo_path, &["reset", "HEAD", "--", "."]);
         // Restore all tracked files
-        let _ = run_git(&repo_path, &["checkout", "--", "."]);
-        // Remove all untracked files and directories
-        run_git(&repo_path, &["clean", "-fd"])?;
+        let _ = run_git_unlocked(&repo_path, &["checkout", "--", "."]);
         Ok(())
     })
     .await
@@ -457,18 +490,31 @@ pub async fn git_revert(repo_path: String, commit_hash: String) -> Result<String
 
         let short = if commit_hash.len() >= 7 { &commit_hash[..7] } else { &commit_hash };
 
+        // Fail before touching the tree when the hash does not name a commit
+        run_git_unlocked(
+            &repo_path,
+            &["rev-parse", "--verify", "--quiet", &format!("{commit_hash}^{{commit}}")],
+        )
+        .map_err(|_| AppError::Git(format!("Unknown commit: {commit_hash}")))?;
+
         // Restore entire working tree to the target commit's state:
         // 1. Remove all tracked files from index and working tree
-        let _ = run_git_unlocked(&repo_path, &["rm", "-rf", "--quiet", "."]);
         // 2. Restore all files from the target commit
-        run_git_unlocked(&repo_path, &["checkout", &commit_hash, "--", "."])?;
         // 3. Commit the result as a new commit
-        let commit_result = run_git_unlocked(
-            &repo_path,
-            &["commit", "--allow-empty", "-m", &format!("Revert to {short}")],
-        )?;
-
-        Ok(commit_result.trim().to_string())
+        // (rm fails harmlessly when HEAD has no tracked files)
+        let _ = run_git_unlocked(&repo_path, &["rm", "-rf", "--quiet", "."]);
+        let result = run_git_unlocked(&repo_path, &["checkout", &commit_hash, "--", "."])
+            .and_then(|_| {
+                run_git_unlocked(
+                    &repo_path,
+                    &["commit", "--allow-empty", "-m", &format!("Revert to {short}")],
+                )
+            });
+        if result.is_err() {
+            // The tree was clean before we started, so this restores it exactly
+            let _ = run_git_unlocked(&repo_path, &["reset", "--hard", "HEAD"]);
+        }
+        Ok(result?.trim().to_string())
     })
     .await
 }
@@ -508,6 +554,45 @@ pub async fn git_init(repo_path: String) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_repo() -> String {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("mud-git-test-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.to_string_lossy().into_owned();
+        for args in [
+            &["init", "-q"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "t"],
+            &["config", "commit.gpgsign", "false"],
+        ] {
+            run_git(&repo, args).unwrap();
+        }
+        std::fs::write(dir.join("a.md"), "one").unwrap();
+        run_git(&repo, &["add", "."]).unwrap();
+        run_git(&repo, &["commit", "-qm", "init"]).unwrap();
+        repo
+    }
+
+    #[tokio::test]
+    async fn failed_revert_leaves_the_tree_intact() {
+        let repo = temp_repo();
+        let err = git_revert(repo.clone(), "deadbeefdeadbeef".into()).await;
+        assert!(err.is_err());
+        assert_eq!(std::fs::read_to_string(format!("{repo}/a.md")).unwrap(), "one");
+        assert!(run_git(&repo, &["status", "--porcelain"]).unwrap().is_empty());
+        std::fs::remove_dir_all(&repo).ok();
+    }
+
+    #[tokio::test]
+    async fn status_reports_renames_by_new_path() {
+        let repo = temp_repo();
+        run_git(&repo, &["mv", "a.md", "b.md"]).unwrap();
+        let status = git_status(repo.clone(), None).await.unwrap();
+        assert_eq!(status.files[0].path, "b.md");
+        std::fs::remove_dir_all(&repo).ok();
+    }
 
     #[test]
     fn rejects_transport_helper_clone_urls() {
