@@ -1,4 +1,4 @@
-import { marked } from "marked";
+import { marked, type Token } from "marked";
 import DOMPurify from "dompurify";
 import { Idiomorph } from "idiomorph";
 import { refreshPreviewSearch } from "./preview-search.ts";
@@ -418,6 +418,9 @@ async function inlineSvgImages(container: HTMLElement) {
 // class="code-copy-btn" elements, which must not survive re-renders)
 const copyButtons = new WeakSet<HTMLElement>();
 
+// Never reset: mermaid.render() removes any existing element with the same id
+let mermaidRenderCount = 0;
+
 const PURIFY_CONFIG = {
   // Allow Tauri's `asset:` scheme so local images survive sanitization
   // (convertFileSrc returns asset://localhost/... on macOS/Linux). Mirrors
@@ -443,9 +446,22 @@ function sanitize(html: string): string {
   return DOMPurify.sanitize(html, PURIFY_CONFIG);
 }
 
-/** Markdown → sanitized HTML, for views outside the preview pane (presentation mode). */
-export function markdownToSafeHtml(source: string): string {
-  return sanitize(marked.parse(fixCjkEmphasis(source), { async: false }));
+/** Split Markdown into slides at top-level horizontal rules, as sanitized HTML. */
+export function markdownToSlides(source: string): string[] {
+  const slides: Token[][] = [[]];
+  for (const token of marked.lexer(fixCjkEmphasis(source))) {
+    if (token.type === "hr") slides.push([]);
+    else slides[slides.length - 1].push(token);
+  }
+  return slides
+    .filter((tokens) => tokens.some((t) => t.type !== "space"))
+    .map((tokens) => sanitize(marked.parser(tokens)));
+}
+
+/** Render a slide produced by markdownToSlides into `container`. */
+export function renderSlide(container: HTMLElement, html: string) {
+  container.innerHTML = `<article class="preview-page presentation-content">${html}</article>`;
+  return enhanceRendered(container, false);
 }
 
 let previewPane: HTMLElement;
@@ -460,8 +476,6 @@ export async function renderPreview(source: string) {
 
   const savedScrollTop = previewPane.scrollTop;
   const savedActiveSide = scrollState.activeSide;
-
-  let mermaidRenderCount = 0;
 
   const tokens = marked.lexer(fixCjkEmphasis(source));
   annotateTokensWithSourceLines(tokens);
@@ -521,8 +535,40 @@ export async function renderPreview(source: string) {
     },
   });
 
+  await enhanceRendered(previewPane, true);
+
+  // Restore scroll position — mark as programmatic so scroll event handlers
+  // don't treat the morph-triggered scrollTop change as a user scroll
+  markProgrammaticScroll();
+  previewPane.scrollTop = savedScrollTop;
+
+  // Cancel any sync RAFs that morph-triggered scroll events may have scheduled
+  cancelAnimationFrame(scrollState.syncRAF);
+  scrollState.activeSide = savedActiveSide;
+
+  buildScrollAnchors();
+  scrollState.pendingRender = false;
+  scrollState.renderingPreview = false;
+
+  if (scrollState.activeSide === "editor") {
+    markProgrammaticScroll();
+    syncPreviewToCursor();
+  }
+
+  refreshPreviewSearch();
+
+  inlineSvgImages(previewPane)
+    .then((changed) => {
+      if (changed) buildScrollAnchors();
+    })
+    .catch(() => {});
+}
+
+// Highlighting, Mermaid, and KaTeX for rendered Markdown. `interactive` adds
+// the preview's copy buttons and click-to-expand on diagrams.
+async function enhanceRendered(root: HTMLElement, interactive: boolean) {
   // Single DOM pass: collect all elements needing post-render processing
-  const postRenderEls = previewPane.querySelectorAll(
+  const postRenderEls = root.querySelectorAll(
     ".preview-page img:not([loading]), code[data-hljs-lang]:not([data-hljs-rendered]), pre:not([data-copy-btn]), .mermaid-container:not(.mermaid-rendered), [data-math-source]:not([data-math-rendered])",
   );
   const imgs: HTMLImageElement[] = [];
@@ -536,7 +582,7 @@ export async function renderPreview(source: string) {
       imgs.push(el as HTMLImageElement);
     } else if (el.tagName === "CODE" && he.dataset.hljsLang && !he.dataset.hljsRendered) {
       codeEls.push(he);
-    } else if (el.tagName === "PRE" && !he.dataset.copyBtn) {
+    } else if (interactive && el.tagName === "PRE" && !he.dataset.copyBtn) {
       preEls.push(he);
     } else if (
       he.classList.contains("mermaid-container") &&
@@ -600,6 +646,7 @@ export async function renderPreview(source: string) {
             const { svg } = await mermaid.render(id, src);
             el.innerHTML = svg;
             el.classList.add("mermaid-rendered");
+            if (!interactive) return;
             const copyBtn = document.createElement("button");
             copyBtn.className = "mermaid-copy-btn";
             copyBtn.textContent = "Copy as PNG";
@@ -648,32 +695,6 @@ export async function renderPreview(source: string) {
       console.error("KaTeX failed to load:", err);
     }
   }
-
-  // Restore scroll position — mark as programmatic so scroll event handlers
-  // don't treat the morph-triggered scrollTop change as a user scroll
-  markProgrammaticScroll();
-  previewPane.scrollTop = savedScrollTop;
-
-  // Cancel any sync RAFs that morph-triggered scroll events may have scheduled
-  cancelAnimationFrame(scrollState.syncRAF);
-  scrollState.activeSide = savedActiveSide;
-
-  buildScrollAnchors();
-  scrollState.pendingRender = false;
-  scrollState.renderingPreview = false;
-
-  if (scrollState.activeSide === "editor") {
-    markProgrammaticScroll();
-    syncPreviewToCursor();
-  }
-
-  refreshPreviewSearch();
-
-  inlineSvgImages(previewPane)
-    .then((changed) => {
-      if (changed) buildScrollAnchors();
-    })
-    .catch(() => {});
 }
 
 function copyMermaidAsPng(container: HTMLElement, btn: HTMLButtonElement) {
