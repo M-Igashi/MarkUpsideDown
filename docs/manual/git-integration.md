@@ -4,7 +4,7 @@ MarkUpsideDown has a built-in Git panel for common version control operations. Y
 
 ## Opening the Git Panel
 
-Click the **Git** icon in the sidebar's bottom navigation bar, or switch from the Files panel. The Git panel appears in the sidebar.
+Click **Changes** at the top of the sidebar. The status bar's branch name also opens it. The Git panel appears in the sidebar.
 
 ![Git panel showing staged and unstaged files](images/git-integration/git-panel.png)
 
@@ -28,9 +28,9 @@ Files that are ready to be committed. Each file row shows:
 Files with changes that are not yet staged. In addition to the same info as staged files, each row has:
 
 - **Stage button** — click to stage the file
-- **Discard button** (⟲) — revert the file to its last committed state
+- **Discard button** (curved arrow) — revert the file to its last committed state
 
-At the top, **"Stage All"** and **"⟲ Discard All"** buttons operate on all unstaged files.
+At the top, the **Stage All** and **Discard All** (curved arrow) buttons operate on all unstaged files.
 
 ### Inline Diff
 
@@ -41,19 +41,18 @@ Click any file row to expand an inline diff view below it. The diff shows added 
 At the bottom of the Git panel:
 
 1. Type your commit message in the textarea (a timestamp is pre-filled as a default)
-2. Click **Commit** to commit staged files, or **Commit All** to stage and commit everything
+2. Click **Commit** (below the message) to commit staged files, or **Commit All** to stage and commit everything
 3. Use **Cmd+Enter** as a shortcut while the commit message textarea is focused
 
 A status message appears briefly after a successful commit (green) or an error (red).
 
 ## Push, Pull, and Fetch
 
-The bottom bar shows:
+The bottom of the panel shows the current branch, and below the Commit button:
 
-- **Branch name** with the current branch
-- **⟳ Fetch** button — fetch remote changes
-- **↓ Pull** button — pull changes (shows a count badge when behind remote)
-- **↑ Push** button — push changes (shows a count badge when ahead of remote)
+- **Pull** — pull changes (shows a count badge when behind remote)
+- **Push** — push changes (shows a count badge when ahead of remote)
+- **Fetch** — fetch remote changes
 
 ## Recent Commits
 
@@ -62,13 +61,13 @@ Below the file list, the **Recent Commits** section shows recent commit history:
 - Short hash
 - Commit message (truncated)
 - Relative time (e.g., "2 hours ago")
-- **⟲ Revert** button to revert a commit
+- **Revert** button (curved arrow) to revert a commit
 
 Click a commit row to expand a multi-file inline diff of that commit.
 
 ## Cloning a Repository
 
-Switch to the **Clone** panel in the sidebar (clone icon in the bottom nav). Enter a repository URL (HTTPS or SSH) and click Clone. The repository is cloned and opened in the editor.
+Choose **Import → Clone Repository…** in the toolbar, run "Clone Repository" from the command palette, or click **Clone Repository…** in the empty Files panel. Enter a repository URL (HTTPS or SSH) and click Clone. The repository is cloned and opened in the editor.
 
 
 ## GitHub Issues and Pull Requests
@@ -88,7 +87,7 @@ MarkUpsideDown never stores a GitHub token of its own. It reuses whatever accoun
 
 ### Browsing
 
-Click the **Issues & PRs** icon in the sidebar's bottom navigation bar, or run "Show GitHub Issues" from the command palette (<kbd>Cmd</kbd>+<kbd>K</kbd>).
+Click **GitHub** at the top of the sidebar, or run "Show GitHub Issues" from the command palette (<kbd>Cmd</kbd>+<kbd>K</kbd>).
 
 The panel has:
 

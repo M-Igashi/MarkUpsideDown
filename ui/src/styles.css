@@ -1524,7 +1524,7 @@ body.fullscreen #toolbar {
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: var(--desk);
+  background: var(--paper);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1582,8 +1582,9 @@ body.fullscreen #toolbar {
   position: fixed;
   bottom: 20px;
   right: 30px;
-  font-size: var(--fs-lg);
-  color: var(--ink-2);
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
   pointer-events: none;
 }
 
@@ -1591,20 +1592,21 @@ body.fullscreen #toolbar {
 .prompt-overlay {
   position: fixed;
   inset: 0;
-  background: var(--backdrop);
+  z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  background: var(--backdrop);
+  animation: overlay-in var(--t-med) both;
 }
 
 .prompt-box {
-  background: var(--surface);
-  border: 1px solid var(--rule);
+  background: var(--paper);
   border-radius: var(--r-lg);
-  padding: 16px;
-  min-width: 300px;
   box-shadow: var(--shadow-modal);
+  animation: modal-in var(--t-med) both;
+  min-width: 320px;
+  padding: 20px;
 }
 
 .prompt-box label {
@@ -2920,10 +2922,26 @@ body.fullscreen #toolbar {
   text-align: left;
 }
 
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+}
+
 /* Accessibility */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     transition-duration: 0s !important;
+    animation-duration: 0s !important;
   }
 }
 
@@ -2941,22 +2959,24 @@ body.fullscreen #toolbar {
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: var(--backdrop);
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  background: var(--backdrop);
+  animation: overlay-in var(--t-med) both;
 }
 
 .dialog-box {
-  background: var(--surface);
-  border: 1px solid var(--rule);
+  background: var(--paper);
   border-radius: var(--r-lg);
-  padding: 20px;
-  width: 420px;
+  box-shadow: var(--shadow-modal);
+  animation: modal-in var(--t-med) both;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  width: 440px;
+  padding: 20px;
 }
 
 .dialog-title {
@@ -2978,11 +2998,12 @@ body.fullscreen #toolbar {
 
 /* Settings Panel */
 .settings-box {
-  background: var(--surface);
-  border: 1px solid var(--rule);
+  background: var(--paper);
+  box-shadow: var(--shadow-modal);
+  animation: modal-in var(--t-med) both;
   border-radius: var(--r-lg);
   padding: 24px;
-  width: 520px;
+  width: 560px;
   max-width: 90vw;
   max-height: 85vh;
   overflow-y: auto;
@@ -3002,8 +3023,9 @@ body.fullscreen #toolbar {
 }
 
 .settings-title {
-  font-size: var(--fs-lg);
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .settings-section {
@@ -3012,12 +3034,15 @@ body.fullscreen #toolbar {
   gap: 8px;
 }
 
+.settings-section + .settings-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--rule-soft);
+}
+
 .settings-section-title {
-  font-size: var(--fs-md);
+  font-size: var(--fs-lg);
   font-weight: 600;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--ink);
 }
 
 .settings-description {
@@ -3677,22 +3702,24 @@ body.fullscreen #toolbar {
 .crawl-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: var(--backdrop);
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  background: var(--backdrop);
+  animation: overlay-in var(--t-med) both;
 }
 
 .crawl-dialog {
-  background: var(--surface);
-  border: 1px solid var(--rule);
+  background: var(--paper);
   border-radius: var(--r-lg);
-  padding: 20px;
-  width: 400px;
+  box-shadow: var(--shadow-modal);
+  animation: modal-in var(--t-med) both;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 420px;
+  padding: 20px;
 }
 
 .crawl-dialog h3 {
@@ -3756,34 +3783,44 @@ body.fullscreen #toolbar {
 .command-palette-overlay {
   position: fixed;
   inset: 0;
-  background: var(--backdrop);
+  z-index: 5000;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 15vh;
-  z-index: 5000;
+  background: var(--backdrop);
+  animation: overlay-in var(--t-med) both;
+  padding-top: 14vh;
 }
 
 .command-palette-box {
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-lg);
-  width: 480px;
+  width: 560px;
   max-width: 90vw;
-  box-shadow: var(--shadow-modal);
   overflow: hidden;
+  background: var(--paper);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-modal);
+  animation: modal-in var(--t-med) both;
 }
 
 .command-palette-input {
-  width: 100%;
-  padding: 12px 16px;
-  background: var(--paper);
-  border: none;
-  border-bottom: 1px solid var(--rule);
-  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+  padding: 0 16px 0 0;
   font-size: var(--fs-lg);
-  font-family: var(--font-sans);
+  color: var(--ink);
+  background: transparent;
+  border: none;
   outline: none;
+}
+
+.command-palette-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 16px;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 .command-palette-input::placeholder {
@@ -3791,22 +3828,24 @@ body.fullscreen #toolbar {
 }
 
 .command-palette-list {
-  max-height: 320px;
+  max-height: 360px;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 6px;
 }
 
 .command-palette-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
-  cursor: pointer;
   gap: 12px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  cursor: default;
 }
 
 .command-palette-item.selected {
-  background: var(--hover);
+  background: var(--accent-soft);
 }
 
 .command-palette-label {
@@ -3826,17 +3865,32 @@ body.fullscreen #toolbar {
 
 .command-palette-meta kbd {
   font-size: var(--fs-xs);
-  font-family: var(--font-sans);
-  color: var(--ink-2);
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-sm);
-  padding: 1px 6px;
 }
 
 .command-palette-category {
   font-size: var(--fs-xs);
   color: var(--ink-2);
+}
+
+.command-palette-empty {
+  padding: 16px;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  text-align: center;
+}
+
+.command-palette-footer {
+  display: flex;
+  gap: 14px;
+  padding: 8px 16px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  background: var(--surface);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.command-palette-footer kbd {
+  margin-right: 2px;
 }
 
 /* Mermaid expand hint */
@@ -3936,14 +3990,14 @@ body.fullscreen #toolbar {
   position: fixed;
   bottom: calc(var(--statusbar-height) + 12px);
   right: 12px;
-  background: var(--surface);
-  border: 1px solid var(--accent);
+  background: var(--paper);
   border-radius: var(--r-lg);
   padding: 12px 16px;
   font-size: var(--fs-sm);
   z-index: 999;
   max-width: 320px;
   box-shadow: var(--shadow-pop);
+  border-left: 3px solid var(--accent);
   display: flex;
   flex-direction: column;
   gap: 6px;

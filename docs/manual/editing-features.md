@@ -8,7 +8,7 @@ The table editor provides a spreadsheet-like interface for creating and editing 
 
 ### Opening the Table Editor
 
-- Click the **Table** button in the toolbar
+- Click **Table** in the toolbar
 - Or open the Command Palette (Cmd+K) and search for "Table"
 
 If your cursor is inside an existing Markdown table, the table editor opens with that table's data. Otherwise, it creates a new empty table.
@@ -84,7 +84,7 @@ These replacements only apply outside code blocks and inline code.
 
 ## Document Cleanup
 
-Click the **Cleanup** button in the toolbar to normalize the current document. This fixes:
+Click **Clean up** in the toolbar to normalize the current document. This fixes:
 
 - Heading hierarchy
 - Table formatting

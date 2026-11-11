@@ -34,7 +34,7 @@ Right-click any link in the preview pane to get a context menu with quick action
 
 ## Importing Files
 
-Click the **Import** button in the toolbar to open a file picker. Select a document to convert it to Markdown.
+Choose **Import → Import Document…** in the toolbar, or **File → Import Document…** (Cmd+Shift+I), to open a file picker. Select a document to convert it to Markdown.
 
 ### Supported Formats
 

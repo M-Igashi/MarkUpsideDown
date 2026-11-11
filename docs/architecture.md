@@ -87,7 +87,11 @@ MCP Server (mcp-server-rs/)
 | TOC panel | Heading navigation with active tracking (Cmd+4) | `ui/src/toc-panel.ts` |
 | Presentation mode | Slide presentation (split at `---`) | `ui/src/presentation.ts` |
 | Mermaid viewer | Zoom/pan viewer for Mermaid diagrams (Copy as PNG) | `ui/src/mermaid-viewer.ts` |
-| Theme | CodeMirror editor theme (warm paper palette) | `ui/src/theme.ts` |
+| Theme | CodeMirror editor theme (ink on paper, reads the CSS tokens) | `ui/src/theme.ts` |
+| Design tokens | Colors, type, radius, elevation, motion, and shared controls (`.btn`, `.field`, `.menu`, `.segmented`) | `ui/src/styles.css` |
+| Icons | Vendored Lucide icon paths and the `icon()` helper | `ui/src/icons.ts` |
+| Appearance | Reading font and size, editor line numbers (Settings > Appearance) | `ui/src/appearance.ts` |
+| Menus | Shared context menu and toolbar dropdown | `ui/src/context-menu.ts` |
 | Path utils | `basename()`, `dirname()`, `buildRelativePath()` | `ui/src/path-utils.ts` |
 | HTML utils | `escapeHtml()`, `copySvgAsPng()`, `writeTextFile()` | `ui/src/html-utils.ts` |
 | Fetch markdown | Shared URL→Markdown pipeline | `ui/src/fetch-markdown.ts` |

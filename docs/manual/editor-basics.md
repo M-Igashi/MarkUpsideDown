@@ -6,24 +6,32 @@ MarkUpsideDown uses a split-pane layout: the editor on the left, the live previe
 
 ## The Toolbar
 
-The toolbar at the top of the window provides quick access to common actions:
+The toolbar is also the window's title bar: drag empty space to move the window, and double-click it to zoom. Its buttons follow the order you work in, from bringing content in, to shaping it, to sending it out:
 
 | Button | Action |
 |--------|--------|
-| **Open** | Open a folder or file |
-| **Save** | Save the current file (Cmd+S) |
-| **Import** | Import a document (PDF, DOCX, etc.) and convert it to Markdown |
+| **Sidebar** (left edge) | Show or hide the sidebar (Cmd+1) |
+| **URL field** and **Get** | Fetch a web page as Markdown (see below) |
+| **Import** | Import a document (PDF, DOCX, etc.), open a file or folder, or clone a repository |
 | **Table** | Open the table editor |
-| **Cleanup** | Normalize the document (headings, tables, whitespace, CJK emphasis spacing) |
-| **Settings** | Open the settings dialog |
+| **Clean up** | Normalize the document (headings, tables, whitespace, CJK emphasis spacing) |
+| **Copy** | Copy the document as rich text or as Markdown |
+| **Publish** | Publish the current file to a shareable URL (see [Publishing](publishing.md)) |
+| **Present** | Show the document as slides (see [Presentation Mode](presentation.md)) |
+| **Command** (⌘ icon) | Open the command palette (Cmd+K) |
+| **Settings** (gear icon) | Open the settings dialog |
 
+In narrow windows the buttons show only their icons; hover over one to see its name.
 
-## The URL Bar
+Open and Save are in the **File** menu: **Open…** (Cmd+O), **Open Folder…** (Cmd+Shift+O), **Save** (Cmd+S), and **Import Document…** (Cmd+Shift+I).
 
-Below the toolbar is the URL bar. Type or paste a URL, then:
+## The URL Field
 
-- Click **Get** to fetch the page and convert it to Markdown
-- Click **Crawl** to open the crawl dialog for multi-page crawling
+Type or paste a URL into the field in the toolbar, then press **Enter** or click **Get** to fetch the page and convert it to Markdown. The arrow next to **Get** offers other ways to fetch the same URL:
+
+- **Fetch Static Page**: convert the HTML as served, without running JavaScript
+- **Render with Browser**: render JavaScript-heavy pages first (needs a Worker with Browser Run)
+- **Crawl Site…**: open the crawl dialog for multi-page crawling
 
 See [Importing Content](importing-content.md) and [Crawling Websites](crawling-websites.md) for details.
 
@@ -32,7 +40,7 @@ See [Importing Content](importing-content.md) and [Crawling Websites](crawling-w
 The editor is built on CodeMirror 6 and provides:
 
 - **Syntax highlighting** for Markdown elements (headings, links, code, etc.)
-- **Line numbers** in the gutter
+- **Line numbers** in the gutter (off by default; turn them on in **Settings → Appearance**)
 - **Active line highlighting**
 - **Search & replace** (Cmd+F)
 - **Bracket matching**
@@ -88,11 +96,20 @@ MarkUpsideDown supports multi-tab editing:
 
 ## Status Bar
 
-The status bar at the bottom shows:
+The left side of the status bar shows short messages, such as "Document cleaned up" or crawl progress. They clear after a few seconds.
 
-- Line count and character count
-- Current file path
-- Git branch name (when in a Git repository)
+The right side shows the state of the current document. Each item is a button:
+
+- **Branch** (in a Git repository), with arrows for commits ahead of or behind the remote. Click to open the Changes panel.
+- **Published**, when the current file is published. Click to copy its public URL.
+- **Word count**. Click to switch to the character count.
+- **Worker**, with a dot for the Cloudflare Worker's state: green when connected, amber when it needs an update, red when it cannot be reached, and hollow when no Worker is set up. Click to open Settings.
+
+Hover over a tab to see the file's full path.
+
+## Appearance
+
+**Settings → Appearance** sets the reading font (Sans or Serif) and size (Small, Medium, or Large) for the preview and presentation mode, and whether the editor shows line numbers. Changes apply immediately in every window.
 
 ## Saving
 

@@ -17,7 +17,10 @@ All commands are also accessible via the **Command Palette** (Cmd+K).
 
 | Shortcut | Action |
 |----------|--------|
+| Cmd+O | Open file |
+| Cmd+Shift+O | Open folder |
 | Cmd+S | Save file |
+| Cmd+Shift+I | Import document |
 | Cmd+W | Close current tab |
 | Cmd+Shift+[ | Switch to previous tab |
 | Cmd+Shift+] | Switch to next tab |

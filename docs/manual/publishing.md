@@ -8,13 +8,13 @@ Publishing requires the **PUBLISH_BUCKET** R2 binding in your Cloudflare Worker.
 
 ## How to Publish
 
-1. Right-click a file in the sidebar
-2. Select the publish option from the context menu
-3. Choose an expiry:
-   - **Permanent** — no expiration
-   - **1 hour**
-   - **24 hours**
-   - **7 days**
+Open the Markdown file, then click **Publish** in the toolbar. Or right-click the file in the sidebar and choose **Publish…**. Then choose an expiry:
+- **Publish as Permanent Link**: no expiration
+- **Publish for 1 Hour**
+- **Publish for 24 Hours**
+- **Publish for 7 Days**
+
+Publishing from the toolbar saves pending edits first. The toolbar button is unavailable until a Worker is set up and the current tab is a saved Markdown file inside the open folder.
 
 ![Publish context menu with expiry options](images/publishing/publish-context-menu.png)
 
@@ -22,15 +22,15 @@ The file is uploaded to R2 and you receive a shareable URL. By default, the URL 
 
 ## Published File Indicator
 
-Published files show an indicator in the sidebar, so you can see at a glance which files have been shared.
+Published files show an indicator in the sidebar, so you can see at a glance which files have been shared. When the current file is published, the toolbar's **Publish** button shows a dot and the status bar shows **Published** (click it to copy the URL).
 
 ## Updating a Published File
 
-Publishing uploads a snapshot. After you edit and save the file, right-click it and select **Update Published Version** to replace the content at the same URL. A time-limited link keeps its original expiry time. Unsaved changes in the editor are not included.
+Publishing uploads a snapshot. After you edit and save the file, choose **Update Published Version** from the toolbar's **Publish** menu or the file's context menu to replace the content at the same URL. A time-limited link keeps its original expiry time. Unsaved changes in the editor are not included.
 
 ## Unpublishing
 
-To remove a published file, use the unpublish option from the context menu. The content is deleted from R2 and the URL stops working.
+To remove a published file, choose **Unpublish** from the toolbar's **Publish** menu or the file's context menu. The content is deleted from R2 and the URL stops working.
 
 ## How It Works
 
