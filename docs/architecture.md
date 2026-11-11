@@ -37,9 +37,12 @@ MCP Server (mcp-server-rs/)
 │  GET  /crawl/:id → poll crawl results │
 │  DELETE /crawl/:id → cancel crawl     │
 │  PUT  /publish  → publish to R2       │
+│  GET  /published → list published     │
 │  GET  /p/:key   → serve published MD  │
+│  DELETE /publish/:key → unpublish     │
 │  POST /embed    → index in AI Search  │
 │  POST /search   → semantic search     │
+│  DELETE /embed/:id → unindex doc      │
 └───────────────────────────────────────┘
 ```
 
@@ -113,6 +116,7 @@ MCP Server (mcp-server-rs/)
 | `GET /crawl/:job_id` | Poll crawl status and retrieve results | Browser Run `/crawl` REST API |
 | `DELETE /crawl/:job_id` | Cancel a running crawl | Browser Run `/crawl` REST API |
 | `PUT /publish` | Publish Markdown to R2 | R2 |
+| `GET /published` | List published documents (`{ files: [{ key, size, uploaded }] }`) | R2 |
 | `GET /p/:key` | Serve published Markdown | R2 |
 | `DELETE /publish/:key` | Unpublish | R2 |
 | `POST /embed` | Index documents for semantic search | AI Search (`ai_search_namespaces` binding) |
