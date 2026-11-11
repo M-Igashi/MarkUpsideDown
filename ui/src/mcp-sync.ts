@@ -166,15 +166,19 @@ export function initBridgeListeners() {
       const currentFilePath = getCurrentFilePath();
       const path = event.payload || currentFilePath;
       if (!path) return;
+      const tab = getActiveTab();
+      const content = editor.state.doc.toString();
       try {
         suppressNext(path);
-        await writeTextFile(path, editor.state.doc.toString());
-        if (!currentFilePath) {
-          updateActiveTab({ path, name: basename(path) });
-          updateStatus();
+        await writeTextFile(path, content);
+        if (tab && getActiveTab()?.id === tab.id) {
+          if (!currentFilePath) {
+            updateActiveTab({ path, name: basename(path) });
+            updateStatus();
+          }
+          // Writing a copy elsewhere does not save the tab's own file
+          if (!currentFilePath || path === currentFilePath) markTabSaved(tab.id, content);
         }
-        const tab = getActiveTab();
-        if (tab) markTabSaved(tab.id);
         if (getRootPath()) {
           refreshGitAndSync();
           refreshTree();

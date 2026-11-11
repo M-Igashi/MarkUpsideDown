@@ -17,8 +17,9 @@ import { normalizeMarkdown } from "./normalize.ts";
 import { getRootPath, refreshTree, hasPendingExternalDrop } from "./sidebar.ts";
 import { indexDocument } from "./semantic-search.ts";
 import { getActiveTab, isTabDirty, markTabSaved, setTabContent, updateActiveTab } from "./tabs.ts";
+import type { Tab } from "./tabs.ts";
 import { pushRemoteTab } from "./github.ts";
-import { suppressNext } from "./file-watcher.ts";
+import { isReloadPromptOpen, suppressNext } from "./file-watcher.ts";
 
 import { writeTextFile } from "./html-utils.ts";
 
@@ -144,8 +145,7 @@ export async function saveFile() {
     if (currentFilePath) {
       suppressNext(currentFilePath);
       await writeTextFile(currentFilePath, content);
-      const tab = getActiveTab();
-      if (tab) markTabSaved(tab.id);
+      if (activeTab) markTabSaved(activeTab.id, content);
     } else {
       const suggested = suggestFilename();
       const path = await save({
@@ -155,9 +155,10 @@ export async function saveFile() {
       if (path) {
         suppressNext(path);
         await writeTextFile(path, content);
-        updateActiveTab({ path, name: basename(path) });
-        const tab = getActiveTab();
-        if (tab) markTabSaved(tab.id);
+        if (activeTab && getActiveTab()?.id === activeTab.id) {
+          updateActiveTab({ path, name: basename(path) });
+          markTabSaved(activeTab.id, content);
+        }
       }
     }
     if (getRootPath()) {
@@ -180,7 +181,7 @@ export function scheduleAutoSave() {
 }
 
 export async function autoSave() {
-  if (!isAutoSaveEnabled()) return;
+  if (!isAutoSaveEnabled() || isReloadPromptOpen()) return;
   const currentFilePath = getCurrentFilePath();
   if (!currentFilePath) return;
   const tab = getActiveTab();
@@ -192,10 +193,26 @@ export async function autoSave() {
   try {
     suppressNext(currentFilePath);
     await writeTextFile(currentFilePath, content);
-    markTabSaved(tab.id);
+    markTabSaved(tab.id, content);
     if (getRootPath()) refreshGitAfterAutoSave(currentFilePath);
   } catch (e) {
     statusEl.textContent = `Auto-save failed: ${e}`;
+  }
+}
+
+/** Write a file-backed tab's own content to disk (used for tabs that are not in the editor). */
+export async function saveTabToDisk(tab: Tab): Promise<boolean> {
+  if (!tab.path || !isTabDirty(tab)) return true;
+  const content = tab.content;
+  try {
+    suppressNext(tab.path);
+    await writeTextFile(tab.path, content);
+    markTabSaved(tab.id, content);
+    if (getRootPath()) refreshGitAfterAutoSave(tab.path);
+    return true;
+  } catch (e) {
+    statusEl.textContent = `Save failed: ${e}`;
+    return false;
   }
 }
 
