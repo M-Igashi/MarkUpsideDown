@@ -1,35 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <clipPath id="rounded">
-      <rect width="1024" height="1024" rx="180" ry="180"/>
-    </clipPath>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a352e"/>
+      <stop offset="1" stop-color="#1d1a16"/>
+    </linearGradient>
   </defs>
-
-  <g clip-path="url(#rounded)">
-    <!-- Background -->
-    <rect width="1024" height="1024" fill="#0A0A0A"/>
-
-    <!-- Solid M glyph — thick, bold, single path -->
-    <path d="
-      M 150,730
-      L 150,210
-      L 310,210
-      L 512,440
-      L 714,210
-      L 874,210
-      L 874,730
-      L 714,730
-      L 714,430
-      L 582,580
-      L 582,730
-      L 442,730
-      L 442,580
-      L 310,430
-      L 310,730
-      Z
-    " fill="#FFFFFF"/>
-
-    <!-- Downward arrow — solid triangle below center -->
-    <polygon points="392,740 512,860 632,740" fill="#FFFFFF"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <rect x="102" y="102" width="820" height="820" rx="184" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="4"/>
+  <g fill="none" stroke-width="80" stroke-linejoin="miter" stroke-miterlimit="6">
+    <path d="M290,566 V306 L512,540 L734,306 V566" stroke="#f7f2e9"/>
+    <path d="M512,540 V762" stroke="#7fb0ea"/>
+    <path d="M394,674 L512,792 L630,674" stroke="#7fb0ea"/>
   </g>
 </svg>
