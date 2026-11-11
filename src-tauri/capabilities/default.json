@@ -20,6 +20,7 @@
     "shell:allow-open",
     "store:default",
     "core:event:allow-listen",
+    "core:window:allow-destroy",
     "fs:allow-watch"
   ]
 }

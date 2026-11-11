@@ -14,7 +14,7 @@ import { lintGutter } from "@codemirror/lint";
 import { markdownLinter } from "./markdown-lint.ts";
 import { editorTheme } from "./theme.ts";
 import { editTableAtCursor } from "./table-editor.ts";
-import { showSettings, checkFirstRun } from "./settings.ts";
+import { showSettings, checkFirstRun, isAutoSaveEnabled } from "./settings.ts";
 import { checkForUpdate, watchBundleVersion } from "./update-toast.ts";
 import {
   initSidebar,
@@ -111,6 +111,7 @@ import {
   renderUrl,
   importFile,
   initDragDrop,
+  saveTabToDisk,
 } from "./file-ops.ts";
 import { initClipboard, copyRichText, copyMarkdown } from "./clipboard.ts";
 import { initMcpSync, syncEditorState, initBridgeListeners, listenToWindow } from "./mcp-sync.ts";
@@ -1063,17 +1064,47 @@ async function reloadTab(tab: Tab) {
   if (!tab.path) return;
   try {
     const content = await invoke<string>("read_text_file", { path: tab.path });
-    updateActiveTab({ content });
-    markTabSaved(tab.id);
-    loadContent(content, tab.path);
+    // The user may have switched tabs while the read was in flight
+    setTabContent(tab.id, content);
+    markTabSaved(tab.id, content);
+    if (getActiveTab()?.id === tab.id) loadContent(content, tab.path);
   } catch {
-    loadContent("", tab.path);
+    if (getActiveTab()?.id === tab.id) loadContent("", tab.path);
   }
+}
+
+/** Ask before closing a tab whose content would be lost. */
+async function confirmCloseTab(tab: Tab): Promise<boolean> {
+  if (tab.path && isTabDirty(tab)) {
+    if (isAutoSaveEnabled()) return saveTabToDisk(tab);
+    const choice = await window.__TAURI__.dialog.message(`"${tab.name}" has unsaved changes.`, {
+      title: "Unsaved Changes",
+      kind: "warning",
+      buttons: { yes: "Save", no: "Don't Save", cancel: "Cancel" },
+    });
+    if (choice === "Save") return saveTabToDisk(tab);
+    return choice === "Don't Save";
+  }
+  const unsavedText = tab.remote ? isTabDirty(tab) : !tab.path && tab.content.trim() !== "";
+  if (!unsavedText) return true;
+  const what = tab.remote
+    ? "Unsaved edits will not be pushed to GitHub."
+    : "Its content has not been saved to a file.";
+  return confirmDialog(`Close "${tab.name}"? ${what}`, {
+    title: "Unsaved Changes",
+    kind: "warning",
+    okLabel: "Close",
+  });
 }
 
 initTabs(tabBarEl, {
   onSwitch: (tab: Tab) => {
-    autoSave();
+    // Restored background tabs have no content yet; load it from the source
+    if ((tab.path || tab.remote) && tab.savedContent === null) {
+      loadContent("", tab.path);
+      reloadTab(tab);
+      return;
+    }
     loadContent(tab.content, tab.path);
     // Check if file changed on disk since last load (catches missed watcher events).
     // Cheap (mtime, size) gate first — only re-read the file when it changed.
@@ -1084,10 +1115,17 @@ initTabs(tabBarEl, {
           const statKey = `${stat.mtime_ms}:${stat.size}`;
           if (tabStatKeys.get(path) === statKey) return;
           tabStatKeys.set(path, statKey);
-          return invoke<string>("read_text_file", { path }).then((diskContent) => {
-            if (diskContent !== tab.savedContent && tab.id === getActiveTab()?.id) {
-              applyDiskContent(tab, diskContent);
+          return invoke<string>("read_text_file", { path }).then(async (diskContent) => {
+            if (diskContent === tab.savedContent || tab.id !== getActiveTab()?.id) return;
+            if (isTabDirty(tab)) {
+              const fileName = basename(path);
+              const reload = await confirmDialog(
+                `"${fileName}" has been modified externally.\nReload and discard your unsaved changes?`,
+                { title: "File Changed", kind: "warning" },
+              );
+              if (!reload || tab.id !== getActiveTab()?.id) return;
             }
+            applyDiskContent(tab, diskContent);
           });
         })
         .catch(() => {});
@@ -1103,6 +1141,12 @@ initTabs(tabBarEl, {
   onClose: (tab) => {
     if (tab.path) stopWatching(tab.path);
   },
+  onLeave: (tab) => {
+    // The outgoing tab leaves the editor, so the pending auto-save would no
+    // longer see it; write it now.
+    if (isAutoSaveEnabled()) saveTabToDisk(tab);
+  },
+  beforeClose: confirmCloseTab,
   skipRestore: isFreshWindow,
 });
 
@@ -1432,6 +1476,25 @@ async function saveWindowRegistry() {
 setInterval(saveWindowRegistry, 30_000);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") saveWindowRegistry();
+});
+
+// --- Unsaved changes on window close ---
+
+window.__TAURI__.window?.getCurrentWindow().onCloseRequested(async (event) => {
+  flushPendingContent();
+  const dirty = getTabs().filter(isTabDirty);
+  if (dirty.length === 0) return;
+  if (isAutoSaveEnabled() && dirty.every((t) => t.path)) {
+    const results = await Promise.all(dirty.map(saveTabToDisk));
+    if (results.every(Boolean)) return;
+  }
+  const names = dirty.map((t) => t.name).join(", ");
+  const ok = await confirmDialog(`Unsaved changes in: ${names}\n\nClose the window anyway?`, {
+    title: "Unsaved Changes",
+    kind: "warning",
+    okLabel: "Close",
+  });
+  if (!ok) event.preventDefault();
 });
 
 // --- Cleanup on window close ---

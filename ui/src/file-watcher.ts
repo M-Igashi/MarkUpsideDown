@@ -56,13 +56,25 @@ export function isRecentlySuppressed(filePath: string): boolean {
   return false;
 }
 
+// True while the "modified externally" prompt is open; auto-save waits so it
+// cannot overwrite the external change the user is being asked about.
+let reloadPromptOpen = false;
+
+export function isReloadPromptOpen(): boolean {
+  return reloadPromptOpen;
+}
+
 async function reloadPath(path: string) {
   const tab = deps.getTabByPath(path);
   if (!tab) return;
 
   if (deps.isTabDirty(tab)) {
-    const shouldReload = await deps.confirmReload(path);
-    if (!shouldReload) return;
+    reloadPromptOpen = true;
+    try {
+      if (!(await deps.confirmReload(path))) return;
+    } finally {
+      reloadPromptOpen = false;
+    }
   }
 
   await deps.reloadTab(path);
@@ -98,12 +110,18 @@ function onFileChanged(event: WatchEvent) {
 
   if (typeof kind !== "object") return;
 
-  // Handle file removal — close the tab for deleted files
+  // Handle file removal — close the tab for deleted files. Unlink-and-recreate
+  // writers (git checkout, some editors) also report a removal, so confirm the
+  // file is really gone, and keep tabs with unsaved edits open.
   if ("remove" in kind) {
     for (const path of event.paths) {
-      if (!path) continue;
-      const tab = deps.getTabByPath(path);
-      if (tab) deps.onFileDeleted?.(path);
+      if (!path || !deps.getTabByPath(path)) continue;
+      invoke("stat_file", { path })
+        .then(() => scheduleReload(path))
+        .catch(() => {
+          const tab = deps.getTabByPath(path);
+          if (tab && !deps.isTabDirty(tab)) deps.onFileDeleted?.(path);
+        });
     }
     return;
   }

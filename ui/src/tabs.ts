@@ -35,6 +35,8 @@ let onTabSwitch: ((tab: Tab) => void) | null = null;
 let onTabEmpty: (() => void) | null = null;
 let onTabOpen: ((tab: Tab) => void) | null = null;
 let onTabClose: ((tab: Tab) => void) | null = null;
+let onTabLeave: ((tab: Tab) => void) | null = null;
+let beforeTabClose: ((tab: Tab) => Promise<boolean>) | null = null;
 
 let nextId = 1;
 let currentProjectRoot: string | null = null;
@@ -66,6 +68,8 @@ export function initTabs(
     onReload,
     onOpen,
     onClose,
+    onLeave,
+    beforeClose,
     skipRestore,
   }: {
     onSwitch: (tab: Tab) => void;
@@ -73,6 +77,10 @@ export function initTabs(
     onReload?: (tab: Tab) => void;
     onOpen?: (tab: Tab) => void;
     onClose?: (tab: Tab) => void;
+    /** Called with the outgoing tab (content already flushed) before another tab becomes active. */
+    onLeave?: (tab: Tab) => void;
+    /** Called before a user-initiated close; resolve false to keep the tab open. */
+    beforeClose?: (tab: Tab) => Promise<boolean>;
     skipRestore?: boolean;
   },
 ): void {
@@ -81,6 +89,8 @@ export function initTabs(
   onTabEmpty = onEmpty;
   onTabOpen = onOpen || null;
   onTabClose = onClose || null;
+  onTabLeave = onLeave || null;
+  beforeTabClose = beforeClose || null;
 
   // Restore state (per-window scoped key)
   if (!skipRestore) {
@@ -254,6 +264,8 @@ export function switchTab(id: string): void {
     return;
   }
   contentFlusher?.();
+  const outgoing = tabs.find((t) => t.id === activeTabId);
+  if (outgoing) onTabLeave?.(outgoing);
   activeTabId = id;
   saveState();
   renderTabs();
@@ -261,9 +273,21 @@ export function switchTab(id: string): void {
   if (tab) onTabSwitch?.(tab);
 }
 
+/** Close a tab on user request, giving `beforeClose` a chance to save or cancel. */
+export async function requestCloseTab(id: string): Promise<void> {
+  contentFlusher?.();
+  const tab = tabs.find((t) => t.id === id);
+  if (!tab) return;
+  if (beforeTabClose && !(await beforeTabClose(tab))) return;
+  closeTab(id);
+}
+
 export function closeTab(id: string): void {
   const idx = tabs.findIndex((t) => t.id === id);
   if (idx === -1) return;
+  // The editor still holds the closing tab's document; flush it now so the
+  // pending sync cannot land in the tab that becomes active below.
+  if (id === activeTabId) contentFlusher?.();
 
   const closedTab = tabs[idx];
   tabs.splice(idx, 1);
@@ -286,7 +310,7 @@ export function closeTab(id: string): void {
 }
 
 export function closeActiveTab(): void {
-  if (activeTabId) closeTab(activeTabId);
+  if (activeTabId) requestCloseTab(activeTabId);
 }
 
 export function switchToPrevTab(): void {
@@ -362,11 +386,12 @@ export function isTabDirty(tab: Tab): boolean {
   return backed && tab.savedContent !== null && tab.content !== tab.savedContent;
 }
 
-export function markTabSaved(id: string): void {
+/** Mark a tab saved. Pass the content that was written when it may have changed since. */
+export function markTabSaved(id: string, content?: string): void {
   contentFlusher?.();
   const tab = tabs.find((t) => t.id === id);
   if (tab) {
-    tab.savedContent = tab.content;
+    tab.savedContent = content ?? tab.content;
     renderTabs();
   }
 }
@@ -522,7 +547,7 @@ function renderTabs(): void {
     closeBtn.title = "Close tab";
     closeBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      closeTab(tab.id);
+      requestCloseTab(tab.id);
     });
     el.appendChild(closeBtn);
 

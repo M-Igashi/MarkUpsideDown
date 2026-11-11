@@ -12,7 +12,19 @@ interface TauriDialog {
   open(options?: Record<string, unknown>): Promise<string | null>;
   save(options?: Record<string, unknown>): Promise<string | null>;
   confirm(message: string, options?: Record<string, unknown>): Promise<boolean>;
-  message(message: string, options?: Record<string, unknown>): Promise<void>;
+  message(message: string, options?: Record<string, unknown>): Promise<string>;
+}
+
+interface TauriCloseRequestedEvent {
+  preventDefault(): void;
+}
+
+interface TauriWindowModule {
+  getCurrentWindow(): {
+    onCloseRequested(
+      handler: (event: TauriCloseRequestedEvent) => Promise<void>,
+    ): Promise<() => void>;
+  };
 }
 
 interface TauriEvent {
@@ -43,6 +55,7 @@ interface TauriGlobal {
   app: TauriApp;
   event?: TauriEvent;
   webviewWindow?: TauriWebviewWindowModule;
+  window?: TauriWindowModule;
 }
 
 interface Window {
