@@ -1,5 +1,5 @@
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock as Content, Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock as Content, Implementation, ServerCapabilities, ServerConfig};
 use rmcp::schemars;
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
@@ -480,10 +480,10 @@ impl McpTools {
         }
         {
             let cache = self.cached_worker.lock().unwrap();
-            if let Some((ref target, ref ts)) = *cache {
-                if ts.elapsed() < std::time::Duration::from_secs(60) {
-                    return Ok(target.clone());
-                }
+            if let Some((ref target, ref ts)) = *cache
+                && ts.elapsed() < std::time::Duration::from_secs(60)
+            {
+                return Ok(target.clone());
             }
         }
         let bridge = self.bridge.get_worker_config().await.unwrap_or_default();
@@ -739,7 +739,7 @@ impl McpTools {
     #[tool(name = "lint_document", description = "Run structural lint checks on the current editor content. Returns diagnostics with line number, severity (error/warning/info), and message. Checks: headings, links, tables, frontmatter, lists, emphasis (CommonMark flanking), code blocks, footnotes, HTML comments, blank lines.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn lint_document(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         text_result(self.bridge.lint_document().await.map(|diagnostics| {
-            if diagnostics.as_array().map_or(true, |a| a.is_empty()) {
+            if diagnostics.as_array().is_none_or(|a| a.is_empty()) {
                 "No lint issues found".to_string()
             } else {
                 pretty_json(&diagnostics)
@@ -921,15 +921,15 @@ impl McpTools {
                 body["response_format"] = parse_schema_param(rf)?;
             }
 
-            if let Some(ref patterns) = params.include_patterns {
-                if !patterns.is_empty() {
-                    body["includePatterns"] = serde_json::json!(patterns);
-                }
+            if let Some(ref patterns) = params.include_patterns
+                && !patterns.is_empty()
+            {
+                body["includePatterns"] = serde_json::json!(patterns);
             }
-            if let Some(ref patterns) = params.exclude_patterns {
-                if !patterns.is_empty() {
-                    body["excludePatterns"] = serde_json::json!(patterns);
-                }
+            if let Some(ref patterns) = params.exclude_patterns
+                && !patterns.is_empty()
+            {
+                body["excludePatterns"] = serde_json::json!(patterns);
             }
 
             let data = self
@@ -1338,10 +1338,10 @@ impl McpTools {
                 "content": params.content,
                 "filename": params.filename.unwrap_or_else(|| "untitled.md".to_string()),
             });
-            if let Some(ttl) = params.expires_in {
-                if ttl > 0 {
-                    body["expires_in"] = serde_json::json!(ttl);
-                }
+            if let Some(ttl) = params.expires_in
+                && ttl > 0
+            {
+                body["expires_in"] = serde_json::json!(ttl);
             }
 
             let data = self.worker_call(reqwest::Method::PUT, "/publish", Some(body), 30).await?;
@@ -1504,8 +1504,8 @@ impl McpTools {
 
 #[tool_handler]
 impl ServerHandler for McpTools {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

@@ -22,6 +22,7 @@ pub struct CrawlStartResult {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn crawl_website(
     url: String,
     worker_url: String,
@@ -42,15 +43,15 @@ pub async fn crawl_website(
         "render": render,
     });
 
-    if let Some(ref patterns) = include_patterns {
-        if !patterns.is_empty() {
-            body["includePatterns"] = serde_json::json!(patterns);
-        }
+    if let Some(ref patterns) = include_patterns
+        && !patterns.is_empty()
+    {
+        body["includePatterns"] = serde_json::json!(patterns);
     }
-    if let Some(ref patterns) = exclude_patterns {
-        if !patterns.is_empty() {
-            body["excludePatterns"] = serde_json::json!(patterns);
-        }
+    if let Some(ref patterns) = exclude_patterns
+        && !patterns.is_empty()
+    {
+        body["excludePatterns"] = serde_json::json!(patterns);
     }
 
     let resp: CrawlStartWorkerResponse = worker_request(
