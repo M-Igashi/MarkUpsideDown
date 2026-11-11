@@ -101,12 +101,32 @@ export function findCodeBlockRanges(lines: string[]): [number, number][] {
     if (fence) {
       const start = i;
       i++;
-      while (i < lines.length && !lines[i].trimStart().startsWith(fence)) i++;
+      while (i < lines.length && !isClosingFence(lines[i], fence)) i++;
       ranges.push([start, i]);
     }
     i++;
   }
   return ranges;
+}
+
+function isClosingFence(line: string, fence: string): boolean {
+  const t = line.trim();
+  return t.startsWith(fence) && /^(`+|~+)$/.test(t);
+}
+
+const INLINE_CODE_RE =
+  /(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)|\$\$.+?\$\$|\$(?!\d)[^\s$](?:[^$\n]*[^\s$])?\$/g;
+
+/** Apply `fn` to a line with inline code and math spans hidden behind placeholders. */
+export function mapOutsideInlineCode(line: string, fn: (s: string) => string): string {
+  if (!/[`$]/.test(line) || line.includes("\uE000")) return fn(line);
+  const spans: string[] = [];
+  const masked = line.replace(INLINE_CODE_RE, (m) => {
+    spans.push(m);
+    return "\uE000";
+  });
+  let k = 0;
+  return fn(masked).replace(/\uE000/g, () => spans[k++]);
 }
 
 export function isInCodeBlock(lineIdx: number, ranges: [number, number][]): boolean {

@@ -1,4 +1,10 @@
-import { findCodeBlockRanges, isInCodeBlock, isValidYamlLine } from "./document-structure.ts";
+import {
+  findCodeBlockRanges,
+  isInCodeBlock,
+  isValidYamlLine,
+  mapOutsideInlineCode,
+} from "./document-structure.ts";
+import { fixCjkEmphasisWith } from "./cjk-emphasis.ts";
 
 /**
  * Post-conversion Markdown normalization.
@@ -38,24 +44,25 @@ export function normalizeMarkdown(input: string): string {
 
 // --- Frontmatter cleanup ---
 
+const MAX_FRONTMATTER_LINES = 30;
+
 function stripMalformedFrontmatter(text: string): string {
-  const open = text.match(/^---\r?\n/);
-  if (!open) return text;
+  if (!/^---\r?\n/.test(text)) return text;
 
-  const rest = text.slice(open[0].length);
-  const close = rest.match(/^---[ \t\r]*$/m);
-  if (!close || close.index === undefined) return text;
+  const lines = text.split("\n");
+  const close = lines
+    .slice(0, MAX_FRONTMATTER_LINES + 2)
+    .findIndex((line, i) => i > 0 && /^---[ \t\r]*$/.test(line));
+  if (close < 0) return text;
 
-  const fmBody = rest.slice(0, close.index);
-  const lines = fmBody.split(/\r?\n/);
+  const body = lines.slice(1, close);
+  const hasKey = body.some((line) => /^[\w.-]+\s*:/.test(line.trim()));
+  if (!hasKey || body.every(isValidYamlLine)) return text;
 
-  const valid = lines.every(isValidYamlLine);
-
-  if (valid) return text;
-
-  // Strip malformed frontmatter
-  const afterFm = rest.slice(close.index + close[0].length);
-  return afterFm.replace(/^[\r\n]+/, "");
+  return lines
+    .slice(close + 1)
+    .join("\n")
+    .replace(/^[\r\n]+/, "");
 }
 
 // --- Heading hierarchy fix ---
@@ -108,18 +115,33 @@ function fixHeadingHierarchy(text: string): string {
 // --- Empty/broken link removal ---
 
 function removeEmptyLinks(text: string): string {
-  // [text]() or [text](#)
-  return text.replace(/\[([^\]]+)\]\(#?\)/g, "$1");
+  // [text]() or [text](#), but not images
+  return mapProseLines(text, (line) =>
+    mapOutsideInlineCode(line, (s) => s.replace(/(?<!!)\[([^\]]+)\]\(#?\)/g, "$1")),
+  );
+}
+
+function mapProseLines(text: string, fn: (line: string) => string): string {
+  const lines = text.split("\n");
+  const codeRanges = findCodeBlockRanges(lines);
+  return lines.map((line, i) => (isInCodeBlock(i, codeRanges) ? line : fn(line))).join("\n");
 }
 
 // --- List marker normalization ---
 
+const THEMATIC_BREAK_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+
 function normalizeListMarkers(text: string): string {
   const lines = text.split("\n");
+  const codeRanges = findCodeBlockRanges(lines);
+  const listMarker = (i: number) =>
+    isInCodeBlock(i, codeRanges) || THEMATIC_BREAK_RE.test(lines[i])
+      ? null
+      : lines[i].match(/^(\s*)([-*+]) /);
   let i = 0;
 
   while (i < lines.length) {
-    const match = lines[i].match(/^(\s*)([-*+]) /);
+    const match = listMarker(i);
     if (!match) {
       i++;
       continue;
@@ -131,12 +153,12 @@ function normalizeListMarkers(text: string): string {
     i++;
 
     while (i < lines.length) {
-      const cont = lines[i].match(/^(\s*)([-*+]) /);
+      const cont = listMarker(i);
       if (cont) {
         i++;
       } else if (lines[i].trim() === "") {
         // Blank line might separate list items, peek ahead
-        if (i + 1 < lines.length && /^\s*[-*+] /.test(lines[i + 1])) {
+        if (i + 1 < lines.length && listMarker(i + 1)) {
           i++;
         } else {
           break;
@@ -242,11 +264,14 @@ function displayWidth(cell: string): number {
 
 function reformatTables(text: string): string {
   const lines = text.split("\n");
+  const codeRanges = findCodeBlockRanges(lines);
+  const isTableLine = (i: number) =>
+    lines[i].trim().startsWith("|") && !isInCodeBlock(i, codeRanges);
   const result: string[] = [];
   let i = 0;
 
   while (i < lines.length) {
-    if (!lines[i].trim().startsWith("|")) {
+    if (!isTableLine(i)) {
       result.push(lines[i]);
       i++;
       continue;
@@ -254,7 +279,7 @@ function reformatTables(text: string): string {
 
     // Collect table block
     const tableLines: string[] = [];
-    while (i < lines.length && lines[i].trim().startsWith("|")) {
+    while (i < lines.length && isTableLine(i)) {
       tableLines.push(lines[i]);
       i++;
     }
@@ -291,8 +316,10 @@ function reformatTables(text: string): string {
       dataRows = rows.slice(1);
     }
 
-    // Detect malformed tables (e.g. multi-line cells) — pass through unmodified
-    const hasMalformedRows = dataRows.some((row) => Math.abs(row.length - colCount) > 1);
+    // Malformed tables (multi-line cells, extra columns) pass through unmodified
+    const hasMalformedRows = dataRows.some(
+      (row) => row.length > colCount || colCount - row.length > 1,
+    );
     if (hasMalformedRows) {
       result.push(...tableLines);
       continue;
@@ -302,7 +329,6 @@ function reformatTables(text: string): string {
     const allRows = [headerRow, sepRow, ...dataRows];
     for (const row of allRows) {
       while (row.length < colCount) row.push("");
-      if (row.length > colCount) row.length = colCount;
     }
     while (alignments.length < colCount) alignments.push("none");
     if (alignments.length > colCount) alignments.length = colCount;
@@ -339,8 +365,6 @@ function reformatTables(text: string): string {
   return result.join("\n");
 }
 
-import { fixCjkEmphasisWith } from "./cjk-emphasis.ts";
-
 function fixCjkEmphasis(text: string): string {
   return fixCjkEmphasisWith(text, " ");
 }
@@ -348,11 +372,30 @@ function fixCjkEmphasis(text: string): string {
 // --- Whitespace collapse ---
 
 function collapseWhitespace(text: string): string {
-  // Trim trailing whitespace on each line
-  let result = text.replace(/[ \t]+$/gm, "");
-  // Collapse 3+ blank lines to 2
-  result = result.replace(/\n{4,}/g, "\n\n\n");
-  // Trim leading/trailing whitespace of the whole document
-  result = result.trim() + "\n";
-  return result;
+  const lines = text.split("\n");
+  const codeRanges = findCodeBlockRanges(lines);
+  const result: string[] = [];
+  let blankRun = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (isInCodeBlock(i, codeRanges)) {
+      result.push(lines[i]);
+      blankRun = 0;
+      continue;
+    }
+    const line = trimTrailing(lines[i], (lines[i + 1] ?? "").trim() !== "");
+    // Collapse 3+ blank lines to 2
+    blankRun = line === "" ? blankRun + 1 : 0;
+    if (blankRun <= 2) result.push(line);
+  }
+
+  return result.join("\n").replace(/^\n+/, "").trimEnd() + "\n";
+}
+
+/** Trim trailing spaces and tabs, keeping a two-space hard break before a non-blank line. */
+function trimTrailing(line: string, keepHardBreak: boolean): string {
+  let end = line.length;
+  while (end > 0 && (line[end - 1] === " " || line[end - 1] === "\t")) end--;
+  if (end === line.length || end === 0) return line.slice(0, end);
+  return line.slice(0, end) + (keepHardBreak && line.endsWith("  ") ? "  " : "");
 }
