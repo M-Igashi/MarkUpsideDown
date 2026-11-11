@@ -1,4 +1,26 @@
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::commands::EditorStates;
+
+/// Emit an event to a single window: the focused one, else "main", else any.
+/// `Emitter::emit` would reach every window, so with several windows open an
+/// MCP edit or a file-open would land in all of them.
+pub fn emit_to_focused<S: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
+    let windows = app.webview_windows();
+    let focused = app
+        .try_state::<Arc<EditorStates>>()
+        .and_then(|s| s.get_focused_label());
+    let label = focused
+        .filter(|l| windows.contains_key(l))
+        .or_else(|| windows.contains_key("main").then(|| "main".to_string()))
+        .or_else(|| windows.keys().next().cloned());
+    if let Some(label) = label {
+        let _ = app.emit_to(label.as_str(), event, payload);
+    }
+}
 
 pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
