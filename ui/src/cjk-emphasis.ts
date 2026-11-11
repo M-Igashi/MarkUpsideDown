@@ -6,6 +6,8 @@
 // normalize.ts uses half-width space (portable Markdown for all parsers).
 // preview-render.ts uses hair space U+200A (invisible, passes flanking rules).
 
+import { findCodeBlockRanges, isInCodeBlock, mapOutsideInlineCode } from "./document-structure.ts";
+
 export const CJK_RE = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
 
 // Emphasis span matchers — shared with markdown-lint.ts so a fix to the
@@ -26,28 +28,50 @@ function spaceCjkEmphasis(line: string, re: RegExp, marker: string, space: strin
   });
 }
 
+const LIST_ITEM_RE = /^\s*(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
+
+// Leading blockquote / list markers, so a `*` bullet is never taken as an emphasis opener.
+const LINE_PREFIX_RE = /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)])(?=[ \t]|$))*[ \t]*/;
+
+function stripInnerSpaces(line: string, re: RegExp, marker: string): string {
+  return line.replace(re, (m, content: string) =>
+    /^\s/.test(content) && /\s$/.test(content) && content.trim()
+      ? `${marker}${content.trim()}${marker}`
+      : m,
+  );
+}
+
+function fixLine(line: string, space: string): string {
+  // Strip inner spaces: "** text **" → "**text**"
+  line = stripInnerSpaces(line, STRONG_ASTERISK_RE, "**");
+  line = stripInnerSpaces(line, STRONG_UNDERSCORE_RE, "__");
+
+  // Insert spaces at CJK boundaries (longer markers first to avoid conflicts)
+  line = spaceCjkEmphasis(line, STRONG_ASTERISK_RE, "**", space);
+  line = spaceCjkEmphasis(line, EM_ASTERISK_RE, "*", space);
+  line = spaceCjkEmphasis(line, STRONG_UNDERSCORE_RE, "__", space);
+  line = spaceCjkEmphasis(line, EM_UNDERSCORE_RE, "_", space);
+  return line;
+}
+
 export function fixCjkEmphasisWith(text: string, space: string): string {
-  let inFence = false;
-  return text
-    .split("\n")
-    .map((line) => {
-      if (/^(`{3,}|~{3,})/.test(line.trimStart())) {
-        inFence = !inFence;
+  const lines = text.split("\n");
+  const codeRanges = findCodeBlockRanges(lines);
+  let prevBlank = true;
+  let inIndentedCode = false;
+  return lines
+    .map((line, i) => {
+      const blank = line.trim() === "";
+      inIndentedCode =
+        !blank &&
+        /^( {4}|\t)/.test(line) &&
+        (prevBlank || inIndentedCode) &&
+        !LIST_ITEM_RE.test(line);
+      prevBlank = blank;
+      if (blank || inIndentedCode || isInCodeBlock(i, codeRanges) || !/[*_]/.test(line))
         return line;
-      }
-      if (inFence) return line;
-
-      // Strip inner spaces: "** text **" → "**text**"
-      line = line.replace(/\*\*\s+((?:[^*]|\*(?!\*))+?)\s+\*\*/g, "**$1**");
-      line = line.replace(/__\s+((?:[^_]|_(?!_))+?)\s+__/g, "__$1__");
-
-      // Insert spaces at CJK boundaries (longer markers first to avoid conflicts)
-      line = spaceCjkEmphasis(line, STRONG_ASTERISK_RE, "**", space);
-      line = spaceCjkEmphasis(line, EM_ASTERISK_RE, "*", space);
-      line = spaceCjkEmphasis(line, STRONG_UNDERSCORE_RE, "__", space);
-      line = spaceCjkEmphasis(line, EM_UNDERSCORE_RE, "_", space);
-
-      return line;
+      const prefix = line.match(LINE_PREFIX_RE)![0];
+      return prefix + mapOutsideInlineCode(line.slice(prefix.length), (s) => fixLine(s, space));
     })
     .join("\n");
 }
