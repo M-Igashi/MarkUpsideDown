@@ -9,6 +9,15 @@ import { handleCrawlStart, handleCrawlStatus, handleCrawlCancel } from "./handle
 import { handlePublish, handleServePublished, handleUnpublish, handlePublishedList, deleteExpiredPublished } from "./handlers/publish.js";
 import { handleEmbed, handleSearch, handleEmbedDelete } from "./handlers/embed.js";
 
+/** Clients may percent-encode keys/ids (e.g. `/` as `%2F`); null when malformed. */
+function decodePathParam(raw: string): string | null {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === "OPTIONS") {
@@ -24,7 +33,9 @@ export default {
 
     const publishKeyMatch = url.pathname.match(/^\/p\/(.+)$/);
     if (request.method === "GET" && publishKeyMatch) {
-      return handleServePublished(publishKeyMatch[1], env);
+      const key = decodePathParam(publishKeyMatch[1]);
+      if (key === null) return jsonResponse({ error: "Invalid key" }, 400);
+      return handleServePublished(key, env);
     }
 
     // Everything else requires the API key.
@@ -71,7 +82,9 @@ export default {
 
     const deletePublishMatch = url.pathname.match(/^\/publish\/(.+)$/);
     if (request.method === "DELETE" && deletePublishMatch) {
-      return handleUnpublish(deletePublishMatch[1], env);
+      const key = decodePathParam(deletePublishMatch[1]);
+      if (key === null) return jsonResponse({ error: "Invalid key" }, 400);
+      return handleUnpublish(key, env);
     }
 
     if (request.method === "POST" && url.pathname === "/embed") {
@@ -84,12 +97,8 @@ export default {
 
     const embedDeleteMatch = url.pathname.match(/^\/embed\/(.+)$/);
     if (request.method === "DELETE" && embedDeleteMatch) {
-      let docId: string;
-      try {
-        docId = decodeURIComponent(embedDeleteMatch[1]);
-      } catch {
-        return jsonResponse({ error: "Invalid document ID" }, 400);
-      }
+      const docId = decodePathParam(embedDeleteMatch[1]);
+      if (docId === null) return jsonResponse({ error: "Invalid document ID" }, 400);
       return handleEmbedDelete(docId, env);
     }
 

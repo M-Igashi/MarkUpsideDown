@@ -1,41 +1,56 @@
 import type { EditorView } from "@codemirror/view";
 import type { Command } from "@codemirror/view";
-import { EditorSelection } from "@codemirror/state";
+import { EditorSelection, type EditorState, type SelectionRange } from "@codemirror/state";
 
-/** Wrap or unwrap the selection with a symmetric marker (e.g. `**`, `*`, `~~`, `` ` ``). */
-function toggleWrap(marker: string): Command {
+/**
+ * Toggle inline markup around each selection: unwrap if the range is already
+ * surrounded by one of `unwrapMarkers` (checked in order), otherwise wrap it
+ * with the `[open, close]` pair from `wrapWith`, keeping the text selected.
+ */
+function toggleMarkup(
+  unwrapMarkers: string[],
+  wrapWith: (selected: string) => [string, string],
+): Command {
   return (view: EditorView) => {
     const { state } = view;
     const changes = state.changeByRange((range) => {
+      const unwrapped = tryUnwrap(state, range, unwrapMarkers);
+      if (unwrapped) return unwrapped;
       const selected = state.sliceDoc(range.from, range.to);
-      const len = marker.length;
-
-      // Check if already wrapped — unwrap
-      const before = state.sliceDoc(Math.max(0, range.from - len), range.from);
-      const after = state.sliceDoc(range.to, Math.min(state.doc.length, range.to + len));
-
-      if (before === marker && after === marker) {
-        return {
-          changes: [
-            { from: range.from - len, to: range.from, insert: "" },
-            { from: range.to, to: range.to + len, insert: "" },
-          ],
-          range: EditorSelection.range(range.from - len, range.to - len),
-        };
-      }
-
-      // Wrap selection
-      const insert = `${marker}${selected}${marker}`;
+      const [open, close] = wrapWith(selected);
       return {
-        changes: { from: range.from, to: range.to, insert },
-        range: EditorSelection.range(range.from + len, range.from + len + selected.length),
+        changes: { from: range.from, to: range.to, insert: `${open}${selected}${close}` },
+        range: EditorSelection.range(
+          range.from + open.length,
+          range.from + open.length + selected.length,
+        ),
       };
     });
-
     view.dispatch(state.update(changes, { userEvent: "input" }));
     return true;
   };
 }
+
+function tryUnwrap(state: EditorState, range: SelectionRange, markers: string[]) {
+  for (const marker of markers) {
+    const len = marker.length;
+    const before = state.sliceDoc(Math.max(0, range.from - len), range.from);
+    const after = state.sliceDoc(range.to, Math.min(state.doc.length, range.to + len));
+    if (before === marker && after === marker) {
+      return {
+        changes: [
+          { from: range.from - len, to: range.from, insert: "" },
+          { from: range.to, to: range.to + len, insert: "" },
+        ],
+        range: EditorSelection.range(range.from - len, range.to - len),
+      };
+    }
+  }
+  return null;
+}
+
+/** Wrap or unwrap the selection with a symmetric marker (e.g. `*`, `~~`). */
+const toggleWrap = (marker: string) => toggleMarkup([marker], () => [marker, marker]);
 
 /** Insert a markdown link. If text is selected, use it as the link text. */
 const insertLink: Command = (view: EditorView) => {
@@ -66,81 +81,18 @@ const insertLink: Command = (view: EditorView) => {
  * Bold toggle: wraps with `__` (avoids nesting collision with italic `*`).
  * Unwraps both `__` and `**` for compatibility with existing documents.
  */
-export const toggleBold: Command = (view: EditorView) => {
-  const { state } = view;
-  const changes = state.changeByRange((range) => {
-    const selected = state.sliceDoc(range.from, range.to);
-
-    // Unwrap either __ or ** (check both for existing-document compat)
-    for (const marker of ["__", "**"]) {
-      const len = marker.length;
-      const before = state.sliceDoc(Math.max(0, range.from - len), range.from);
-      const after = state.sliceDoc(range.to, Math.min(state.doc.length, range.to + len));
-      if (before === marker && after === marker) {
-        return {
-          changes: [
-            { from: range.from - len, to: range.from, insert: "" },
-            { from: range.to, to: range.to + len, insert: "" },
-          ],
-          range: EditorSelection.range(range.from - len, range.to - len),
-        };
-      }
-    }
-
-    // Wrap with __ (distinct from italic * to avoid nesting ambiguity)
-    const insert = `__${selected}__`;
-    return {
-      changes: { from: range.from, to: range.to, insert },
-      range: EditorSelection.range(range.from + 2, range.from + 2 + selected.length),
-    };
-  });
-
-  view.dispatch(state.update(changes, { userEvent: "input" }));
-  return true;
-};
+export const toggleBold = toggleMarkup(["__", "**"], () => ["__", "__"]);
 export const toggleItalic = toggleWrap("*");
 export const toggleStrikethrough = toggleWrap("~~");
 /** Smart inline code: adjusts backtick delimiter length when content contains backticks. */
-export const toggleInlineCode: Command = (view: EditorView) => {
-  const { state } = view;
-  const changes = state.changeByRange((range) => {
-    const selected = state.sliceDoc(range.from, range.to);
-
-    // Detect if already wrapped with backticks — find the delimiter length
-    for (let len = 3; len >= 1; len--) {
-      const marker = "`".repeat(len);
-      const before = state.sliceDoc(Math.max(0, range.from - len), range.from);
-      const after = state.sliceDoc(range.to, Math.min(state.doc.length, range.to + len));
-      if (before === marker && after === marker) {
-        return {
-          changes: [
-            { from: range.from - len, to: range.from, insert: "" },
-            { from: range.to, to: range.to + len, insert: "" },
-          ],
-          range: EditorSelection.range(range.from - len, range.to - len),
-        };
-      }
-    }
-
-    // Wrap: find longest backtick run in content and use N+1
-    const maxTicks = Math.max(0, ...(selected.match(/`+/g) || []).map((s) => s.length));
-    const delimiter = "`".repeat(maxTicks + 1);
-    // CommonMark: when delimiter > 1 backtick, add space padding
-    const space = maxTicks > 0 ? " " : "";
-    const insert = `${delimiter}${space}${selected}${space}${delimiter}`;
-    const contentOffset = delimiter.length + space.length;
-    return {
-      changes: { from: range.from, to: range.to, insert },
-      range: EditorSelection.range(
-        range.from + contentOffset,
-        range.from + contentOffset + selected.length,
-      ),
-    };
-  });
-
-  view.dispatch(state.update(changes, { userEvent: "input" }));
-  return true;
-};
+export const toggleInlineCode = toggleMarkup(["```", "``", "`"], (selected) => {
+  // Use one more backtick than the longest run in the content
+  const maxTicks = Math.max(0, ...(selected.match(/`+/g) || []).map((s) => s.length));
+  const delimiter = "`".repeat(maxTicks + 1);
+  // CommonMark: when delimiter > 1 backtick, add space padding
+  const space = maxTicks > 0 ? " " : "";
+  return [delimiter + space, space + delimiter];
+});
 
 /** Insert a fenced code block. Auto-adjusts fence length if content contains triple backticks. */
 export const insertCodeBlock: Command = (view: EditorView) => {

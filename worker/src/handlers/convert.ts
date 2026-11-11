@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
 import { IMAGE_TYPES, SUPPORTED_TYPES, MIME_TO_EXT } from "../config.js";
-import { jsonResponse, isUnconvertedHtml, mimeToFilename, toMarkdownText } from "../utils.js";
+import { jsonResponse, isUnconvertedHtml, mimeToFilename, toMarkdownText, errorMessage } from "../utils.js";
 
 export async function handleConvert(request: Request, env: Env): Promise<Response> {
   const contentType = request.headers.get("content-type") || "";
@@ -24,6 +24,6 @@ export async function handleConvert(request: Request, env: Env): Promise<Respons
     const warning = isUnconvertedHtml(markdown) ? "Conversion result may contain unconverted HTML" : undefined;
     return jsonResponse({ markdown, is_image: isImage, original_size: originalSize, warning });
   } catch (e) {
-    return jsonResponse({ error: `Conversion failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    return jsonResponse({ error: `Conversion failed: ${errorMessage(e)}` }, 500);
   }
 }

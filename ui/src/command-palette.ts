@@ -130,11 +130,10 @@ export function open(initialQuery = "") {
     list.innerHTML = "";
     for (let i = 0; i < searchResults.length; i++) {
       const r = searchResults[i];
-      const docId = typeof r.id === "string" && r.id.includes("#") ? r.id.split("#")[0] : r.id;
       const item = document.createElement("div");
       item.className = "command-palette-item" + (i === selectedIndex ? " selected" : "");
       item.innerHTML = `
-        <span class="command-palette-label">${escapeHtml(docId)}</span>
+        <span class="command-palette-label">${escapeHtml(r.id)}</span>
         <span class="command-palette-meta">
           <span class="command-palette-category">${(r.score * 100).toFixed(0)}%</span>
         </span>
@@ -146,7 +145,7 @@ export function open(initialQuery = "") {
       });
       item.addEventListener("click", () => {
         close();
-        semanticSearchHandler?.(docId);
+        semanticSearchHandler?.(r.id);
       });
       list.appendChild(item);
     }
@@ -207,7 +206,7 @@ export function open(initialQuery = "") {
       e.preventDefault();
       if (isSearchMode) {
         if (searchResults[selectedIndex]) {
-          const docId = searchResults[selectedIndex].id.split("#")[0];
+          const docId = searchResults[selectedIndex].id;
           close();
           semanticSearchHandler?.(docId);
         }

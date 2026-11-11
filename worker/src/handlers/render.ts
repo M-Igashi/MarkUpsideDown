@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
-import { RENDER_CACHE_TTL, BROWSER_RUN_GOTO } from "../config.js";
-import { jsonResponse, browserRunError, BROWSER_MISSING_ERROR } from "../utils.js";
+import { RENDER_CACHE_TTL, BROWSER_RUN_GOTO, BROWSER_RUN_REJECT } from "../config.js";
+import { jsonResponse, browserRunError, BROWSER_MISSING_ERROR, errorMessage } from "../utils.js";
 import { validateUrlForSsrf } from "../ssrf.js";
 
 export async function handleRender(url: URL, env: Env): Promise<Response> {
@@ -24,7 +24,7 @@ export async function handleRender(url: URL, env: Env): Promise<Response> {
     const response = await env.BROWSER.quickAction("markdown", {
       url: targetUrl,
       gotoOptions: BROWSER_RUN_GOTO,
-      rejectResourceTypes: ["image", "media", "font", "stylesheet"],
+      rejectResourceTypes: BROWSER_RUN_REJECT,
       cacheTTL: url.searchParams.get("nocache") === "1" ? 0 : RENDER_CACHE_TTL,
     });
     const data = await response.json<BrowserRunMarkdownSuccessResponse | BrowserRunErrorResponse>();
@@ -36,6 +36,6 @@ export async function handleRender(url: URL, env: Env): Promise<Response> {
     }
     return jsonResponse({ markdown: data.result });
   } catch (e) {
-    return jsonResponse({ error: `Render failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    return jsonResponse({ error: `Render failed: ${errorMessage(e)}` }, 500);
   }
 }

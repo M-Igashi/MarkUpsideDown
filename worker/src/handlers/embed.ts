@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
 import { SEARCH_INSTANCE, SEARCH_LIMIT_DEFAULT } from "../config.js";
-import { jsonResponse, parseJsonBody } from "../utils.js";
+import { jsonResponse, parseJsonBody, errorMessage } from "../utils.js";
 
 // Semantic search on AI Search: chunking, embedding (a multilingual model),
 // and hybrid keyword + vector retrieval are handled by the managed instance.
@@ -32,10 +32,6 @@ function isNotFound(e: unknown): boolean {
 // from e.g. "report.pdf" is stored as "report.pdf.md".
 function itemKey(docId: string): string {
   return docId.endsWith(".md") ? docId : `${docId}.md`;
-}
-
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 /** Get the search instance, creating it on first use. */

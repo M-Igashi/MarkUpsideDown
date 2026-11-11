@@ -70,10 +70,8 @@ pub async fn crawl_website(
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct CrawlRecord {
     url: Option<String>,
-    status: Option<String>,
     markdown: Option<String>,
 }
 
@@ -87,9 +85,7 @@ struct CrawlResultInner {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct CrawlStatusWorkerResponse {
-    success: Option<bool>,
     result: Option<CrawlResultInner>,
     error: Option<String>,
 }
@@ -119,12 +115,14 @@ pub async fn crawl_status(
     worker_url: String,
     worker_key: Option<String>,
     cursor: Option<String>,
+    limit: Option<u32>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<CrawlStatusResult> {
     let mut status_url = format!(
-        "{}/crawl/{}?limit=100&status=completed",
+        "{}/crawl/{}?limit={}&status=completed",
         worker_url.trim_end_matches('/'),
-        job_id
+        job_id,
+        limit.unwrap_or(100)
     );
     if let Some(ref c) = cursor {
         status_url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
@@ -172,10 +170,14 @@ pub async fn crawl_save(
     pages: Vec<CrawlPage>,
     base_dir: String,
 ) -> Result<CrawlSaveResult> {
+    // Also reachable from AI agents via the MCP bridge, so confine writes like
+    // every other write command does.
+    let base = super::validate_path(&base_dir)?;
+    let base = base.to_string_lossy();
     let mut saved_count = 0u32;
 
     for page in &pages {
-        let file_path = url_to_filepath(&page.url, &base_dir);
+        let file_path = url_to_filepath(&page.url, &base);
         if let Some(parent) = std::path::Path::new(&file_path).parent() {
             tokio::fs::create_dir_all(parent)
                 .await

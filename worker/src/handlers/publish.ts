@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
 import { PUBLISH_LIST_LIMIT } from "../config.js";
-import { jsonResponse, parseJsonBody, CORS_HEADERS } from "../utils.js";
+import { jsonResponse, parseJsonBody, CORS_HEADERS, R2_MISSING_ERROR } from "../utils.js";
 
 interface PublishRequest {
   key: string;
@@ -33,7 +33,7 @@ export async function deleteExpiredPublished(env: Env): Promise<void> {
 
 export async function handlePublish(request: Request, env: Env): Promise<Response> {
   if (!env.PUBLISH_BUCKET) {
-    return jsonResponse({ error: "R2 bucket not configured" }, 500);
+    return jsonResponse({ error: R2_MISSING_ERROR }, 500);
   }
 
   const body = await parseJsonBody<PublishRequest>(request);
@@ -73,7 +73,7 @@ export async function handlePublish(request: Request, env: Env): Promise<Respons
 
 export async function handleServePublished(key: string, env: Env): Promise<Response> {
   if (!env.PUBLISH_BUCKET) {
-    return jsonResponse({ error: "R2 bucket not configured" }, 500);
+    return jsonResponse({ error: R2_MISSING_ERROR }, 500);
   }
 
   const obj = await env.PUBLISH_BUCKET.get(key);
@@ -98,7 +98,7 @@ export async function handleServePublished(key: string, env: Env): Promise<Respo
 
 export async function handleUnpublish(key: string, env: Env): Promise<Response> {
   if (!env.PUBLISH_BUCKET) {
-    return jsonResponse({ error: "R2 bucket not configured" }, 500);
+    return jsonResponse({ error: R2_MISSING_ERROR }, 500);
   }
 
   await env.PUBLISH_BUCKET.delete(key);
@@ -107,7 +107,7 @@ export async function handleUnpublish(key: string, env: Env): Promise<Response> 
 
 export async function handlePublishedList(env: Env): Promise<Response> {
   if (!env.PUBLISH_BUCKET) {
-    return jsonResponse({ error: "R2 bucket not configured" }, 500);
+    return jsonResponse({ error: R2_MISSING_ERROR }, 500);
   }
 
   const listed = await env.PUBLISH_BUCKET.list({ limit: PUBLISH_LIST_LIMIT });

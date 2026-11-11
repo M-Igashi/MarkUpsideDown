@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
 import { BROWSER_RUN_GOTO } from "../config.js";
-import { jsonResponse, parseJsonBody, wrapJsonSchema, browserRunError, BROWSER_MISSING_ERROR } from "../utils.js";
+import { jsonResponse, parseJsonBody, wrapJsonSchema, browserRunError, BROWSER_MISSING_ERROR, errorMessage } from "../utils.js";
 import { validateUrlForSsrf } from "../ssrf.js";
 
 export async function handleJson(request: Request, env: Env): Promise<Response> {
@@ -60,6 +60,6 @@ export async function handleJson(request: Request, env: Env): Promise<Response> 
       response.ok ? 500 : response.status,
     );
   } catch (e) {
-    return jsonResponse({ error: `JSON extraction failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    return jsonResponse({ error: `JSON extraction failed: ${errorMessage(e)}` }, 500);
   }
 }

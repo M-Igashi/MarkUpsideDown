@@ -162,55 +162,50 @@ async function pollCrawl(
   workerUrl: string,
   signal: AbortSignal,
 ): Promise<{ pages: CrawlPage[]; status: string }> {
-  const allPages: CrawlPage[] = [];
-  const done = (status: string) => ({ pages: allPages, status });
+  const fetchStatus = (cursor: string | null, limit: number) =>
+    invoke<CrawlStatusResult>("crawl_status", {
+      jobId,
+      workerUrl,
+      workerKey: getWorkerKey() || null,
+      cursor,
+      limit,
+    });
+
+  // Records are fetched once, after the job stops: the endpoint returns every
+  // completed record on each call, so collecting them while polling would
+  // re-download (and duplicate) all finished pages every second.
+  const collect = async (status: string) => {
+    const pages: CrawlPage[] = [];
+    let cursor: string | null = null;
+    do {
+      const result = await fetchStatus(cursor, 100);
+      for (const page of result.pages) {
+        if (page.markdown) {
+          pages.push({ url: page.url, markdown: normalizeMarkdown(page.markdown) });
+        }
+      }
+      cursor = result.cursor;
+    } while (cursor);
+    return { pages, status };
+  };
+
   const maxAttempts = 300; // 5 minutes at 1s interval
   let lastMsg = "";
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (signal.aborted) return done("cancelled_by_user");
+    if (signal.aborted) return collect("cancelled_by_user");
 
-    let cursor: string | null = null;
+    // Job statuses: running, completed, errored, cancelled_by_user,
+    // cancelled_due_to_limits, cancelled_due_to_timeout
+    const { status, finished, total } = await fetchStatus(null, 1);
+    if (status === "errored") throw new Error("Crawl job failed");
+    if (status === "completed" || status.startsWith("cancelled")) return collect(status);
 
-    // Fetch all available completed pages
-    do {
-      if (signal.aborted) return done("cancelled_by_user");
-
-      const result: CrawlStatusResult = await invoke("crawl_status", {
-        jobId,
-        workerUrl,
-        workerKey: getWorkerKey() || null,
-        cursor,
-      });
-
-      for (const page of result.pages) {
-        if (page.markdown) {
-          allPages.push({ url: page.url, markdown: normalizeMarkdown(page.markdown) });
-        }
-      }
-
-      const newMsg = `Crawling... ${result.finished}/${result.total} pages (${allPages.length} saved)`;
-      if (newMsg !== lastMsg) {
-        showCrawlStatus(newMsg);
-        lastMsg = newMsg;
-      }
-
-      cursor = result.cursor;
-
-      // Job statuses: running, completed, errored, cancelled_by_user,
-      // cancelled_due_to_limits, cancelled_due_to_timeout
-      if (
-        result.status === "completed" ||
-        result.status === "errored" ||
-        result.status.startsWith("cancelled")
-      ) {
-        if (result.status === "errored") {
-          throw new Error("Crawl job failed");
-        }
-        // Drain remaining pages if cursor exists
-        if (!cursor) return done(result.status);
-      }
-    } while (cursor);
+    const newMsg = `Crawling... ${finished}/${total} pages`;
+    if (newMsg !== lastMsg) {
+      showCrawlStatus(newMsg);
+      lastMsg = newMsg;
+    }
 
     // Wait before next poll (abortable)
     await new Promise<void>((r) => {
@@ -227,8 +222,8 @@ async function pollCrawl(
     });
   }
 
-  // If we got here, we timed out but may still have pages
-  return done("timeout");
+  // Timed out: save whatever has completed so far
+  return collect("timeout");
 }
 
 interface CrawlOptions {

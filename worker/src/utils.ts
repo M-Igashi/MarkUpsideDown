@@ -65,6 +65,12 @@ export function hasPublish(env: Env): boolean {
   return Boolean(env.PUBLISH_BUCKET);
 }
 
+export const R2_MISSING_ERROR = "R2 bucket not configured";
+
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // --- Browser Run ---
 
 export const BROWSER_MISSING_ERROR =

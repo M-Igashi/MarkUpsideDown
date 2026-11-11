@@ -151,7 +151,6 @@ if should_run "editor"; then
   test_get "get_editor_state" "/editor/state" 'has("cursor_pos")'
   test_get "get_open_tabs" "/editor/tabs" '.tabs | type == "array"'
   test_get "get_project_root" "/editor/root" 'has("root_path")'
-  test_get "get_dirty_files" "/editor/dirty-files" 'has("dirty_files")'
   test_get "lint_document" "/editor/lint" 'has("diagnostics")'
   test_get "get_document_structure" "/editor/structure" 'type == "object"'
 fi

@@ -15,11 +15,6 @@ interface TauriDialog {
   message(message: string, options?: Record<string, unknown>): Promise<void>;
 }
 
-interface TauriFs {
-  readTextFile(path: string): Promise<string>;
-  writeTextFile(path: string, content: string): Promise<void>;
-}
-
 interface TauriEvent {
   listen<T = unknown>(event: string, handler: (event: { payload: T }) => void): Promise<() => void>;
 }
@@ -43,7 +38,6 @@ interface TauriApp {
 interface TauriGlobal {
   core: TauriCore;
   dialog: TauriDialog;
-  fs: TauriFs;
   path: TauriPath;
   app: TauriApp;
   event?: TauriEvent;

@@ -1,5 +1,5 @@
 // Shared URL fetch → Markdown pipeline.
-// Used by file-ops.ts (URL bar) and link-context-menu.ts (context menu).
+// Used by file-ops.ts (URL bar and preview link context menu).
 
 import { normalizeMarkdown } from "./normalize.ts";
 import { getWorkerKey, isRenderAvailable } from "./settings.ts";
@@ -23,14 +23,8 @@ async function fetchPipeline(
   autoRender: boolean,
   onStatus?: (msg: string) => void,
 ): Promise<{ content: string; method: string }> {
-  // 1. Try Markdown for Agents (free, no Worker needed)
-  const result = await invoke<FetchResult>("fetch_url_as_markdown", { url });
-
-  if (result.is_markdown) {
-    return { content: normalizeMarkdown(result.body), method: "Markdown for Agents" };
-  }
-
-  // 2. HTML returned — try Worker /fetch for AI.toMarkdown() conversion
+  // 1. Worker /fetch first: it asks for Markdown for Agents itself and converts
+  //    HTML with AI.toMarkdown(), so the page is downloaded only once.
   if (workerUrl) {
     try {
       const fetchResult = await invoke<WorkerFetchResult>("fetch_url_via_worker", {
@@ -38,8 +32,11 @@ async function fetchPipeline(
         workerUrl,
         workerKey: getWorkerKey() || null,
       });
+      if (fetchResult.source === "markdown-for-agents") {
+        return { content: normalizeMarkdown(fetchResult.markdown), method: "Markdown for Agents" };
+      }
 
-      // 2a. If SPA detected and render available, auto-fallback to Browser Run
+      // 1a. If SPA detected and render available, auto-fallback to Browser Run
       if (autoRender && fetchResult.spa_detected && isRenderAvailable()) {
         try {
           onStatus?.("JS detected, rendering…");
@@ -56,16 +53,21 @@ async function fetchPipeline(
 
       return { content: normalizeMarkdown(fetchResult.markdown), method: "AI.toMarkdown" };
     } catch {
-      // Fall through to raw HTML
+      // Fall back to a direct fetch (e.g. intranet URLs the Worker refuses)
     }
   }
 
-  // 3. Fallback: raw HTML as-is
+  // 2. Direct fetch: Markdown for Agents (no Worker needed), else raw HTML as-is
+  const result = await invoke<FetchResult>("fetch_url_as_markdown", { url });
+  if (result.is_markdown) {
+    return { content: normalizeMarkdown(result.body), method: "Markdown for Agents" };
+  }
   return { content: result.body, method: "raw HTML" };
 }
 
 /**
- * Smart fetch: Markdown for Agents → Worker /fetch → auto-render if SPA → raw HTML fallback.
+ * Smart fetch: Worker /fetch (Markdown for Agents or AI.toMarkdown) → auto-render if SPA
+ * → direct fetch fallback (Markdown for Agents or raw HTML).
  */
 export function getUrlAsMarkdown(
   url: string,
@@ -77,7 +79,7 @@ export function getUrlAsMarkdown(
 
 /**
  * Fetch a URL (static only, no SPA auto-fallback).
- * Pipeline: Markdown for Agents → Worker AI.toMarkdown() → raw HTML fallback.
+ * Pipeline: Worker /fetch → direct fetch fallback (Markdown for Agents or raw HTML).
  */
 export function fetchUrlAsMarkdown(
   url: string,

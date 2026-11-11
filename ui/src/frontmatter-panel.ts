@@ -8,7 +8,6 @@ import { escapeHtml } from "./html-utils.ts";
 let panelEl: HTMLElement | null = null;
 let editor: EditorView;
 let lastFm: FrontmatterInfo | null = null;
-let lastFmRaw: string | null = null;
 let lastContent: string | null = null;
 
 export function initFrontmatterPanel(ed: EditorView, container: HTMLElement) {
@@ -51,16 +50,14 @@ export function updateFrontmatterPanel(content: string) {
     if (lastFm !== null) {
       panelEl.style.display = "none";
       lastFm = null;
-      lastFmRaw = null;
     }
     return;
   }
 
   // Skip re-render if frontmatter raw content is unchanged
-  if (fm.raw === lastFmRaw && fm.valid === lastFm?.valid) return;
+  if (fm.raw === lastFm?.raw && fm.valid === lastFm?.valid) return;
 
   lastFm = fm;
-  lastFmRaw = fm.raw;
   panelEl.style.display = "";
   renderPanel();
 }

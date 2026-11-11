@@ -59,17 +59,12 @@ export function initGitHubPanel(
   render();
 }
 
-export function setGitHubRepoPath(path: string | null, skipRefresh = false) {
+export function setGitHubRepoPath(path: string | null) {
   repoPath = path;
   status = null;
   items = [];
   errorMessage = "";
-  if (!path) {
-    render();
-    return;
-  }
-  if (!skipRefresh) refresh();
-  else render();
+  render();
 }
 
 /** Switch between the issue and pull request listings. */

@@ -39,12 +39,23 @@ export interface LintDiagnostic {
 // same text; offsets are identical for both callers. Returns a copy because
 // the linter appends comrak diagnostics to the result.
 let lastCheckText: string | null = null;
+type LineDoc = { line: (n: number) => { from: number; to: number; text: string } };
+
+/** Add a diagnostic spanning the whole of 1-based line `lineNo`. */
+function pushLine(
+  diagnostics: Diagnostic[],
+  doc: LineDoc,
+  lineNo: number,
+  severity: Diagnostic["severity"],
+  message: string,
+) {
+  const { from, to } = doc.line(lineNo);
+  diagnostics.push({ from, to, severity, message });
+}
+
 let lastCheckResult: Diagnostic[] = [];
 
-function runAllChecks(
-  text: string,
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
-): Diagnostic[] {
+function runAllChecks(text: string, doc: LineDoc): Diagnostic[] {
   if (text === lastCheckText) return lastCheckResult.slice();
 
   const lines = text.split("\n");
@@ -120,13 +131,7 @@ export const markdownLinter = linter(
       const comrakDiags = await invoke<ComrakDiagnostic[]>("validate_markdown", { content: text });
       for (const d of comrakDiags) {
         if (d.line < 1 || d.line > doc.lines) continue;
-        const line = doc.line(d.line);
-        diagnostics.push({
-          from: line.from,
-          to: line.to,
-          severity: d.severity,
-          message: `[comrak] ${d.message}`,
-        });
+        pushLine(diagnostics, doc, d.line, d.severity, `[comrak] ${d.message}`);
       }
     } catch {
       // Silently ignore — TS-based linting still works without comrak
@@ -137,11 +142,7 @@ export const markdownLinter = linter(
   { delay: 500 },
 );
 
-function checkHeadings(
-  structure: DocumentStructure,
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
-  diagnostics: Diagnostic[],
-) {
+function checkHeadings(structure: DocumentStructure, doc: LineDoc, diagnostics: Diagnostic[]) {
   const { headings } = structure;
   if (headings.length === 0) return;
 
@@ -149,13 +150,13 @@ function checkHeadings(
   const h1s = headings.filter((h) => h.level === 1);
   if (h1s.length > 1) {
     for (let i = 1; i < h1s.length; i++) {
-      const line = doc.line(h1s[i].line);
-      diagnostics.push({
-        from: line.from,
-        to: line.to,
-        severity: "warning",
-        message: "Multiple h1 headings — consider using a single h1 per document",
-      });
+      pushLine(
+        diagnostics,
+        doc,
+        h1s[i].line,
+        "warning",
+        "Multiple h1 headings — consider using a single h1 per document",
+      );
     }
   }
 
@@ -164,24 +165,20 @@ function checkHeadings(
     const prev = headings[i - 1].level;
     const curr = headings[i].level;
     if (curr > prev + 1) {
-      const line = doc.line(headings[i].line);
-      diagnostics.push({
-        from: line.from,
-        to: line.to,
-        severity: "warning",
-        message: `Heading level skip: h${prev} → h${curr} (missing h${prev + 1})`,
-      });
+      pushLine(
+        diagnostics,
+        doc,
+        headings[i].line,
+        "warning",
+        `Heading level skip: h${prev} → h${curr} (missing h${prev + 1})`,
+      );
     }
   }
 }
 
 const LINK_PATTERN = /\[([^\]]*)\]\(([^)]*)\)/g;
 
-function checkLinks(
-  structure: DocumentStructure,
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
-  diagnostics: Diagnostic[],
-) {
+function checkLinks(structure: DocumentStructure, doc: LineDoc, diagnostics: Diagnostic[]) {
   for (const link of structure.links) {
     const lineObj = doc.line(link.line);
 
@@ -215,40 +212,32 @@ function checkLinks(
   }
 }
 
-function checkTables(
-  structure: DocumentStructure,
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
-  diagnostics: Diagnostic[],
-) {
+function checkTables(structure: DocumentStructure, doc: LineDoc, diagnostics: Diagnostic[]) {
   for (const table of structure.tables) {
     if (!table.hasSeparator) {
-      const line = doc.line(table.startLine + 1);
-      diagnostics.push({
-        from: line.from,
-        to: line.to,
-        severity: "warning",
-        message: "Table missing separator row (expected | --- | --- | ...)",
-      });
+      pushLine(
+        diagnostics,
+        doc,
+        table.startLine + 1,
+        "warning",
+        "Table missing separator row (expected | --- | --- | ...)",
+      );
     }
 
     if (table.columnMismatch) {
       // Report on the table header line
-      const line = doc.line(table.startLine);
-      diagnostics.push({
-        from: line.from,
-        to: line.to,
-        severity: "warning",
-        message: "Table has rows with mismatched column counts",
-      });
+      pushLine(
+        diagnostics,
+        doc,
+        table.startLine,
+        "warning",
+        "Table has rows with mismatched column counts",
+      );
     }
   }
 }
 
-function checkFrontmatter(
-  structure: DocumentStructure,
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
-  diagnostics: Diagnostic[],
-) {
+function checkFrontmatter(structure: DocumentStructure, doc: LineDoc, diagnostics: Diagnostic[]) {
   if (!structure.frontmatter) return;
 
   if (!structure.frontmatter.valid) {
@@ -262,11 +251,7 @@ function checkFrontmatter(
   }
 }
 
-function checkLists(
-  structure: DocumentStructure,
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
-  diagnostics: Diagnostic[],
-) {
+function checkLists(structure: DocumentStructure, doc: LineDoc, diagnostics: Diagnostic[]) {
   for (const list of structure.lists) {
     // Check for inconsistent indentation within nested list
     // Only flag if there are nested items with irregular indent steps
@@ -283,13 +268,13 @@ function checkLists(
         // Find the first item at this irregular indent
         const item = list.items.find((it) => it.indent === indentLevels[i]);
         if (item) {
-          const line = doc.line(item.line);
-          diagnostics.push({
-            from: line.from,
-            to: line.to,
-            severity: "info",
-            message: `Inconsistent list indentation: expected ${step}-space steps, got ${expectedStep}-space step`,
-          });
+          pushLine(
+            diagnostics,
+            doc,
+            item.line,
+            "info",
+            `Inconsistent list indentation: expected ${step}-space steps, got ${expectedStep}-space step`,
+          );
         }
         break; // one diagnostic per list block
       }
@@ -306,7 +291,7 @@ function checkLists(
 function checkEmphasis(
   lines: string[],
   codeRanges: [number, number][],
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
+  doc: LineDoc,
   diagnostics: Diagnostic[],
 ) {
   for (let i = 0; i < lines.length; i++) {
@@ -331,7 +316,7 @@ function checkEmphasis(
 function checkCodeBlocks(
   lines: string[],
   codeRanges: [number, number][],
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
+  doc: LineDoc,
   diagnostics: Diagnostic[],
 ) {
   for (const [start] of codeRanges) {
@@ -340,14 +325,13 @@ function checkCodeBlocks(
     if (!fenceMatch) continue;
     const lang = (fenceMatch[2] || "").trim();
     if (!lang) {
-      const lineObj = doc.line(start + 1);
-      diagnostics.push({
-        from: lineObj.from,
-        to: lineObj.to,
-        severity: "info",
-        message:
-          "Code block without language specifier — consider adding a language for syntax highlighting",
-      });
+      pushLine(
+        diagnostics,
+        doc,
+        start + 1,
+        "info",
+        "Code block without language specifier — consider adding a language for syntax highlighting",
+      );
     }
   }
 }
@@ -357,7 +341,7 @@ function checkCodeBlocks(
 function checkFootnotes(
   lines: string[],
   codeRanges: [number, number][],
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
+  doc: LineDoc,
   diagnostics: Diagnostic[],
 ) {
   const refs = new Map<string, { line: number; col: number }[]>();
@@ -423,7 +407,7 @@ const COMMENT_KEYWORDS = /\b(TODO|FIXME|HACK|XXX|BUG|NOTE)\b/i;
 function checkHtmlComments(
   lines: string[],
   codeRanges: [number, number][],
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
+  doc: LineDoc,
   diagnostics: Diagnostic[],
 ) {
   for (let i = 0; i < lines.length; i++) {
@@ -454,7 +438,7 @@ function checkHtmlComments(
 function checkBlankLines(
   lines: string[],
   codeRanges: [number, number][],
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
+  doc: LineDoc,
   diagnostics: Diagnostic[],
   structure: DocumentStructure,
 ) {
@@ -509,7 +493,7 @@ function checkNeedsBlankBefore(
   lines: string[],
   fmEndIdx: number,
   label: string,
-  doc: { line: (n: number) => { from: number; to: number; text: string } },
+  doc: LineDoc,
   diagnostics: Diagnostic[],
 ) {
   if (i === 0) return;
@@ -520,13 +504,13 @@ function checkNeedsBlankBefore(
   // Skip if previous line is a heading (headings naturally separate)
   if (/^#{1,6}\s/.test(prev.trimStart())) return;
 
-  const lineObj = doc.line(i + 1);
-  diagnostics.push({
-    from: lineObj.from,
-    to: lineObj.to,
-    severity: "info",
-    message: `${label} not separated by blank line above — add a blank line for consistent rendering`,
-  });
+  pushLine(
+    diagnostics,
+    doc,
+    i + 1,
+    "info",
+    `${label} not separated by blank line above — add a blank line for consistent rendering`,
+  );
 }
 
 function checkEmphasisPattern(
