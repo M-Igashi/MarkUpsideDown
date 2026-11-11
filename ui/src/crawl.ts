@@ -4,6 +4,7 @@ import { escapeHtml } from "./html-utils.ts";
 import { getRootPath } from "./sidebar.ts";
 import { indexDocuments } from "./semantic-search.ts";
 import { workerFetch } from "./worker-fetch.ts";
+import { relativeToRoot } from "./path-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { open: openDialog } = window.__TAURI__.dialog;
@@ -28,6 +29,7 @@ interface CrawlStatusResult {
 interface CrawlSaveResult {
   saved_count: number;
   base_dir: string;
+  paths: string[];
 }
 
 let statusEl: HTMLElement;
@@ -35,14 +37,22 @@ let onCrawlComplete: (() => void) | null = null;
 let crawlAbort: AbortController | null = null;
 let crawlJobId: string | null = null;
 
+function deleteCrawlJob(jobId: string) {
+  workerFetch(`/crawl/${jobId}`, { method: "DELETE" }).catch(() => {
+    // Older Workers have no cancel endpoint; the job stops at its page limit.
+  });
+}
+
 /** Stop polling and cancel the job on Cloudflare so it stops using browser time. */
 function cancelCrawl() {
   crawlAbort?.abort();
-  if (crawlJobId) {
-    workerFetch(`/crawl/${crawlJobId}`, { method: "DELETE" }).catch(() => {
-      // Older Workers have no cancel endpoint; the job stops at its page limit.
-    });
-  }
+  if (crawlJobId) deleteCrawlJob(crawlJobId);
+}
+
+function crawlRunning(): boolean {
+  if (!crawlAbort) return false;
+  statusEl.textContent = "A crawl is already running. Cancel it before starting another.";
+  return true;
 }
 
 export function initCrawl(deps: { statusEl: HTMLElement; onCrawlComplete: () => void }) {
@@ -52,14 +62,14 @@ export function initCrawl(deps: { statusEl: HTMLElement; onCrawlComplete: () => 
 
 export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) {
   const url = urlInput.value.trim();
-  if (!url) return;
+  if (!url || crawlRunning()) return;
 
   const workerUrl = await ensureWorkerUrl();
   if (!workerUrl) return;
 
   // Show options dialog
   const options = await showCrawlDialog(url);
-  if (!options) return;
+  if (!options || crawlRunning()) return;
 
   // Pick save directory
   const baseDir = options.saveDir;
@@ -90,7 +100,8 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
     // Step 2: Poll for results
     const { pages: allPages, status } = await pollCrawl(job_id, workerUrl, signal);
     // e.g. "cancelled_due_to_limits" when the Workers Free plan limits are hit
-    const stopped = status.startsWith("cancelled") ? ` (stopped: ${status})` : "";
+    const stopped = status === "completed" ? "" : ` (stopped: ${status})`;
+    const outcome = status === "completed" ? "Crawl complete" : "Crawl partial";
 
     if (allPages.length === 0) {
       statusEl.textContent = `Crawl finished but no pages were found${stopped}`;
@@ -104,26 +115,25 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
       baseDir,
     });
 
-    statusEl.textContent = `Crawl complete: ${result.saved_count} pages saved to ${result.base_dir}${stopped}`;
+    statusEl.textContent = `${outcome}: ${result.saved_count} pages saved to ${result.base_dir}${stopped}`;
     onCrawlComplete?.();
 
-    // Auto-index crawled pages for semantic search (fire and forget)
-    if (allPages.length > 0) {
-      const docs = allPages.map((page) => {
-        // Derive relative path from URL
-        let relPath: string;
-        try {
-          const u = new URL(page.url);
-          relPath = u.pathname.replace(/^\//, "").replace(/\/$/, "/index") + ".md";
-        } catch {
-          relPath = page.url;
-        }
-        return { id: relPath, content: page.markdown };
-      });
-      statusEl.textContent += " — Indexing for search…";
+    // Auto-index crawled pages for semantic search (fire and forget). Search
+    // results are opened relative to the project root, so pages saved outside
+    // it are not indexed.
+    const root = getRootPath();
+    const docs = root
+      ? allPages.flatMap((page, i) => {
+          const path = result.paths?.[i];
+          if (!path?.startsWith(`${root}/`)) return [];
+          return [{ id: relativeToRoot(root, path), content: page.markdown }];
+        })
+      : [];
+    if (docs.length > 0) {
+      statusEl.textContent += " | Indexing for search…";
       indexDocuments(docs)
         .then((r) => {
-          statusEl.textContent = `Crawl complete: ${result.saved_count} pages saved, ${r.indexed} indexed`;
+          statusEl.textContent = `${outcome}: ${result.saved_count} pages saved, ${r.indexed} indexed${stopped}`;
         })
         .catch(() => {
           // Semantic search not configured — silently ignore
@@ -222,8 +232,10 @@ async function pollCrawl(
     });
   }
 
-  // Timed out: save whatever has completed so far
-  return collect("timeout");
+  // Timed out: cancel the job so it stops using browser time, then save
+  // whatever has completed so far
+  deleteCrawlJob(jobId);
+  return collect("timed_out");
 }
 
 interface CrawlOptions {

@@ -164,6 +164,8 @@ pub async fn crawl_status(
 pub struct CrawlSaveResult {
     pub saved_count: u32,
     pub base_dir: String,
+    /// Saved file path of each page, in input order.
+    pub paths: Vec<String>,
 }
 
 #[tauri::command]
@@ -176,6 +178,7 @@ pub async fn crawl_save(
     let base = super::validate_path(&base_dir)?;
     let base = base.to_string_lossy();
     let mut saved_count = 0u32;
+    let mut paths = Vec::with_capacity(pages.len());
 
     for page in &pages {
         let file_path = url_to_filepath(&page.url, &base);
@@ -188,11 +191,13 @@ pub async fn crawl_save(
             .await
             .map_err(|e| AppError::Io(format!("Failed to write {file_path}: {e}")))?;
         saved_count += 1;
+        paths.push(file_path);
     }
 
     Ok(CrawlSaveResult {
         saved_count,
         base_dir,
+        paths,
     })
 }
 
