@@ -310,9 +310,11 @@ export async function convertFile(filePath: string) {
       workerKey: getWorkerKey() || null,
     });
     const markdown = normalizeMarkdown(result.markdown);
-    loadContentAsTab(markdown, filePath);
-    const tag = result.is_image ? " (image OCR)" : "";
     const fileName = basename(filePath);
+    // Open as an untitled tab: binding it to the source path would make
+    // auto-save overwrite the PDF/DOCX/image with Markdown.
+    loadContentAsTab(markdown, undefined, fileName.replace(/\.[^.]+$/, ""));
+    const tag = result.is_image ? " (image OCR)" : "";
     const mdSize = new Blob([result.markdown]).size;
     const words = result.markdown.split(/\s+/).filter(Boolean).length;
     const warn = result.warning ? ` ⚠ ${result.warning}` : "";
