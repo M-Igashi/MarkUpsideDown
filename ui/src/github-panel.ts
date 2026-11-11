@@ -10,6 +10,7 @@ import {
   type GhStatus,
 } from "./github.ts";
 import { KEY_GITHUB_FILTER } from "./storage-keys.ts";
+import { icon } from "./icons.ts";
 
 type StateFilter = "open" | "closed" | "all";
 
@@ -327,7 +328,7 @@ function render() {
 
   const refreshBtn = document.createElement("button");
   refreshBtn.className = "btn btn-sm gh-refresh-btn";
-  refreshBtn.textContent = "⟳ Refresh";
+  refreshBtn.innerHTML = `${icon("refresh-cw", 13)} Refresh`;
   refreshBtn.disabled = !repoPath || loading;
   refreshBtn.addEventListener("click", () => {
     status = null;

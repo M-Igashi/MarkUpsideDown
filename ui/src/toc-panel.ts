@@ -4,6 +4,7 @@
 import type { EditorView } from "@codemirror/view";
 import { getDocumentStructure, type Heading } from "./document-structure.ts";
 import { escapeHtml } from "./html-utils.ts";
+import { icon } from "./icons.ts";
 
 let panelEl: HTMLElement | null = null;
 let editor: EditorView;
@@ -78,7 +79,7 @@ function render() {
   if (!panelEl) return;
 
   let html = `<div class="toc-header">`;
-  html += `<button class="toc-toggle" title="Toggle TOC">${collapsed ? "\u25B6" : "\u25BC"} Contents</button>`;
+  html += `<button class="toc-toggle${collapsed ? "" : " expanded"}" title="Toggle TOC">${icon("chevron-right", 12)} Contents</button>`;
   html += `<span class="toc-count">${lastHeadings.length}</span>`;
   html += `</div>`;
 

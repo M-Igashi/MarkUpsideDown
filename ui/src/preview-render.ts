@@ -245,12 +245,12 @@ function slAttr(sourceLine: number | undefined) {
 
 // --- GFM alert types (hoisted for hot-path reuse) ---
 
-const ALERT_TYPES: Record<string, { icon: string; label: string }> = {
-  NOTE: { icon: "ℹ", label: "Note" },
-  TIP: { icon: "💡", label: "Tip" },
-  IMPORTANT: { icon: "❗", label: "Important" },
-  WARNING: { icon: "⚠", label: "Warning" },
-  CAUTION: { icon: "🔴", label: "Caution" },
+const ALERT_LABELS: Record<string, string> = {
+  NOTE: "Note",
+  TIP: "Tip",
+  IMPORTANT: "Important",
+  WARNING: "Warning",
+  CAUTION: "Caution",
 };
 
 // --- Shared renderer ---
@@ -293,7 +293,7 @@ marked.use({
           const m = text.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/);
           if (m) {
             const type = m[1] as string;
-            const alert = ALERT_TYPES[type]!;
+            const label = ALERT_LABELS[type]!;
             const clone = tokens.map((t: any, i: number) => (i === 0 ? structuredClone(t) : t));
             const firstClone = clone[0];
             firstClone.tokens[0] = {
@@ -313,7 +313,7 @@ marked.use({
             firstClone.text = firstClone.tokens.map((t: any) => t.text ?? t.raw).join("");
             const body = this.parser.parse(clone);
             const typeLower = type.toLowerCase();
-            return `<blockquote class="gfm-alert gfm-alert-${typeLower}"${slAttr(_sourceLine)}>\n<p class="gfm-alert-title"><span class="gfm-alert-icon">${alert.icon}</span> ${alert.label}</p>\n${body}</blockquote>\n`;
+            return `<blockquote class="gfm-alert gfm-alert-${typeLower}"${slAttr(_sourceLine)}>\n<p class="gfm-alert-title"><span class="gfm-alert-icon" aria-hidden="true"></span>${label}</p>\n${body}</blockquote>\n`;
           }
         }
       }

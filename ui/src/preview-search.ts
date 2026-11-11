@@ -2,6 +2,8 @@
 // Matches are painted with the CSS Custom Highlight API so the preview DOM
 // stays untouched (safe for idiomorph morphing, Mermaid, KaTeX, hljs).
 
+import { icon, type IconName } from "./icons.ts";
+
 const HIGHLIGHT_ALL = "preview-search";
 const HIGHLIGHT_CURRENT = "preview-search-current";
 // Invisible text or UI chrome that is not document content
@@ -75,18 +77,19 @@ export function initPreviewSearch(
   bar.append(
     input,
     countEl,
-    button("↑", "Previous match (⇧↩)", () => step(-1)),
-    button("↓", "Next match (↩)", () => step(1)),
-    button("✕", "Close (Esc)", closePreviewSearch),
+    button("chevron-up", "Previous match (⇧↩)", () => step(-1)),
+    button("chevron-down", "Next match (↩)", () => step(1)),
+    button("x", "Close (Esc)", closePreviewSearch),
   );
   wrapper.insertBefore(bar, pane);
 }
 
-function button(label: string, title: string, onClick: () => void) {
+function button(name: IconName, title: string, onClick: () => void) {
   const btn = document.createElement("button");
   btn.className = "icon-btn icon-btn-sm preview-search-btn";
-  btn.textContent = label;
+  btn.innerHTML = icon(name, 14);
   btn.title = title;
+  btn.setAttribute("aria-label", title);
   btn.addEventListener("click", onClick);
   return btn;
 }

@@ -1,4 +1,5 @@
 import { basename } from "./path-utils.ts";
+import { icon } from "./icons.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -321,7 +322,7 @@ function ensureBottom(): HTMLElement {
 
   const fetchBtn = document.createElement("button");
   fetchBtn.className = "btn btn-sm git-fetch-btn";
-  fetchBtn.innerHTML = "⟳ Fetch";
+  fetchBtn.innerHTML = `${icon("refresh-cw", 13)} Fetch`;
   fetchBtn.addEventListener("click", () => gitRemoteAction("git_fetch", "Fetch", fetchBtn));
   branchRow.appendChild(fetchBtn);
 
@@ -395,10 +396,8 @@ function updateBottom(staged: GitFile[]) {
 
   branchLabelEl.textContent = `\u{e0a0} ${gitData.branch || "HEAD (detached)"}`;
 
-  pullBtnEl.innerHTML =
-    gitData.behind > 0 ? `↓ Pull <span class="git-count-badge">${gitData.behind}</span>` : "↓ Pull";
-  pushBtnEl.innerHTML =
-    gitData.ahead > 0 ? `↑ Push <span class="git-count-badge">${gitData.ahead}</span>` : "↑ Push";
+  pullBtnEl.innerHTML = `${icon("arrow-down", 13)} Pull${gitData.behind > 0 ? ` <span class="badge">${gitData.behind}</span>` : ""}`;
+  pushBtnEl.innerHTML = `${icon("arrow-up", 13)} Push${gitData.ahead > 0 ? ` <span class="badge">${gitData.ahead}</span>` : ""}`;
 
   commitBtnEl.textContent = staged.length > 0 ? "Commit" : "Commit All";
   commitBtnEl.disabled = !commitMessage.trim();
@@ -465,7 +464,8 @@ function render() {
     const discardAllBtn = document.createElement("button");
     discardAllBtn.className = "icon-btn icon-btn-sm btn-danger git-discard-all-btn";
     discardAllBtn.title = "Discard All Changes";
-    discardAllBtn.textContent = "⟲";
+    discardAllBtn.setAttribute("aria-label", discardAllBtn.title);
+    discardAllBtn.innerHTML = icon("undo-2", 14);
     discardAllBtn.addEventListener("click", discardAll);
     headerActions.appendChild(discardAllBtn);
 
@@ -571,7 +571,8 @@ function createSection(title: string, files: GitFile[], isStaged: boolean): HTML
       const discardBtn = document.createElement("button");
       discardBtn.className = "icon-btn icon-btn-sm btn-danger git-discard-btn";
       discardBtn.title = "Discard Changes";
-      discardBtn.textContent = "⟲";
+      discardBtn.setAttribute("aria-label", discardBtn.title);
+      discardBtn.innerHTML = icon("undo-2", 14);
       discardBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         discardFile(file);
@@ -735,7 +736,8 @@ function createLogSection(): HTMLElement {
     const revertBtn = document.createElement("button");
     revertBtn.className = "icon-btn icon-btn-sm git-revert-btn";
     revertBtn.title = "Revert this commit";
-    revertBtn.textContent = "⟲";
+    revertBtn.setAttribute("aria-label", revertBtn.title);
+    revertBtn.innerHTML = icon("undo-2", 14);
     revertBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       revertCommit(entry.hash);
