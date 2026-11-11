@@ -90,11 +90,16 @@ function generateWorkerKey(): string {
 }
 
 /** Store the API key as a Worker secret (reusing the saved key so existing
- *  MCP configs keep working) and remember it locally. */
-async function protectWorker(accountId: string | null, workerName: string): Promise<string> {
+ *  MCP configs keep working) and remember it locally together with the URL. */
+async function protectWorker(
+  accountId: string | null,
+  workerName: string,
+  workerUrl: string,
+): Promise<string> {
   const apiKey = getWorkerKey() || generateWorkerKey();
   await invoke("set_worker_api_key", { accountId, workerName, apiKey });
   setWorkerKey(apiKey);
+  setWorkerUrl(workerUrl);
   return apiKey;
 }
 
@@ -377,7 +382,7 @@ async function startAutoSetup(
   update("auth", "running");
   let workerKey: string;
   try {
-    workerKey = await protectWorker(accountId, workerName);
+    workerKey = await protectWorker(accountId, workerName, workerUrl);
   } catch (e) {
     return fail("auth", `Failed to set the Worker API key: ${e}`);
   }
@@ -895,7 +900,7 @@ export function showSettings({
         workerName: updateWorkerName,
       });
       // Older Workers had no API key; set (or re-set) it on every update.
-      const workerKey = await protectWorker(resolvedAccountId, updateWorkerName);
+      const workerKey = await protectWorker(resolvedAccountId, updateWorkerName, newUrl);
       keyInput.value = workerKey;
       setResult(updateResult, "ok", `Worker updated successfully: ${newUrl}`);
       urlInput.value = newUrl;
@@ -1038,6 +1043,12 @@ function generateMcpServerEntry(binaryPath: string, workerUrl: string) {
   return { command: binaryPath, ...(workerUrl ? { env } : {}) };
 }
 
+/** Hide the API key in displayed config; the copy button still copies the real one. */
+function maskWorkerKey(json: string): string {
+  const key = getWorkerKey();
+  return key ? json.replaceAll(key, "<hidden: use Copy to clipboard>") : json;
+}
+
 function generateMcpConfigJson(binaryPath: string, workerUrl: string) {
   return JSON.stringify(
     { mcpServers: { markupsidedown: generateMcpServerEntry(binaryPath, workerUrl) } },
@@ -1060,7 +1071,7 @@ function renderClaudeDesktopChatTab(container: HTMLElement, binaryPath: string, 
       <div class="settings-mcp-step"><strong>4.</strong> Start a conversation — MarkUpsideDown tools appear automatically</div>
     </div>
     <div class="settings-mcp-config-label">Config file: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code></div>
-    <pre class="settings-code settings-mcp-json">${escapeHtml(json)}</pre>
+    <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
     <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     <div class="settings-mcp-note">
       MarkUpsideDown must be running for editor/file/git tools.
@@ -1087,13 +1098,13 @@ function renderClaudeDesktopCodeTab(container: HTMLElement, binaryPath: string, 
     <details class="settings-mcp-config-option" open>
       <summary>Option A — Global (all projects)</summary>
       <div class="settings-mcp-config-label">Add to <code>~/.claude/settings.json</code></div>
-      <pre class="settings-code settings-mcp-json">${escapeHtml(json)}</pre>
+      <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
       <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     </details>
     <details class="settings-mcp-config-option">
       <summary>Option B — Per-project</summary>
       <div class="settings-mcp-config-label">Create <code>.mcp.json</code> in your project root</div>
-      <pre class="settings-code settings-mcp-json">${escapeHtml(json)}</pre>
+      <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
       <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     </details>
     <div class="settings-mcp-note">
@@ -1124,7 +1135,7 @@ function renderClaudeCodeTerminalTab(
       <div class="settings-mcp-step"><strong>4.</strong> MCP tools are available — Claude Code can interact with the editor</div>
     </div>
     <div class="settings-mcp-config-label">Add to <code>.mcp.json</code> in your project root, or <code>~/.claude/settings.json</code> (global)</div>
-    <pre class="settings-code settings-mcp-json">${escapeHtml(json)}</pre>
+    <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
     <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     <div class="settings-mcp-note settings-mcp-warning">
       ⚠ The config contains your secret Worker URL and API key. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.

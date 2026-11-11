@@ -77,6 +77,20 @@ export function relativeToRoot(root: string, path: string): string {
   return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
 
+/** Percent-encode characters that break a Markdown link destination (spaces, parentheses, `#`, `?`, ...). */
+export function encodeLinkPath(path: string): string {
+  return path.replace(/[\s()<>[\]\\%#?]/g, (c) =>
+    c.charCodeAt(0) < 0x80
+      ? `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`
+      : encodeURIComponent(c),
+  );
+}
+
+/** Escape characters that would end Markdown link text early. */
+export function escapeLinkText(text: string): string {
+  return text.replace(/[\\[\]]/g, "\\$&");
+}
+
 /** Compute a relative path from one file to another. */
 export function buildRelativePath(fromFile: string, toFile: string): string {
   const fromDir = dirname(fromFile);

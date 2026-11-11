@@ -100,7 +100,7 @@ async function doClone(
   }
 
   // Derive repo name from URL
-  const repoName = basename(url.replace(/\.git$/, "")) || "repo";
+  const repoName = basename(url.replace(/\/+$/, "").replace(/\.git$/, "")) || "repo";
   const fullDest = `${dest}/${repoName}`;
 
   setStatus("Cloning…", "clone-status-pending");

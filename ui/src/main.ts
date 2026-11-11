@@ -83,6 +83,7 @@ import {
   initFileWatcher,
   startWatching,
   stopWatching,
+  stopWatchingUnder,
   stopAll as stopAllFileWatchers,
 } from "./file-watcher.ts";
 import "katex/dist/katex.min.css";
@@ -128,6 +129,8 @@ import {
 import {
   basename,
   buildRelativePath,
+  encodeLinkPath,
+  escapeLinkText,
   getExtension,
   relativeToRoot,
   resolveRelativePath,
@@ -544,7 +547,7 @@ cmScroller.addEventListener("drop", (e) => {
     const relativePath = currentFile
       ? buildRelativePath(currentFile, imagePath)
       : basename(imagePath);
-    const imageLink = `![${fileName}](${relativePath})`;
+    const imageLink = `![${escapeLinkText(fileName)}](${encodeLinkPath(relativePath)})`;
     editor.dispatch({
       changes: { from: pos, insert: imageLink },
       selection: { anchor: pos + imageLink.length },
@@ -618,7 +621,7 @@ async function openLocalLink(href: string) {
   if (!rawPath) return;
   let target = rawPath;
   try {
-    target = decodeURI(rawPath);
+    target = decodeURIComponent(rawPath);
   } catch {}
   let path: string;
   if (target.startsWith("/")) {
@@ -781,17 +784,16 @@ initSidebar(sidebarEl, {
   onOpen: (content: string, filePath: string) => {
     loadContentAsTab(content, filePath);
   },
-  onFolder: async (rootPath: string) => {
-    // Warn if there are unsaved changes before switching projects
+  beforeFolder: async () => {
     const dirty = getDirtyFileTabs();
-    if (dirty.length > 0) {
-      const names = dirty.map((t) => t.name).join(", ");
-      const ok = await window.__TAURI__.dialog.confirm(
-        `Unsaved changes in: ${names}\n\nSwitch project without saving?`,
-        { title: "Unsaved Changes", kind: "warning" },
-      );
-      if (!ok) return;
-    }
+    if (dirty.length === 0) return true;
+    const names = dirty.map((t) => t.name).join(", ");
+    return window.__TAURI__.dialog.confirm(
+      `Unsaved changes in: ${names}\n\nSwitch project without saving?`,
+      { title: "Unsaved Changes", kind: "warning" },
+    );
+  },
+  onFolder: async (rootPath: string) => {
     // Save current tabs, restore tabs for the new project
     switchProjectTabs(rootPath, reloadTab);
     // Stop watchers for old tabs, start watchers for new tabs
@@ -811,10 +813,11 @@ initSidebar(sidebarEl, {
   },
   onRename: (oldPath, newPath) => {
     updateTabPath(oldPath, newPath);
-    // Update file watcher: stop watching old path, start watching new
-    stopWatching(oldPath);
-    const tab = getTabByPath(newPath);
-    if (tab) startWatching(newPath);
+    // Move watchers to the new paths, including open files inside a renamed directory
+    stopWatchingUnder(oldPath);
+    for (const tab of getTabs()) {
+      if (tab.path === newPath || tab.path?.startsWith(`${newPath}/`)) startWatching(tab.path);
+    }
     // Reload active tab if it was renamed (path changed, content may differ)
     const active = getActiveTab();
     if (active?.path === newPath) {
@@ -823,7 +826,7 @@ initSidebar(sidebarEl, {
   },
   onDelete: (paths, hadDir) => {
     for (const p of paths) {
-      stopWatching(p);
+      stopWatchingUnder(p);
       if (hadDir) {
         closeTabsUnderDir(p);
       } else {

@@ -58,6 +58,8 @@ async function saveAndInsert(data: Uint8Array, filename: string, pos: number) {
 export async function handlePaste(e: ClipboardEvent) {
   const items = e.clipboardData?.items;
   if (!items) return;
+  // Office apps copy text together with a bitmap preview: paste the text
+  if (e.clipboardData.getData("text/plain")) return;
 
   for (const item of items) {
     const ext = IMAGE_MIME_EXTENSIONS[item.type];

@@ -1,4 +1,5 @@
 import { KEY_UPDATE_LAST_CHECK, KEY_UPDATE_DISMISSED_VERSION } from "./storage-keys.ts";
+import { escapeHtml } from "./html-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 const { getVersion } = window.__TAURI__.app;
@@ -57,7 +58,7 @@ function showRestartToast(version: string): void {
   toast.className = "update-toast";
   toast.innerHTML = `
     <div class="update-toast-header">
-      <span>Updated to v${version} — restart to apply</span>
+      <span>Updated to v${escapeHtml(version)} — restart to apply</span>
       <button class="update-toast-close" aria-label="Dismiss">&times;</button>
     </div>
     <button class="update-toast-restart">Restart Now</button>
@@ -74,11 +75,11 @@ function showUpdateToast(version: string, htmlUrl: string): void {
   toast.className = "update-toast";
   toast.innerHTML = `
     <div class="update-toast-header">
-      <span>New version v${version} available</span>
+      <span>New version v${escapeHtml(version)} available</span>
       <button class="update-toast-close" aria-label="Dismiss">&times;</button>
     </div>
     <code>brew upgrade markupsidedown</code>
-    <a href="${htmlUrl}" target="_blank" rel="noopener">View on GitHub</a>
+    <a href="${escapeHtml(htmlUrl)}" target="_blank" rel="noopener">View on GitHub</a>
   `;
 
   const dismiss = () => {
