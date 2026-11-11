@@ -22,7 +22,7 @@ function parseMarkdownTable(text: string): TableData | null {
   if (lines.length < 2) return null;
 
   const parseRow = (line: string): string[] =>
-    splitTableCells(line).map((c) => c.replace(/\\([\\|])/g, "$1"));
+    splitTableCells(line).map((c) => c.replace(/\\\|/g, "|"));
 
   const header = parseRow(lines[0]);
   const sepLine = lines[1].trim();
@@ -55,8 +55,7 @@ function generateMarkdownTable(table: TableData): string {
   const { headers, alignments, rows } = table;
   const colCount = headers.length;
 
-  // Escape backslashes first, then pipes — order matters to avoid ambiguity
-  const escapeCell = (s: string): string => s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+  const escapeCell = (s: string): string => s.replace(/\|/g, "\\|");
 
   const widths = Array.from({ length: colCount }, (_, i) => {
     const cells = [headers[i], ...rows.map((r) => r[i] || "")];
@@ -347,10 +346,10 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
     table.alignments[activeCol] = alignSelect.value;
   });
 
-  // Clipboard paste: TSV/CSV -> table cells
+  // Clipboard paste: multi-line or tab-separated text -> table cells
   gridEl.addEventListener("paste", (e: ClipboardEvent) => {
     const text = e.clipboardData?.getData("text/plain");
-    if (!text || (!text.includes("\t") && !text.includes(","))) return;
+    if (!text || !/[\t\n]/.test(text.trim())) return;
 
     e.preventDefault();
     snapshot();

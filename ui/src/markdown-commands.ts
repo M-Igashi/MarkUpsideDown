@@ -36,7 +36,7 @@ function tryUnwrap(state: EditorState, range: SelectionRange, markers: string[])
     const len = marker.length;
     const before = state.sliceDoc(Math.max(0, range.from - len), range.from);
     const after = state.sliceDoc(range.to, Math.min(state.doc.length, range.to + len));
-    if (before === marker && after === marker) {
+    if (before === marker && after === marker && !isInsideDoubleMarker(state, range, marker)) {
       return {
         changes: [
           { from: range.from - len, to: range.from, insert: "" },
@@ -47,6 +47,19 @@ function tryUnwrap(state: EditorState, range: SelectionRange, markers: string[])
     }
   }
   return null;
+}
+
+/** True when a single-char marker like `*` is really part of `**` (bold), not italic. */
+function isInsideDoubleMarker(state: EditorState, range: SelectionRange, marker: string): boolean {
+  if (marker.length !== 1) return false;
+  let run = 0;
+  while (
+    range.from - run > 0 &&
+    state.sliceDoc(range.from - run - 1, range.from - run) === marker
+  ) {
+    run++;
+  }
+  return run % 2 === 0;
 }
 
 /** Wrap or unwrap the selection with a symmetric marker (e.g. `*`, `~~`). */
@@ -78,10 +91,10 @@ const insertLink: Command = (view: EditorView) => {
 };
 
 /**
- * Bold toggle: wraps with `__` (avoids nesting collision with italic `*`).
- * Unwraps both `__` and `**` for compatibility with existing documents.
+ * Bold toggle: wraps with `**`, which CommonMark renders as bold even inside CJK text.
+ * Unwraps both `**` and `__` for compatibility with existing documents.
  */
-export const toggleBold = toggleMarkup(["__", "**"], () => ["__", "__"]);
+export const toggleBold = toggleMarkup(["**", "__"], () => ["**", "**"]);
 export const toggleItalic = toggleWrap("*");
 export const toggleStrikethrough = toggleWrap("~~");
 /** Smart inline code: adjusts backtick delimiter length when content contains backticks. */
