@@ -8,11 +8,8 @@ use crate::error::{AppError, Result};
 // --- CLI Command Runner ---
 
 pub(super) fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
-    run_command(Command::new(cmd).args(args), cmd)
-}
-
-fn run_command(command: &mut Command, cmd: &str) -> Result<String> {
-    let output = command
+    let output = Command::new(cmd)
+        .args(args)
         .output()
         .map_err(|e| AppError::Git(format!("Failed to run {cmd}: {e}")))?;
 
@@ -331,16 +328,10 @@ pub async fn git_commit(repo_path: String, message: String) -> Result<String> {
 
 async fn git_remote_command(repo_path: String, cmd: &'static str) -> Result<String> {
     spawn_blocking(move || {
-        reject_option_like("repository path", &repo_path)?;
         // Fetch and push do not touch the index, so they run outside GIT_LOCK
         // and cannot stall status polling while the network is slow.
         let _guard = (cmd == "pull").then(|| GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner()));
-        let output = run_command(
-            Command::new("git")
-                .args(["-C", &repo_path, cmd])
-                .env("GIT_TERMINAL_PROMPT", "0"),
-            "git",
-        )?;
+        let output = run_git_unlocked(&repo_path, &[cmd])?;
         Ok(output.trim().to_string())
     })
     .await
