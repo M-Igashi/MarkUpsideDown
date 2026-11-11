@@ -2,7 +2,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -103,6 +103,8 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/github/list", get(github_list))
         .route("/github/view", get(github_view))
         .route("/github/update", post(github_update))
+        // crawl_save and set_editor_content can exceed axum's 2 MB default
+        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {

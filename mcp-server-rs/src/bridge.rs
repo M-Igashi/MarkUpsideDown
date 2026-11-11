@@ -8,7 +8,22 @@ use serde::de::DeserializeOwned;
 
 use crate::tools::CrawlSavePageParam;
 
-const TIMEOUT: Duration = Duration::from_secs(5);
+const TIMEOUT: Duration = Duration::from_secs(10);
+/// Network and CLI-backed routes (git remotes, gh, downloads, crawl save).
+const LONG_TIMEOUT: Duration = Duration::from_secs(300);
+
+fn timeout_for(path: &str) -> Duration {
+    const LONG: &[&str] = &[
+        "/git/push",
+        "/git/pull",
+        "/git/fetch",
+        "/git/clone",
+        "/github/",
+        "/content/",
+        "/crawl/",
+    ];
+    if LONG.iter().any(|p| path.starts_with(p)) { LONG_TIMEOUT } else { TIMEOUT }
+}
 
 static CACHED_BRIDGE_URL: Mutex<Option<String>> = Mutex::new(None);
 
@@ -57,21 +72,31 @@ impl BridgeClient {
     /// surface the bridge's `error` field as Err.
     async fn request_json(&self, method: Method, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
         let url = format!("{}{path}", get_bridge_url()?);
-        let mut req = self.client.request(method, url).timeout(TIMEOUT);
+        let mut req = self.client.request(method, url).timeout(timeout_for(path));
         if let Some(body) = body {
             req = req.json(&body);
         }
 
-        let response = req.send().await.map_err(|_| {
+        let response = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                return format!("Timed out waiting for the app ({path}); the operation may still be running");
+            }
             clear_bridge_url_cache();
             "MarkUpsideDown app is not reachable".to_string()
         })?;
 
-        if !response.status().is_success() {
-            return Err(format!("Bridge returned {}", response.status()));
+        let status = response.status();
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            let detail = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string));
+            return Err(match detail {
+                Some(err) => format!("Bridge returned {status}: {err}"),
+                None => format!("Bridge returned {status}"),
+            });
         }
 
-        let text = response.text().await.map_err(|e| e.to_string())?;
         let json: serde_json::Value = if text.is_empty() {
             serde_json::Value::Null
         } else {
