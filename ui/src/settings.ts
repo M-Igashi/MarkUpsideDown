@@ -703,7 +703,7 @@ export function showSettings({
 
         <div class="settings-auto-setup">
           <button id="settings-auto-setup-btn" class="btn btn-primary btn-block settings-setup-btn">Setup with Cloudflare</button>
-          <button id="settings-update-worker-btn" class="btn settings-update-btn" style="display:none">Update Worker</button>
+          <button id="settings-update-worker-btn" class="btn btn-block settings-update-btn" style="display:none">Update Worker</button>
           <div id="settings-update-result" class="settings-test-result" style="display:none"></div>
           <div id="settings-setup-progress" class="settings-setup-progress" style="display:none"></div>
         </div>

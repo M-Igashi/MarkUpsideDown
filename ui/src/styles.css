@@ -3176,10 +3176,6 @@ body.fullscreen #toolbar {
   gap: 8px;
 }
 
-.settings-update-btn {
-  margin-left: 8px;
-}
-
 .settings-setup-progress {
   display: flex;
   flex-direction: column;
