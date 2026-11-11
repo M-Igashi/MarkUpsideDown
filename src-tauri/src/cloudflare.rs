@@ -219,11 +219,11 @@ fn build_wrangler_config(resources: &ResourceFlags, worker_name: Option<&str>) -
     }
 
     // Remove R2 binding (and the expired-document cleanup cron) if bucket not created
-    if !resources.r2_bucket {
-        config.as_object_mut().map(|o| {
-            o.remove("r2_buckets");
-            o.remove("triggers");
-        });
+    if !resources.r2_bucket
+        && let Some(o) = config.as_object_mut()
+    {
+        o.remove("r2_buckets");
+        o.remove("triggers");
     }
 
     serde_json::to_string_pretty(&config).expect("JSON serialization cannot fail")

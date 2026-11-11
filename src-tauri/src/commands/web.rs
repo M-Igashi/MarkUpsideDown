@@ -7,12 +7,12 @@ use crate::error::{AppError, Result};
 /// Reject responses whose Content-Length exceeds `max_bytes`.
 /// If the header is absent the response is allowed through (post-read checks still apply).
 fn reject_oversized_response(response: &reqwest::Response, max_bytes: u64) -> Result<()> {
-    if let Some(len) = response.content_length() {
-        if len > max_bytes {
-            return Err(AppError::Validation(format!(
-                "Response too large ({len} bytes, max {max_bytes})"
-            )));
-        }
+    if let Some(len) = response.content_length()
+        && len > max_bytes
+    {
+        return Err(AppError::Validation(format!(
+            "Response too large ({len} bytes, max {max_bytes})"
+        )));
     }
     Ok(())
 }

@@ -137,13 +137,13 @@ fn main() {
             }
 
             // Handle CLI file arguments (supports multiple files)
-            if let Ok(matches) = app.cli().matches() {
-                if let Some(file_arg) = matches.args.get("file") {
-                    let values = extract_cli_file_values(&file_arg.value);
-                    let base_dir = std::env::current_dir().unwrap_or_default();
-                    let paths = resolve_file_paths(values.into_iter(), &base_dir);
-                    emit_open_files_delayed(app.handle().clone(), paths);
-                }
+            if let Ok(matches) = app.cli().matches()
+                && let Some(file_arg) = matches.args.get("file")
+            {
+                let values = extract_cli_file_values(&file_arg.value);
+                let base_dir = std::env::current_dir().unwrap_or_default();
+                let paths = resolve_file_paths(values.into_iter(), &base_dir);
+                emit_open_files_delayed(app.handle().clone(), paths);
             }
 
             Ok(())

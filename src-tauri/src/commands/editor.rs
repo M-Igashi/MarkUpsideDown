@@ -167,10 +167,10 @@ pub fn create_cowork_workspace(
     use std::path::PathBuf;
 
     // Expand ~ to home directory
-    let expanded = if folder_path.starts_with("~/") {
+    let expanded = if let Some(rest) = folder_path.strip_prefix("~/") {
         crate::util::home_dir()
             .ok_or(AppError::Io("Cannot resolve home directory".into()))?
-            .join(&folder_path[2..])
+            .join(rest)
     } else {
         PathBuf::from(&folder_path)
     };

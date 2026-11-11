@@ -76,16 +76,16 @@ impl EditorStates {
         f: impl FnOnce(&EditorStateInner) -> T,
     ) -> Option<T> {
         let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(label) = label {
-            if let Some(state) = map.get(label) {
-                return Some(f(state));
-            }
+        if let Some(label) = label
+            && let Some(state) = map.get(label)
+        {
+            return Some(f(state));
         }
         let focused = self.focused.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(label) = focused.as_ref() {
-            if let Some(state) = map.get(label) {
-                return Some(f(state));
-            }
+        if let Some(label) = focused.as_ref()
+            && let Some(state) = map.get(label)
+        {
+            return Some(f(state));
         }
         // Fallback: first available window's state
         map.values().next().map(f)
