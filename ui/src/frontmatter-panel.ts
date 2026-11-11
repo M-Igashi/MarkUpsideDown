@@ -11,14 +11,18 @@ let editor: EditorView;
 let lastFm: FrontmatterInfo | null = null;
 let lastContent: string | null = null;
 
-export function initFrontmatterPanel(ed: EditorView, container: HTMLElement) {
+export function initFrontmatterPanel(
+  ed: EditorView,
+  container: HTMLElement,
+  before: Node | null = container.firstChild,
+) {
   editor = ed;
 
   panelEl = document.createElement("div");
   panelEl.className = "frontmatter-panel";
   panelEl.style.display = "none";
   panelEl.dataset.collapsed = "true";
-  container.insertBefore(panelEl, container.firstChild);
+  container.insertBefore(panelEl, before);
 
   // Single delegated click listener (never accumulates)
   panelEl.addEventListener("click", (e) => {

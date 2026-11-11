@@ -47,7 +47,15 @@
         <div id="preview-pane"></div>
       </div>
     </div>
-    <div id="status-bar"><span id="status"></span></div>
+    <div id="status-bar">
+      <span id="status" role="status"></span>
+      <div id="status-meta">
+        <button id="status-branch" class="status-item" title="Show changes" hidden></button>
+        <button id="status-published" class="status-item" title="Copy the public URL" hidden></button>
+        <button id="status-count" class="status-item" title="Switch between words and characters"></button>
+        <button id="status-worker" class="status-item"><span class="status-dot"></span>Worker</button>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

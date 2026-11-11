@@ -1,5 +1,6 @@
 import { basename } from "./path-utils.ts";
 import { icon } from "./icons.ts";
+import { escapeHtml } from "./html-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -100,6 +101,12 @@ export async function refresh() {
 
 export function getBranch(): string | null {
   return gitData?.is_repo ? gitData.branch || null : null;
+}
+
+export function getSyncCounts(): { ahead: number; behind: number } {
+  return gitData?.is_repo
+    ? { ahead: gitData.ahead, behind: gitData.behind }
+    : { ahead: 0, behind: 0 };
 }
 
 const HIDDEN_FILES = [".DS_Store", "Thumbs.db"];
@@ -320,12 +327,6 @@ function ensureBottom(): HTMLElement {
   branchLabelEl.className = "git-branch-label";
   branchRow.appendChild(branchLabelEl);
 
-  const fetchBtn = document.createElement("button");
-  fetchBtn.className = "btn btn-sm git-fetch-btn";
-  fetchBtn.innerHTML = `${icon("refresh-cw", 13)} Fetch`;
-  fetchBtn.addEventListener("click", () => gitRemoteAction("git_fetch", "Fetch", fetchBtn));
-  branchRow.appendChild(fetchBtn);
-
   bottom.appendChild(branchRow);
 
   const commitArea = document.createElement("div");
@@ -349,33 +350,35 @@ function ensureBottom(): HTMLElement {
   });
   commitArea.appendChild(textarea);
 
+  commitBtnEl = document.createElement("button");
+  commitBtnEl.className = "btn btn-primary btn-block git-commit-btn";
+  commitBtnEl.addEventListener("click", () => {
+    const hasStaged = gitData?.files.some((f) => f.staged && !isHiddenFile(f.path));
+    commitChanges(hasStaged ? "staged" : "tracked");
+  });
+  commitArea.appendChild(commitBtnEl);
+
   const actionRow = document.createElement("div");
   actionRow.className = "git-action-row";
-
-  const leftActions = document.createElement("div");
-  leftActions.className = "git-action-left";
 
   pullBtnEl = document.createElement("button");
   pullBtnEl.className = "btn btn-sm git-icon-btn";
   pullBtnEl.title = "Pull";
   pullBtnEl.addEventListener("click", () => gitRemoteAction("git_pull", "Pull", pullBtnEl!));
-  leftActions.appendChild(pullBtnEl);
+  actionRow.appendChild(pullBtnEl);
 
   pushBtnEl = document.createElement("button");
   pushBtnEl.className = "btn btn-sm git-icon-btn";
   pushBtnEl.title = "Push";
   pushBtnEl.addEventListener("click", () => gitRemoteAction("git_push", "Push", pushBtnEl!));
-  leftActions.appendChild(pushBtnEl);
+  actionRow.appendChild(pushBtnEl);
 
-  actionRow.appendChild(leftActions);
-
-  commitBtnEl = document.createElement("button");
-  commitBtnEl.className = "btn btn-sm btn-primary git-commit-btn";
-  commitBtnEl.addEventListener("click", () => {
-    const hasStaged = gitData?.files.some((f) => f.staged && !isHiddenFile(f.path));
-    commitChanges(hasStaged ? "staged" : "tracked");
-  });
-  actionRow.appendChild(commitBtnEl);
+  const fetchBtn = document.createElement("button");
+  fetchBtn.className = "btn btn-sm git-fetch-btn";
+  fetchBtn.title = "Fetch";
+  fetchBtn.innerHTML = `${icon("refresh-cw", 13)} Fetch`;
+  fetchBtn.addEventListener("click", () => gitRemoteAction("git_fetch", "Fetch", fetchBtn));
+  actionRow.appendChild(fetchBtn);
 
   commitArea.appendChild(actionRow);
   bottom.appendChild(commitArea);
@@ -394,7 +397,7 @@ function updateBottom(staged: GitFile[]) {
     if (textarea) textarea.value = commitMessage;
   }
 
-  branchLabelEl.textContent = `\u{e0a0} ${gitData.branch || "HEAD (detached)"}`;
+  branchLabelEl.innerHTML = `${icon("git-branch", 13)}<span>${escapeHtml(gitData.branch || "HEAD (detached)")}</span>`;
 
   pullBtnEl.innerHTML = `${icon("arrow-down", 13)} Pull${gitData.behind > 0 ? ` <span class="badge">${gitData.behind}</span>` : ""}`;
   pushBtnEl.innerHTML = `${icon("arrow-up", 13)} Push${gitData.ahead > 0 ? ` <span class="badge">${gitData.ahead}</span>` : ""}`;
@@ -538,6 +541,8 @@ function createSection(title: string, files: GitFile[], isStaged: boolean): HTML
     const statusIcon = document.createElement("span");
     statusIcon.className = `git-file-icon ${statusClass(file.status)}`;
     statusIcon.title = statusLabel(file.status);
+    statusIcon.textContent =
+      file.status === "?" || file.status === "??" ? "U" : file.status.charAt(0);
     row.appendChild(statusIcon);
 
     // File name (just basename)
