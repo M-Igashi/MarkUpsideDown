@@ -445,13 +445,81 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
 
 const MAX_SVG_SIZE: usize = 1_024 * 1_024; // 1 MB
 
+/// Loopback, private, link-local, and other non-public addresses.
+fn is_non_public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.octets()[0] == 0
+                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64) // 100.64.0.0/10
+        }
+        std::net::IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_non_public_ip(v4.into());
+            }
+            let first = v6.segments()[0];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (first & 0xfe00) == 0xfc00 // fc00::/7 unique local
+                || (first & 0xffc0) == 0xfe80 // fe80::/10 link-local
+        }
+    }
+}
+
+/// True for URLs whose host is a non-public IP literal or a local name.
+fn is_local_url(url: &reqwest::Url) -> bool {
+    let Some(host) = url.host_str() else { return true };
+    // IPv6 literals keep their brackets in host_str()
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
+        return is_non_public_ip(ip);
+    }
+    let d = host.trim_end_matches('.').to_ascii_lowercase();
+    d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local")
+}
+
+/// Images in a document are fetched without any user action, so a document
+/// must not be able to make the app send requests to localhost (the MCP
+/// bridge) or the LAN.
+async fn ensure_public_url(url: &reqwest::Url) -> Result<()> {
+    let blocked = || AppError::Validation("Refusing to fetch an image from a local or private address".into());
+    if is_local_url(url) {
+        return Err(blocked());
+    }
+    let host = url.host_str().unwrap_or_default();
+    if !host.starts_with('[') && host.parse::<std::net::IpAddr>().is_err() {
+        let port = url.port_or_known_default().unwrap_or(443);
+        let addrs = tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|e| AppError::Network(format!("Failed to resolve {host}: {e}")))?;
+        if addrs.into_iter().any(|a| is_non_public_ip(a.ip())) {
+            return Err(blocked());
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
-pub async fn fetch_svg(
-    url: String,
-    client: tauri::State<'_, reqwest::Client>,
-) -> Result<String> {
+pub async fn fetch_svg(url: String) -> Result<String> {
+    let url = validate_url(&url)?;
+    ensure_public_url(&url).await?;
+    // Own client so redirects can be checked too
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 || is_local_url(attempt.url()) {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
+        .build()
+        .map_err(|e| AppError::Network(e.to_string()))?;
     let response = client
-        .get(&url)
+        .get(url)
         .timeout(Duration::from_secs(15))
         .send()
         .await
@@ -751,4 +819,40 @@ fn is_newer(latest: &str, current: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn local(u: &str) -> bool {
+        is_local_url(&reqwest::Url::parse(u).unwrap())
+    }
+
+    #[test]
+    fn blocks_local_and_private_image_hosts() {
+        for u in [
+            "http://127.0.0.1:31415/worker?x=.svg",
+            "http://localhost/a.svg",
+            "http://foo.localhost/a.svg",
+            "http://printer.local/a.svg",
+            "http://10.0.0.1/a.svg",
+            "http://192.168.1.1/a.svg",
+            "http://169.254.169.254/a.svg",
+            "http://[::1]/a.svg",
+            "http://[fd00::1]/a.svg",
+            "http://[::ffff:127.0.0.1]/a.svg",
+            "http://0.0.0.0/a.svg",
+            "http://2130706433/a.svg",
+        ] {
+            assert!(local(u), "{u} should be blocked");
+        }
+    }
+
+    #[test]
+    fn allows_public_image_hosts() {
+        for u in ["https://img.shields.io/badge/a-b-c.svg", "https://1.1.1.1/a.svg", "https://[2606:4700::1111]/a.svg"] {
+            assert!(!local(u), "{u} should be allowed");
+        }
+    }
 }

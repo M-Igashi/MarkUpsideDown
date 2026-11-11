@@ -355,10 +355,17 @@ marked.use({
   },
 });
 
-// --- SVG inlining ---
+// --- Remote SVG images ---
+
+// WebKit fails to load many remote SVG <img> sources, so they are fetched
+// through the backend. The result is shown through a data: URL in an <img>,
+// never inserted as markup: SVG used as an image cannot run scripts, load
+// other resources, or apply its <style> to the app.
 
 const SVG_CACHE_MAX = 50;
-const svgCache = new Map<string, string>();
+const svgCache = new Map<string, string>(); // remote URL -> data: URL
+// Wrappers created here; a document's own class="inline-svg" must not be kept
+const svgWrappers = new WeakSet<HTMLElement>();
 
 async function inlineSvgImages(container: HTMLElement) {
   const imgs = container.querySelectorAll('img[src$=".svg"]');
@@ -371,31 +378,29 @@ async function inlineSvgImages(container: HTMLElement) {
       return;
 
     try {
-      let svgText: string | undefined;
-      if (svgCache.has(url)) {
-        svgText = svgCache.get(url);
+      let dataUrl = svgCache.get(url);
+      if (dataUrl) {
         // Move to end for LRU eviction
         svgCache.delete(url);
-        svgCache.set(url, svgText!);
       } else {
-        svgText = await invoke<string>("fetch_svg", { url });
+        const svgText = await invoke<string>("fetch_svg", { url });
+        dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
         if (svgCache.size >= SVG_CACHE_MAX) {
-          const oldest = svgCache.keys().next().value!;
-          svgCache.delete(oldest);
+          svgCache.delete(svgCache.keys().next().value!);
         }
-        svgCache.set(url, svgText);
       }
+      svgCache.set(url, dataUrl);
 
       const wrapper = document.createElement("span");
       wrapper.className = "inline-svg";
-      wrapper.innerHTML = svgText!;
-
-      const alt = (img as HTMLImageElement).alt;
-      const svgEl = wrapper.querySelector("svg");
-      if (svgEl && alt) {
-        svgEl.setAttribute("aria-label", alt);
-        svgEl.setAttribute("role", "img");
-      }
+      svgWrappers.add(wrapper);
+      const svgImg = document.createElement("img");
+      svgImg.src = dataUrl;
+      svgImg.alt = (img as HTMLImageElement).alt;
+      if ((img as HTMLImageElement).title) svgImg.title = (img as HTMLImageElement).title;
+      svgImg.loading = "lazy";
+      svgImg.decoding = "async";
+      wrapper.appendChild(svgImg);
 
       img.replaceWith(wrapper);
       changed = true;
@@ -409,6 +414,10 @@ async function inlineSvgImages(container: HTMLElement) {
 
 // --- Preview rendering ---
 
+// Copy buttons the app added (a document can contain its own
+// class="code-copy-btn" elements, which must not survive re-renders)
+const copyButtons = new WeakSet<HTMLElement>();
+
 const PURIFY_CONFIG = {
   // Allow Tauri's `asset:` scheme so local images survive sanitization
   // (convertFileSrc returns asset://localhost/... on macOS/Linux). Mirrors
@@ -416,6 +425,9 @@ const PURIFY_CONFIG = {
   ALLOWED_URI_REGEXP:
     /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|asset):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
   ADD_TAGS: ["foreignObject"],
+  // <style> restyles the whole app, and form controls can submit or
+  // impersonate app buttons. Task-list checkboxes (<input>) stay allowed.
+  FORBID_TAGS: ["style", "form", "button", "textarea", "select"],
   ADD_ATTR: [
     "data-mermaid-source",
     "data-source-line",
@@ -492,7 +504,7 @@ export async function renderPreview(source: string) {
           return false;
         }
         // Preserve inlined SVGs
-        if (oldNode.classList.contains("inline-svg")) {
+        if (svgWrappers.has(oldNode)) {
           return false;
         }
         // Keep the copy-btn marker so the post-render pass skips already-done PREs
@@ -504,7 +516,7 @@ export async function renderPreview(source: string) {
       beforeNodeRemoved(node: Node) {
         // Copy buttons are added post-render and absent from the new HTML —
         // keep them instead of recreating button + listener on every render
-        return !(node instanceof HTMLElement && node.classList.contains("code-copy-btn"));
+        return !(node instanceof HTMLElement && copyButtons.has(node));
       },
     },
   });
@@ -563,6 +575,7 @@ export async function renderPreview(source: string) {
     const btn = document.createElement("button");
     btn.className = "code-copy-btn";
     btn.textContent = "Copy";
+    copyButtons.add(btn);
     btn.addEventListener("click", () => {
       const code = pre.querySelector("code");
       const text = code ? code.textContent! : pre.textContent!;
