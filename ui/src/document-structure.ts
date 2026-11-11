@@ -230,6 +230,18 @@ export function parseTables(lines: string[], codeRanges: [number, number][]): Ta
 }
 
 /** Parse frontmatter from lines. */
+/**
+ * Replace a leading YAML frontmatter block with blank lines, so the preview
+ * skips it while every later line keeps its line number (scroll sync).
+ */
+export function blankFrontmatter(source: string): string {
+  if (!source.startsWith("---")) return source;
+  const lines = source.split("\n");
+  const fm = parseFrontmatter(lines);
+  if (!fm) return source;
+  return "\n".repeat(fm.endLine) + lines.slice(fm.endLine).join("\n");
+}
+
 export function parseFrontmatter(lines: string[]): FrontmatterInfo | null {
   if (lines.length === 0) return null;
   if (lines[0] !== "---") return null;

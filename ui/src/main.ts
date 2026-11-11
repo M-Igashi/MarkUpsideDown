@@ -445,6 +445,7 @@ const WORKER_HEALTH_TITLES: Record<WorkerHealth, string> = {
   unknown: "Cloudflare Worker configured. Click to open Settings.",
   ok: "Cloudflare Worker connected",
   warn: "Cloudflare Worker needs an update. Click to open Settings.",
+  key: "Cloudflare Worker needs its API key, or rejected the saved one. Click to open Settings.",
   error: "Cloudflare Worker is not reachable. Click to open Settings.",
 };
 

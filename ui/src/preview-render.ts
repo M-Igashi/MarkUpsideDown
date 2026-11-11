@@ -11,6 +11,7 @@ import {
 import { escapeHtml, copySvgAsPng } from "./html-utils.ts";
 import { open as openMermaidViewer } from "./mermaid-viewer.ts";
 import { dirname } from "./path-utils.ts";
+import { blankFrontmatter } from "./document-structure.ts";
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 
@@ -477,7 +478,7 @@ export async function renderPreview(source: string) {
   const savedScrollTop = previewPane.scrollTop;
   const savedActiveSide = scrollState.activeSide;
 
-  const tokens = marked.lexer(fixCjkEmphasis(source));
+  const tokens = marked.lexer(fixCjkEmphasis(blankFrontmatter(source)));
   annotateTokensWithSourceLines(tokens);
 
   const html = marked.parser(tokens);

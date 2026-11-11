@@ -703,6 +703,7 @@ body.fullscreen #toolbar {
   background: #c99a1e;
 }
 
+#status-worker[data-health="key"] .status-dot,
 #status-worker[data-health="error"] .status-dot {
   background: var(--error);
 }

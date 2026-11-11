@@ -145,7 +145,7 @@ function cacheTestStatus(status: WorkerStatus, testedUrl: string) {
 /** Fired on `window` when the Worker URL or its last health result changes. */
 export const WORKER_STATUS_EVENT = "worker-status";
 
-export type WorkerHealth = "none" | "unknown" | "ok" | "warn" | "error";
+export type WorkerHealth = "none" | "unknown" | "ok" | "warn" | "key" | "error";
 
 /** Summary of the configured Worker for the status bar. */
 export function getWorkerHealth(): WorkerHealth {
@@ -153,7 +153,8 @@ export function getWorkerHealth(): WorkerHealth {
   if (!url) return "none";
   const status = lastTestedUrl === url ? currentTestStatus : null;
   if (!status) return "unknown";
-  if (!status.reachable || status.auth === "missing" || status.auth === "invalid") return "error";
+  if (!status.reachable) return "error";
+  if (status.auth === "missing" || status.auth === "invalid") return "key";
   if (status.update_available || status.auth === "unconfigured") return "warn";
   return "ok";
 }
