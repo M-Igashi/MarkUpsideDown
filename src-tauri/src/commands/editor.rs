@@ -146,7 +146,15 @@ pub fn install_mcp_to_claude_desktop(
         .ok_or(AppError::Validation("Config is not a JSON object".into()))?
         .entry("mcpServers")
         .or_insert_with(|| serde_json::json!({}));
-    servers["markupsidedown"] = entry;
+    if servers.is_null() {
+        *servers = serde_json::json!({});
+    }
+    servers
+        .as_object_mut()
+        .ok_or(AppError::Validation(
+            "\"mcpServers\" in the Claude Desktop config is not a JSON object".into(),
+        ))?
+        .insert("markupsidedown".into(), entry);
 
     fs::write(
         &config_path,

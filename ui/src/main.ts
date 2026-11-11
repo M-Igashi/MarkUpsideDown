@@ -578,7 +578,12 @@ async function openFileByPath(path: string) {
   }
 }
 if (window.__TAURI__.event) {
-  listenToWindow<string>("cli:open-file", (e) => openFileByPath(e.payload));
+  // Files opened at launch wait in the backend until this listener exists
+  listenToWindow<string>("cli:open-file", (e) => openFileByPath(e.payload)).then(async () => {
+    for (const path of await invoke<string[]>("take_pending_open_files")) {
+      await openFileByPath(path);
+    }
+  });
   listenToWindow<string>("menu:open-recent", (e) => openFileByPath(e.payload));
 }
 

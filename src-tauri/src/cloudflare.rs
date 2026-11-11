@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 // All worker source files embedded at compile time
 const WORKER_INDEX_TS: &str = include_str!("../../worker/src/index.ts");
@@ -63,14 +64,16 @@ fn compute_augmented_path() -> Option<String> {
         if nvm_dir.exists()
             && let Ok(entries) = std::fs::read_dir(&nvm_dir)
         {
-            let mut versions: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-            versions.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
-            if let Some(latest) = versions.first() {
-                extra_paths.push(latest.path().join("bin").to_string_lossy().to_string());
+            let latest = entries
+                .filter_map(|e| e.ok())
+                .filter_map(|e| Some((parse_node_version(e.file_name().to_str()?)?, e.path())))
+                .max_by(|a, b| a.0.cmp(&b.0));
+            if let Some((_, path)) = latest {
+                extra_paths.push(path.join("bin").to_string_lossy().to_string());
             }
         }
     }
-    for p in ["/opt/homebrew/bin"] {
+    for p in ["/opt/homebrew/bin", "/usr/local/bin"] {
         if !current_path.contains(p) {
             extra_paths.push(p.to_string());
         }
@@ -80,6 +83,14 @@ fn compute_augmented_path() -> Option<String> {
     } else {
         Some(format!("{}:{}", extra_paths.join(":"), current_path))
     }
+}
+
+/// Parse an nvm directory name such as "v22.1.0" for numeric ordering.
+fn parse_node_version(name: &str) -> Option<Vec<u64>> {
+    name.strip_prefix('v')?
+        .split('.')
+        .map(|p| p.parse().ok())
+        .collect()
 }
 
 /// Set HOME and augment PATH for macOS GUI apps that don't inherit shell env.
@@ -140,21 +151,47 @@ fn run_wrangler(
     }
 }
 
+/// Wait for the child, killing it on timeout so it does not keep holding
+/// ports (the `wrangler login` callback) or files (the deploy temp dir).
 fn wait_with_timeout(
-    child: std::process::Child,
+    mut child: std::process::Child,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
-    let (tx, rx) = std::sync::mpsc::channel();
+    let stdout = child.stdout.take().map(read_in_thread);
+    let stderr = child.stderr.take().map(read_in_thread);
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("wrangler command timed out".to_string());
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("wrangler process error: {e}"));
+            }
+        }
+    };
+    let collect =
+        |h: Option<JoinHandle<Vec<u8>>>| h.and_then(|h| h.join().ok()).unwrap_or_default();
+    Ok(std::process::Output {
+        status,
+        stdout: collect(stdout),
+        stderr: collect(stderr),
+    })
+}
 
+/// Drain a pipe on its own thread so a full pipe buffer cannot block the child.
+fn read_in_thread<R: Read + Send + 'static>(mut reader: R) -> JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
-        let result = child.wait_with_output();
-        let _ = tx.send(result);
-    });
-
-    match rx.recv_timeout(timeout) {
-        Ok(result) => result.map_err(|e| format!("wrangler process error: {e}")),
-        Err(_) => Err("wrangler command timed out".to_string()),
-    }
+        let mut buf = Vec::new();
+        let _ = reader.read_to_end(&mut buf);
+        buf
+    })
 }
 
 fn parse_whoami_accounts(output: &str) -> Vec<WranglerAccount> {
@@ -549,5 +586,16 @@ fn set_wrangler_secret(
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!("Failed to set secret {name}: {stderr}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_node_version;
+
+    #[test]
+    fn node_versions_compare_numerically() {
+        assert!(parse_node_version("v22.1.0") > parse_node_version("v9.11.2"));
+        assert_eq!(parse_node_version("system"), None);
     }
 }

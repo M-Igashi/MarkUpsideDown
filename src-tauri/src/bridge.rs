@@ -93,11 +93,13 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
-    let port = find_available_port().expect("No available port for MCP bridge");
+    let Some((listener, port)) = bind_available_port() else {
+        log::error!(
+            "No available port for the MCP bridge ({PORT_RANGE_START}-{PORT_RANGE_END}); starting without it"
+        );
+        return;
+    };
     let token: Arc<str> = generate_token().into();
-    if let Err(e) = write_port_file(port, &token) {
-        log::error!("Failed to write the MCP bridge port file: {e}");
-    }
 
     let http: reqwest::Client = app.state::<reqwest::Client>().inner().clone();
     let state = Arc::new(BridgeState {
@@ -157,26 +159,40 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/github/update", post(github_update))
         // crawl_save and set_editor_content can exceed axum's 2 MB default
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
-        .layer(middleware::from_fn_with_state((port, token), require_local_client))
+        .layer(middleware::from_fn_with_state(
+            (port, token.clone()),
+            require_local_client,
+        ))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
-        let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}"))
-            .await
-            .expect("Failed to bind MCP bridge");
+        let listener = match tokio::net::TcpListener::from_std(listener) {
+            Ok(listener) => listener,
+            Err(e) => {
+                log::error!("Failed to start the MCP bridge: {e}");
+                return;
+            }
+        };
+        if let Err(e) = write_port_file(port, &token) {
+            log::error!("Failed to write the MCP bridge port file: {e}");
+        }
+        log::info!("MCP bridge started on port {port}");
         axum::serve(listener, router).await.ok();
     });
-
-    log::info!("MCP bridge started on port {port}");
 }
 
 pub fn cleanup() {
     std::fs::remove_file(port_file_path()).ok();
 }
 
-fn find_available_port() -> Option<u16> {
-    (PORT_RANGE_START..=PORT_RANGE_END)
-        .find(|&port| TcpListener::bind(("127.0.0.1", port)).is_ok())
+/// Bind the first free port and keep the listener, so no other process can
+/// take the port between the probe and the bridge starting.
+fn bind_available_port() -> Option<(TcpListener, u16)> {
+    (PORT_RANGE_START..=PORT_RANGE_END).find_map(|port| {
+        let listener = TcpListener::bind(("127.0.0.1", port)).ok()?;
+        listener.set_nonblocking(true).ok()?;
+        Some((listener, port))
+    })
 }
 
 // --- Error helpers ---
@@ -858,7 +874,7 @@ async fn download_image(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<DownloadImageRequest>,
 ) -> BridgeResult {
-    let path = commands::download_image_with(&state.http, &body.url, &body.dest_path).await?;
+    let path = commands::download_image_with(&state.app, &state.http, &body.url, &body.dest_path).await?;
     Ok(Json(serde_json::json!({ "path": path })))
 }
 
@@ -871,7 +887,7 @@ async fn fetch_page_title(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<FetchTitleRequest>,
 ) -> BridgeResult {
-    let title = commands::fetch_page_title_with(&state.http, &body.url).await?;
+    let title = commands::fetch_page_title_with(&state.app, &state.http, &body.url).await?;
     Ok(Json(serde_json::json!({ "title": title })))
 }
 

@@ -1,20 +1,48 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::time::Duration;
+use tauri::AppHandle;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use super::files::validate_path;
 use crate::error::{AppError, Result};
 
-/// Reject responses whose Content-Length exceeds `max_bytes`.
-/// If the header is absent the response is allowed through (post-read checks still apply).
-fn reject_oversized_response(response: &reqwest::Response, max_bytes: u64) -> Result<()> {
-    if let Some(len) = response.content_length()
-        && len > max_bytes
+fn too_large(max_bytes: usize) -> AppError {
+    AppError::Validation(format!("Response too large (max {max_bytes} bytes)"))
+}
+
+/// Read the body chunk by chunk, since Content-Length may be absent (chunked
+/// encoding). Past `max_bytes` it fails, or with `truncate` keeps the first
+/// `max_bytes` and stops reading.
+async fn read_body_limited(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+    truncate: bool,
+) -> Result<Vec<u8>> {
+    if !truncate
+        && response
+            .content_length()
+            .is_some_and(|len| len > max_bytes as u64)
     {
-        return Err(AppError::Validation(format!(
-            "Response too large ({len} bytes, max {max_bytes})"
-        )));
+        return Err(too_large(max_bytes));
     }
-    Ok(())
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to read body: {e}")))?
+    {
+        if body.len() + chunk.len() > max_bytes {
+            if !truncate {
+                return Err(too_large(max_bytes));
+            }
+            body.extend_from_slice(&chunk[..max_bytes - body.len()]);
+            break;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 // --- Shared Worker Request Helper ---
@@ -164,13 +192,18 @@ pub struct MarkdownResponse {
     pub is_markdown: bool,
 }
 
+const MAX_MARKDOWN_FETCH_SIZE: usize = 20 * 1_024 * 1_024; // 20 MB
+
 #[tauri::command]
 pub async fn fetch_url_as_markdown(
     url: String,
+    app: AppHandle,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<MarkdownResponse> {
+    let url = validate_url(&url)?;
+    confirm_private_fetch(&app, &url).await?;
     let response = client
-        .get(&url)
+        .get(url)
         .timeout(Duration::from_secs(30))
         .header("Accept", "text/markdown")
         .send()
@@ -184,13 +217,10 @@ pub async fn fetch_url_as_markdown(
         .unwrap_or("")
         .to_string();
 
-    let body = response
-        .text()
-        .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    let body = read_body_limited(response, MAX_MARKDOWN_FETCH_SIZE, false).await?;
 
     Ok(MarkdownResponse {
-        body,
+        body: String::from_utf8_lossy(&body).into_owned(),
         is_markdown: content_type.contains("text/markdown"),
     })
 }
@@ -276,10 +306,15 @@ pub async fn fetch_url_via_worker(
 
 // --- Fetch Page Title ---
 
-const MAX_TITLE_FETCH_SIZE: u64 = 65_536; // 64 KB
+const MAX_TITLE_FETCH_SIZE: usize = 65_536; // 64 KB
 
-pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Result<String> {
+pub async fn fetch_page_title_with(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<String> {
     let validated_url = validate_url(url)?;
+    confirm_private_fetch(app, &validated_url).await?;
     let response = client
         .get(validated_url)
         .timeout(Duration::from_secs(10))
@@ -292,13 +327,8 @@ pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Resul
         return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
 
-    reject_oversized_response(&response, MAX_TITLE_FETCH_SIZE)?;
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to read body: {e}")))?;
-    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_TITLE_FETCH_SIZE as usize)]);
+    let bytes = read_body_limited(response, MAX_TITLE_FETCH_SIZE, true).await?;
+    let text = String::from_utf8_lossy(&bytes);
 
     crate::util::extract_html_title(&text)
 }
@@ -306,22 +336,25 @@ pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Resul
 #[tauri::command]
 pub async fn fetch_page_title(
     url: String,
+    app: AppHandle,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String> {
-    fetch_page_title_with(&client, &url).await
+    fetch_page_title_with(&app, &client, &url).await
 }
 
 // --- Download Image to Local File ---
 
-const MAX_IMAGE_SIZE: u64 = 50 * 1_024 * 1_024; // 50 MB
+const MAX_IMAGE_SIZE: usize = 50 * 1_024 * 1_024; // 50 MB
 
 pub async fn download_image_with(
+    app: &AppHandle,
     client: &reqwest::Client,
     url: &str,
     dest_path: &str,
 ) -> Result<String> {
     let validated_url = validate_url(url)?;
     let validated_path = validate_path(dest_path)?;
+    confirm_private_fetch(app, &validated_url).await?;
     let response = client
         .get(validated_url)
         .timeout(Duration::from_secs(30))
@@ -333,12 +366,7 @@ pub async fn download_image_with(
         return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
 
-    reject_oversized_response(&response, MAX_IMAGE_SIZE)?;
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to read image: {e}")))?;
+    let bytes = read_body_limited(response, MAX_IMAGE_SIZE, false).await?;
 
     if let Some(parent) = validated_path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -357,9 +385,10 @@ pub async fn download_image_with(
 pub async fn download_image(
     url: String,
     dest_path: String,
+    app: AppHandle,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String> {
-    download_image_with(&client, &url, &dest_path).await
+    download_image_with(&app, &client, &url, &dest_path).await
 }
 
 // --- Document to Markdown via Workers AI ---
@@ -482,25 +511,96 @@ fn is_local_url(url: &reqwest::Url) -> bool {
     d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local")
 }
 
+/// True when the URL points at localhost or the LAN, either directly or
+/// through DNS.
+async fn is_private_target(url: &reqwest::Url) -> Result<bool> {
+    if is_local_url(url) {
+        return Ok(true);
+    }
+    let host = url.host_str().unwrap_or_default();
+    if host.starts_with('[') || host.parse::<std::net::IpAddr>().is_ok() {
+        return Ok(false);
+    }
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addrs = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to resolve {host}: {e}")))?;
+    Ok(addrs.into_iter().any(|a| is_non_public_ip(a.ip())))
+}
+
 /// Images in a document are fetched without any user action, so a document
 /// must not be able to make the app send requests to localhost (the MCP
 /// bridge) or the LAN.
 async fn ensure_public_url(url: &reqwest::Url) -> Result<()> {
-    let blocked = || AppError::Validation("Refusing to fetch an image from a local or private address".into());
-    if is_local_url(url) {
-        return Err(blocked());
-    }
-    let host = url.host_str().unwrap_or_default();
-    if !host.starts_with('[') && host.parse::<std::net::IpAddr>().is_err() {
-        let port = url.port_or_known_default().unwrap_or(443);
-        let addrs = tokio::net::lookup_host((host, port))
-            .await
-            .map_err(|e| AppError::Network(format!("Failed to resolve {host}: {e}")))?;
-        if addrs.into_iter().any(|a| is_non_public_ip(a.ip())) {
-            return Err(blocked());
-        }
+    if is_private_target(url).await? {
+        return Err(AppError::Validation(
+            "Refusing to fetch an image from a local or private address".into(),
+        ));
     }
     Ok(())
+}
+
+/// Per-host answers to the private address prompt, kept for the session.
+static PRIVATE_HOST_DECISIONS: LazyLock<tokio::sync::Mutex<HashMap<String, bool>>> =
+    LazyLock::new(Default::default);
+
+/// Fetches started by the user or an MCP agent may target localhost or the
+/// LAN (intranet pages), but only after the user allows that host. Holding
+/// the lock while asking keeps parallel requests to one prompt per host.
+async fn confirm_private_fetch(app: &AppHandle, url: &reqwest::Url) -> Result<()> {
+    if !is_private_target(url).await? {
+        return Ok(());
+    }
+    let host = url.host_str().unwrap_or_default().to_string();
+    let mut decisions = PRIVATE_HOST_DECISIONS.lock().await;
+    let allowed = match decisions.get(&host) {
+        Some(&allowed) => allowed,
+        None => {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            app.dialog()
+                .message(format!(
+                    "MarkUpsideDown is about to send a request to {url}\n\n\
+                     {host} is on this computer or your local network. Allow requests \
+                     to it only if you trust the link or the AI agent that asked for it.\n\n\
+                     The choice applies to {host} until you quit the app."
+                ))
+                .title("Request to a local network address")
+                .kind(MessageDialogKind::Warning)
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Allow".into(),
+                    "Block".into(),
+                ))
+                .show(move |ok| {
+                    let _ = tx.send(ok);
+                });
+            let allowed = rx.await.unwrap_or(false);
+            decisions.insert(host.clone(), allowed);
+            allowed
+        }
+    };
+    if allowed {
+        Ok(())
+    } else {
+        Err(AppError::Validation(format!(
+            "Blocked a request to the local or private address {host}"
+        )))
+    }
+}
+
+/// Shared HTTP client. A public page cannot redirect it to localhost or the
+/// LAN, since only the URL the user approved is checked.
+pub fn build_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            let from_local = attempt.previous().first().is_some_and(is_local_url);
+            if attempt.previous().len() >= 10 || (!from_local && is_local_url(attempt.url())) {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
+        .build()
+        .expect("Failed to create HTTP client")
 }
 
 #[tauri::command]
@@ -542,22 +642,9 @@ pub async fn fetch_svg(url: String) -> Result<String> {
         )));
     }
 
-    reject_oversized_response(&response, MAX_SVG_SIZE as u64)?;
+    let bytes = read_body_limited(response, MAX_SVG_SIZE, false).await?;
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
-
-    if bytes.len() > MAX_SVG_SIZE {
-        return Err(AppError::Validation(format!(
-            "SVG too large ({} bytes, max {})",
-            bytes.len(),
-            MAX_SVG_SIZE
-        )));
-    }
-
-    let svg_text = String::from_utf8(bytes.to_vec())
+    let svg_text = String::from_utf8(bytes)
         .map_err(|_| AppError::Validation("SVG contains invalid UTF-8".into()))?;
 
     Ok(sanitize_svg(&svg_text))

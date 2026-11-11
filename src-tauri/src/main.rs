@@ -9,7 +9,7 @@ mod menu;
 mod util;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_cli::CliExt;
 
@@ -35,18 +35,27 @@ fn resolve_file_paths<'a>(
         .collect()
 }
 
-/// Emit `cli:open-file` for each path after a short delay so the frontend
-/// has registered its listeners (cold launch via CLI or Finder).
-fn emit_open_files_delayed(handle: tauri::AppHandle, paths: Vec<String>) {
-    if paths.is_empty() {
-        return;
-    }
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        for path in paths {
-            util::emit_to_focused(&handle, "cli:open-file", path);
+/// Files opened before the frontend is listening. `None` once the frontend
+/// has taken them, after which paths are sent as `cli:open-file` events.
+struct PendingOpenFiles(Mutex<Option<Vec<String>>>);
+
+fn open_files(handle: &tauri::AppHandle, paths: Vec<String>) {
+    let pending = handle.state::<PendingOpenFiles>();
+    let mut pending = pending.0.lock().unwrap();
+    match pending.as_mut() {
+        Some(buffer) => buffer.extend(paths),
+        None => {
+            for path in paths {
+                util::emit_to_focused(handle, "cli:open-file", path);
+            }
         }
-    });
+    }
+}
+
+/// Called by the frontend once its `cli:open-file` listener is registered.
+#[tauri::command]
+fn take_pending_open_files(pending: tauri::State<'_, PendingOpenFiles>) -> Vec<String> {
+    pending.0.lock().unwrap().take().unwrap_or_default()
 }
 
 /// The webview may only show the app itself. A link or form in a previewed
@@ -77,9 +86,7 @@ fn main() {
     let editor_states = Arc::new(commands::EditorStates::default());
     let editor_states_managed = editor_states.clone();
     let editor_states_events = editor_states.clone();
-    let http_client = reqwest::Client::builder()
-        .build()
-        .expect("Failed to create HTTP client");
+    let http_client = commands::build_http_client();
     tauri::Builder::default()
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("navigation-guard")
@@ -109,12 +116,11 @@ fn main() {
             // Forward file arguments (args[0] is the binary path)
             let base_dir = PathBuf::from(cwd);
             let paths = resolve_file_paths(args.iter().skip(1).map(|s| s.as_str()), &base_dir);
-            for path in paths {
-                util::emit_to_focused(app, "cli:open-file", path);
-            }
+            open_files(app, paths);
         }))
         .manage(editor_states_managed)
         .manage(http_client)
+        .manage(PendingOpenFiles(Mutex::new(Some(Vec::new()))))
 
         .setup(move |app| {
             let m = menu::build(app.handle())?;
@@ -143,7 +149,7 @@ fn main() {
                 let values = extract_cli_file_values(&file_arg.value);
                 let base_dir = std::env::current_dir().unwrap_or_default();
                 let paths = resolve_file_paths(values.into_iter(), &base_dir);
-                emit_open_files_delayed(app.handle().clone(), paths);
+                open_files(app.handle(), paths);
             }
 
             Ok(())
@@ -222,6 +228,7 @@ fn main() {
             commands::print_webview,
             commands::save_window_registry,
             commands::load_window_registry,
+            take_pending_open_files,
         ])
         .on_window_event(move |window, event| {
             match event {
@@ -269,7 +276,7 @@ fn main() {
                     .filter_map(|u| u.to_file_path().ok())
                     .map(|p| p.to_string_lossy().to_string())
                     .collect();
-                emit_open_files_delayed(_app.clone(), paths);
+                open_files(_app, paths);
             }
         });
 }
