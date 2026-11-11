@@ -874,7 +874,7 @@ async fn download_image(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<DownloadImageRequest>,
 ) -> BridgeResult {
-    let path = commands::download_image_with(&state.http, &body.url, &body.dest_path).await?;
+    let path = commands::download_image_with(&state.app, &state.http, &body.url, &body.dest_path).await?;
     Ok(Json(serde_json::json!({ "path": path })))
 }
 
@@ -887,7 +887,7 @@ async fn fetch_page_title(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<FetchTitleRequest>,
 ) -> BridgeResult {
-    let title = commands::fetch_page_title_with(&state.http, &body.url).await?;
+    let title = commands::fetch_page_title_with(&state.app, &state.http, &body.url).await?;
     Ok(Json(serde_json::json!({ "title": title })))
 }
 

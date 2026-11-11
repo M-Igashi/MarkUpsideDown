@@ -86,9 +86,7 @@ fn main() {
     let editor_states = Arc::new(commands::EditorStates::default());
     let editor_states_managed = editor_states.clone();
     let editor_states_events = editor_states.clone();
-    let http_client = reqwest::Client::builder()
-        .build()
-        .expect("Failed to create HTTP client");
+    let http_client = commands::build_http_client();
     tauri::Builder::default()
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("navigation-guard")
