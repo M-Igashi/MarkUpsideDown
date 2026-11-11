@@ -2,6 +2,8 @@ import type { Env } from "../types.js";
 import { PUBLISH_LIST_LIMIT } from "../config.js";
 import { jsonResponse, parseJsonBody, CORS_HEADERS, R2_MISSING_ERROR } from "../utils.js";
 
+const MAX_EXPIRES_IN = 10 * 365 * 24 * 60 * 60;
+
 interface PublishRequest {
   key: string;
   content: string;
@@ -38,6 +40,9 @@ export async function handlePublish(request: Request, env: Env): Promise<Respons
 
   const body = await parseJsonBody<PublishRequest>(request);
   if (body instanceof Response) return body;
+  if (!body || typeof body !== "object") {
+    return jsonResponse({ error: "Request body must be a JSON object" }, 400);
+  }
 
   if (!body.key || body.content == null) {
     return jsonResponse(
@@ -46,10 +51,17 @@ export async function handlePublish(request: Request, env: Env): Promise<Respons
     );
   }
 
+  const ttl = body.expires_in;
+  if (ttl !== undefined && ttl !== null && ttl !== 0 && !(typeof ttl === "number" && Number.isFinite(ttl) && ttl > 0 && ttl <= MAX_EXPIRES_IN)) {
+    return jsonResponse({ error: `'expires_in' must be a number of seconds between 1 and ${MAX_EXPIRES_IN}` }, 400);
+  }
+
   const now = new Date();
-  const expiresAt = body.expires_in ? new Date(now.getTime() + body.expires_in * 1000).toISOString() : null;
+  const expiresAt = ttl ? new Date(now.getTime() + ttl * 1000).toISOString() : null;
 
   await env.PUBLISH_BUCKET.put(body.key, body.content, {
+    // Served directly by R2 when R2_PUBLIC_URL is set, so the type must be stored
+    httpMetadata: { contentType: "text/markdown; charset=utf-8" },
     customMetadata: {
       filename: body.filename || "untitled.md",
       publishedAt: now.toISOString(),
@@ -61,7 +73,8 @@ export async function handlePublish(request: Request, env: Env): Promise<Respons
   if (base) {
     while (base.endsWith("/")) base = base.slice(0, -1);
   }
-  const publicUrl = base ? `${base}/${body.key}` : `${new URL(request.url).origin}/p/${body.key}`;
+  const keyPath = body.key.split("/").map(encodeURIComponent).join("/");
+  const publicUrl = base ? `${base}/${keyPath}` : `${new URL(request.url).origin}/p/${keyPath}`;
 
   return jsonResponse({
     key: body.key,
@@ -91,6 +104,7 @@ export async function handleServePublished(key: string, env: Env): Promise<Respo
     headers: {
       ...CORS_HEADERS,
       "content-type": "text/markdown; charset=utf-8",
+      "x-content-type-options": "nosniff",
       ...(expiresAt ? { "x-expires-at": expiresAt } : {}),
     },
   });

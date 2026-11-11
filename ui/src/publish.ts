@@ -60,13 +60,24 @@ async function savePublishState(): Promise<void> {
 
 // --- Publish / Unpublish ---
 
-function slugifyPath(relativePath: string): string {
-  return relativePath
+/**
+ * Build a new publish key: a readable slug of the path plus a random suffix.
+ * The R2 bucket is shared by every project, and non-ASCII names slugify to
+ * nothing, so the slug alone would collide (README.md in two projects, or
+ * 報告書.md and 議事録.md) and silently replace another document.
+ */
+function newPublishKey(relativePath: string): string {
+  const slug = relativePath
     .replace(/\.md$/i, "")
     .replace(/\\/g, "/")
     .replace(/[^a-zA-Z0-9/_-]/g, "-")
     .replace(/-+/g, "-")
+    .replace(/^[-/]+|[-/]+$/g, "")
     .toLowerCase();
+  const suffix = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) =>
+    (b % 36).toString(36),
+  ).join("");
+  return `${slug || "doc"}-${suffix}`;
 }
 
 export type ExpiryOption = "permanent" | "1h" | "24h" | "7d";
@@ -116,7 +127,9 @@ export function publishFile(
   content: string,
   expiry: ExpiryOption = "permanent",
 ): Promise<PublishEntry> {
-  return upload(relativePath, slugifyPath(relativePath), content, EXPIRY_SECONDS[expiry]);
+  // Publishing an already-published file again keeps its URL
+  const key = state.files[relativePath]?.key ?? newPublishKey(relativePath);
+  return upload(relativePath, key, content, EXPIRY_SECONDS[expiry]);
 }
 
 /** Replace the published content at the same URL, keeping the original expiry time. */
