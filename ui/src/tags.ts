@@ -223,7 +223,7 @@ export function showTagPopover(
 
     const input = document.createElement("input");
     input.type = "text";
-    input.className = "tag-popover-input";
+    input.className = "field field-sm tag-popover-input";
     input.placeholder = "New tag…";
     input.maxLength = 24;
     form.appendChild(input);
@@ -252,7 +252,7 @@ export function showTagPopover(
     form.appendChild(colorRow);
 
     const addBtn = document.createElement("button");
-    addBtn.className = "tag-popover-add";
+    addBtn.className = "btn btn-sm btn-primary tag-popover-add";
     addBtn.textContent = "Add";
     addBtn.addEventListener("click", async () => {
       const name = input.value.trim();

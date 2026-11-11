@@ -54,7 +54,7 @@ export function initPreviewSearch(
 
   input = document.createElement("input");
   input.type = "text";
-  input.className = "preview-search-input";
+  input.className = "field field-sm preview-search-input";
   input.placeholder = "Find in preview…";
   input.spellcheck = false;
   input.addEventListener("input", () => runSearch(true));
@@ -84,7 +84,7 @@ export function initPreviewSearch(
 
 function button(label: string, title: string, onClick: () => void) {
   const btn = document.createElement("button");
-  btn.className = "preview-search-btn";
+  btn.className = "icon-btn icon-btn-sm preview-search-btn";
   btn.textContent = label;
   btn.title = title;
   btn.addEventListener("click", onClick);

@@ -171,7 +171,7 @@ function ensureHeader(): HTMLElement {
   headerEl = document.createElement("div");
 
   const segmented = document.createElement("div");
-  segmented.className = "gh-segmented";
+  segmented.className = "segmented gh-segmented";
   for (const [value, label] of [
     ["issue", "Issues"],
     ["pr", "Pull Requests"],
@@ -189,7 +189,7 @@ function ensureHeader(): HTMLElement {
   filterRow.className = "gh-filter-row";
 
   searchInputEl = document.createElement("input");
-  searchInputEl.className = "gh-search-input";
+  searchInputEl.className = "field field-sm gh-search-input";
   searchInputEl.type = "text";
   let timeout: ReturnType<typeof setTimeout> | null = null;
   searchInputEl.addEventListener("input", () => {
@@ -209,7 +209,7 @@ function ensureHeader(): HTMLElement {
   filterRow.appendChild(searchInputEl);
 
   const select = document.createElement("select");
-  select.className = "gh-state-select";
+  select.className = "field field-sm gh-state-select";
   select.title = "Filter by state";
   for (const [value, label] of [
     ["open", "Open"],
@@ -326,7 +326,7 @@ function render() {
   bottom.appendChild(msg);
 
   const refreshBtn = document.createElement("button");
-  refreshBtn.className = "gh-refresh-btn";
+  refreshBtn.className = "btn btn-sm gh-refresh-btn";
   refreshBtn.textContent = "⟳ Refresh";
   refreshBtn.disabled = !repoPath || loading;
   refreshBtn.addEventListener("click", () => {

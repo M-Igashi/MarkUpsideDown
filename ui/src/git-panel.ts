@@ -320,7 +320,7 @@ function ensureBottom(): HTMLElement {
   branchRow.appendChild(branchLabelEl);
 
   const fetchBtn = document.createElement("button");
-  fetchBtn.className = "git-fetch-btn";
+  fetchBtn.className = "btn btn-sm git-fetch-btn";
   fetchBtn.innerHTML = "⟳ Fetch";
   fetchBtn.addEventListener("click", () => gitRemoteAction("git_fetch", "Fetch", fetchBtn));
   branchRow.appendChild(fetchBtn);
@@ -331,7 +331,7 @@ function ensureBottom(): HTMLElement {
   commitArea.className = "git-commit-area";
 
   const textarea = document.createElement("textarea");
-  textarea.className = "git-commit-textarea";
+  textarea.className = "field git-commit-textarea";
   textarea.placeholder = "Enter commit message";
   textarea.value = commitMessage;
   textarea.rows = 3;
@@ -355,13 +355,13 @@ function ensureBottom(): HTMLElement {
   leftActions.className = "git-action-left";
 
   pullBtnEl = document.createElement("button");
-  pullBtnEl.className = "git-icon-btn";
+  pullBtnEl.className = "btn btn-sm git-icon-btn";
   pullBtnEl.title = "Pull";
   pullBtnEl.addEventListener("click", () => gitRemoteAction("git_pull", "Pull", pullBtnEl!));
   leftActions.appendChild(pullBtnEl);
 
   pushBtnEl = document.createElement("button");
-  pushBtnEl.className = "git-icon-btn";
+  pushBtnEl.className = "btn btn-sm git-icon-btn";
   pushBtnEl.title = "Push";
   pushBtnEl.addEventListener("click", () => gitRemoteAction("git_push", "Push", pushBtnEl!));
   leftActions.appendChild(pushBtnEl);
@@ -369,7 +369,7 @@ function ensureBottom(): HTMLElement {
   actionRow.appendChild(leftActions);
 
   commitBtnEl = document.createElement("button");
-  commitBtnEl.className = "git-commit-btn";
+  commitBtnEl.className = "btn btn-sm btn-primary git-commit-btn";
   commitBtnEl.addEventListener("click", () => {
     const hasStaged = gitData?.files.some((f) => f.staged && !isHiddenFile(f.path));
     commitChanges(hasStaged ? "staged" : "tracked");
@@ -419,7 +419,7 @@ function render() {
     if (repoPath) {
       msg.textContent = "Not a git repository";
       const initBtn = document.createElement("button");
-      initBtn.className = "git-init-btn";
+      initBtn.className = "btn btn-sm git-init-btn";
       initBtn.textContent = "Initialize Repository";
       initBtn.addEventListener("click", async () => {
         initBtn.disabled = true;
@@ -463,14 +463,14 @@ function render() {
 
   if (unstaged.length > 0) {
     const discardAllBtn = document.createElement("button");
-    discardAllBtn.className = "git-discard-all-btn";
+    discardAllBtn.className = "icon-btn icon-btn-sm btn-danger git-discard-all-btn";
     discardAllBtn.title = "Discard All Changes";
     discardAllBtn.textContent = "⟲";
     discardAllBtn.addEventListener("click", discardAll);
     headerActions.appendChild(discardAllBtn);
 
     const stageAllBtn = document.createElement("button");
-    stageAllBtn.className = "git-stage-all-btn";
+    stageAllBtn.className = "btn btn-sm git-stage-all-btn";
     stageAllBtn.textContent = "Stage All";
     stageAllBtn.addEventListener("click", stageAll);
     headerActions.appendChild(stageAllBtn);
@@ -569,7 +569,7 @@ function createSection(title: string, files: GitFile[], isStaged: boolean): HTML
     // Discard button (unstaged only, not for staged)
     if (!isStaged) {
       const discardBtn = document.createElement("button");
-      discardBtn.className = "git-discard-btn";
+      discardBtn.className = "icon-btn icon-btn-sm btn-danger git-discard-btn";
       discardBtn.title = "Discard Changes";
       discardBtn.textContent = "⟲";
       discardBtn.addEventListener("click", (e) => {
@@ -733,7 +733,7 @@ function createLogSection(): HTMLElement {
     row.appendChild(timeEl);
 
     const revertBtn = document.createElement("button");
-    revertBtn.className = "git-revert-btn";
+    revertBtn.className = "icon-btn icon-btn-sm git-revert-btn";
     revertBtn.title = "Revert this commit";
     revertBtn.textContent = "⟲";
     revertBtn.addEventListener("click", (e) => {

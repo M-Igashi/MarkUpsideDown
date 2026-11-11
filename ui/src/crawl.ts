@@ -272,11 +272,11 @@ async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
     <p class="crawl-url">${escapeHtml(hostname)}</p>
     <div class="crawl-field">
       <label>Max depth</label>
-      <input type="number" id="crawl-depth" value="3" min="1" max="100" />
+      <input type="number" class="field field-sm" id="crawl-depth" value="3" min="1" max="100" />
     </div>
     <div class="crawl-field">
       <label>Page limit</label>
-      <input type="number" id="crawl-limit" value="50" min="1" max="500" />
+      <input type="number" class="field field-sm" id="crawl-limit" value="50" min="1" max="500" />
     </div>
     <div class="crawl-field">
       <label>Render JavaScript</label>
@@ -284,23 +284,23 @@ async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
     </div>
     <div class="crawl-field">
       <label>Include patterns</label>
-      <input type="text" id="crawl-include" placeholder="e.g. /articles/**, /blog/**" />
+      <input type="text" class="field field-sm" id="crawl-include" placeholder="e.g. /articles/**, /blog/**" />
     </div>
     <div class="crawl-field">
       <label>Exclude patterns</label>
-      <input type="text" id="crawl-exclude" placeholder="e.g. /tag/**, /author/**" />
+      <input type="text" class="field field-sm" id="crawl-exclude" placeholder="e.g. /tag/**, /author/**" />
     </div>
     <div class="crawl-field">
       <label>Save to</label>
       <div class="crawl-dir-row">
-        <input type="text" id="crawl-dir" value="${escapeHtml(defaultDir)}" readonly />
-        <button id="crawl-browse">Browse</button>
+        <input type="text" class="field field-sm" id="crawl-dir" value="${escapeHtml(defaultDir)}" readonly />
+        <button id="crawl-browse" class="btn btn-sm">Browse</button>
       </div>
     </div>
     <p class="crawl-note">Render JavaScript uses Browser Run hours ($0.09/hr after the free tier); with it off, crawls are free during the beta. The Workers Free plan allows 5 crawls per day and 100 pages per crawl.</p>
     <div class="crawl-actions">
-      <button id="crawl-cancel">Cancel</button>
-      <button id="crawl-start" class="primary">Start Crawl</button>
+      <button id="crawl-cancel" class="btn">Cancel</button>
+      <button id="crawl-start" class="btn btn-primary">Start Crawl</button>
     </div>
   `;
 

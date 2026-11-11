@@ -181,12 +181,12 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
         <span class="table-editor-hint">Tab/Enter to navigate, Ctrl+Z undo</span>
       </div>
       <div class="table-editor-toolbar">
-        <button data-action="add-row" title="Add row">+ Row</button>
-        <button data-action="add-col" title="Add column">+ Column</button>
-        <button data-action="del-row" title="Delete last row">- Row</button>
-        <button data-action="del-col" title="Delete last column">- Column</button>
+        <button class="btn btn-sm" data-action="add-row" title="Add row">+ Row</button>
+        <button class="btn btn-sm" data-action="add-col" title="Add column">+ Column</button>
+        <button class="btn btn-sm" data-action="del-row" title="Delete last row">- Row</button>
+        <button class="btn btn-sm" data-action="del-col" title="Delete last column">- Column</button>
         <span class="separator"></span>
-        <select data-action="align" title="Column alignment">
+        <select class="field field-sm" data-action="align" title="Column alignment">
           <option value="left">Align Left</option>
           <option value="center">Align Center</option>
           <option value="right">Align Right</option>
@@ -196,8 +196,8 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
         <table class="table-editor-grid"></table>
       </div>
       <div class="dialog-actions">
-        <button id="table-editor-cancel">Cancel</button>
-        <button id="table-editor-ok" class="primary">${tableRange ? "Update" : "Insert"}</button>
+        <button id="table-editor-cancel" class="btn">Cancel</button>
+        <button id="table-editor-ok" class="btn btn-primary">${tableRange ? "Update" : "Insert"}</button>
       </div>
     </div>
   `;
