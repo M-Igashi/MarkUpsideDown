@@ -30,6 +30,8 @@ import {
   getAllTagNames,
   showTagPopover,
   removeTagPopover,
+  renameFileTags,
+  deleteFileTags,
 } from "./tags.ts";
 import {
   isPublished,
@@ -101,6 +103,7 @@ let selectedPaths = new Set<string>();
 let anchorPath: string | null = null;
 let onFileOpen: ((content: string, filePath: string) => void) | null = null;
 let onFolderChange: ((rootPath: string) => void | Promise<void>) | null = null;
+let beforeFolderChange: (() => Promise<boolean>) | null = null;
 let onSidebarFold: (() => void) | null = null;
 let onExternalChange: (() => void) | null = null;
 let onEntryRename: ((oldPath: string, newPath: string) => void) | null = null;
@@ -209,6 +212,7 @@ export function initSidebar(
   {
     onOpen,
     onFolder,
+    beforeFolder,
     onFold,
     onDirChange,
     onRename,
@@ -217,6 +221,7 @@ export function initSidebar(
   }: {
     onOpen: (content: string, filePath: string) => void;
     onFolder: (rootPath: string) => void | Promise<void>;
+    beforeFolder?: () => Promise<boolean>;
     onFold?: () => void;
     onDirChange?: () => void;
     onRename?: (oldPath: string, newPath: string) => void;
@@ -227,6 +232,7 @@ export function initSidebar(
   sidebarEl = el;
   onFileOpen = onOpen;
   onFolderChange = onFolder;
+  beforeFolderChange = beforeFolder ?? null;
   onSidebarFold = onFold ?? null;
   onExternalChange = onDirChange ?? null;
   onEntryRename = onRename ?? null;
@@ -691,6 +697,7 @@ export function getClonePanelEl() {
 }
 
 export async function openFolderByPath(path: string) {
+  if (beforeFolderChange && !(await beforeFolderChange())) return;
   rootPath = path;
   expandedDirs.clear();
   expandedDirs.add(rootPath);
@@ -1387,6 +1394,7 @@ async function moveEntries(sourcePaths: Set<string>, targetDirPath: string) {
     if (sourcePath === newPath) continue;
     try {
       await invoke("rename_entry", { from: sourcePath, to: newPath });
+      renameFileTags(sourcePath, newPath);
       if (selectedPaths.has(sourcePath)) {
         selectedPaths.delete(sourcePath);
         selectedPaths.add(newPath);
@@ -1744,6 +1752,7 @@ function promptRename(entry: DirEntry) {
       const parentDir = dirname(entry.path);
       const newPath = `${parentDir}/${newName}`;
       await invoke("rename_entry", { from: entry.path, to: newPath });
+      renameFileTags(entry.path, newPath);
       if (selectedPaths.has(entry.path)) {
         selectedPaths.delete(entry.path);
         selectedPaths.add(newPath);
@@ -1800,6 +1809,7 @@ async function promptDelete(entry: DirEntry) {
   if (!ok) return;
   try {
     await invoke("delete_entry", { path: entry.path, isDir: entry.is_dir });
+    deleteFileTags([entry.path]);
     selectedPaths.delete(entry.path);
     expandedDirs.delete(entry.path);
     saveState();
@@ -1824,6 +1834,7 @@ async function promptDeleteSelected() {
   let deleted = false;
   try {
     await invoke("delete_entries", { paths });
+    deleteFileTags(paths);
     for (const path of paths) expandedDirs.delete(path);
     deleted = true;
   } catch (e) {

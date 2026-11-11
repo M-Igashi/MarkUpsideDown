@@ -1,5 +1,6 @@
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { isPositionInCode } from "./document-structure.ts";
+import { escapeLinkText } from "./path-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -45,7 +46,8 @@ export const autoLinkTitle = ViewPlugin.fromClass(
         const current = view.state.doc.sliceString(from, to);
         if (current.trim() !== url) return;
 
-        const link = `[${title}](${url})`;
+        const text = escapeLinkText(title.replace(/\s+/g, " "));
+        const link = `[${text}](${url.replace(/[()]/g, "\\$&")})`;
         view.dispatch({
           changes: { from, to, insert: link },
           // Put cursor after the link

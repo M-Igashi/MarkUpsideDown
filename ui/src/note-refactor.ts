@@ -1,5 +1,11 @@
 import type { EditorView } from "@codemirror/view";
-import { basename, dirname, buildRelativePath } from "./path-utils.ts";
+import {
+  basename,
+  dirname,
+  buildRelativePath,
+  encodeLinkPath,
+  escapeLinkText,
+} from "./path-utils.ts";
 import { writeTextFile } from "./html-utils.ts";
 
 const { save } = window.__TAURI__.dialog;
@@ -63,7 +69,7 @@ export async function extractToNewNote() {
       relativePath = basename(newPath);
     }
 
-    const link = `[${newName}](${relativePath})`;
+    const link = `[${escapeLinkText(newName)}](${encodeLinkPath(relativePath)})`;
     editor.dispatch({
       changes: { from: sel.from, to: sel.to, insert: link },
       selection: { anchor: sel.from + link.length },

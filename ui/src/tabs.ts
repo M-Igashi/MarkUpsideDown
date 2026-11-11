@@ -126,9 +126,10 @@ export function initTabs(
   }
 }
 
-function saveState(): void {
+function saveState(exclude?: Set<Tab>): void {
+  const kept = exclude ? tabs.filter((t) => !exclude.has(t)) : tabs;
   const data = JSON.stringify({
-    tabs: tabs.map((t) => ({
+    tabs: kept.map((t) => ({
       id: t.id,
       path: t.path,
       name: t.name,
@@ -138,7 +139,7 @@ function saveState(): void {
       content: t.path || t.remote ? "" : t.content,
       scrollTop: t.scrollTop || 0,
     })),
-    activeTabId,
+    activeTabId: kept.some((t) => t.id === activeTabId) ? activeTabId : null,
   });
   // Save to project-specific key and the window-scoped global key
   const projectKey = tabsKey(currentProjectRoot);
@@ -161,13 +162,12 @@ export function setTabsProjectRoot(root: string | null): void {
  * Calls onReload for the active tab if it has a file path (content needs to be loaded from disk).
  */
 export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void): void {
-  // Save current tabs under the current project key
-  contentFlusher?.();
-  saveState();
-
   // Carry over untitled tabs to the new project. Remote tabs belong to the
-  // old project's repository, so they stay behind with it.
+  // old project's repository, so they stay behind with it. Untitled tabs are
+  // not saved under the old project, or switching back would duplicate them.
   const untitled = tabs.filter((t) => t.path === null && !t.remote);
+  contentFlusher?.();
+  saveState(new Set(untitled));
 
   // Switch to new project
   currentProjectRoot = newRoot;
@@ -186,20 +186,30 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
     }
   }
 
-  // Merge: restored tabs + carried-over untitled tabs
-  tabs = [...restoredTabs, ...untitled];
+  // Drop stale copies of carried-over untitled tabs saved by older versions
+  const untitledIds = new Set(untitled.map((t) => t.id));
+  restoredTabs = restoredTabs.filter(
+    (t) => !(t.path === null && !t.remote && untitledIds.has(t.id)),
+  );
 
-  // Reset ID counter based on all merged tabs to avoid collisions
   nextId = 1;
-  for (const tab of tabs) {
+  for (const tab of [...restoredTabs, ...untitled]) {
     const num = parseInt(tab.id?.replace("tab-", ""), 10);
     if (num >= nextId) nextId = num + 1;
     tab.savedContent = null;
   }
+  // Give carried-over tabs fresh IDs if they collide with restored ones
+  const restoredIds = new Set(restoredTabs.map((t) => t.id));
+  for (const tab of untitled) {
+    if (restoredIds.has(tab.id)) tab.id = genId();
+  }
+
+  tabs = [...restoredTabs, ...untitled];
 
   activeTabId = restoredActiveId;
 
   renderTabs();
+  saveState();
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   if (activeTab) {

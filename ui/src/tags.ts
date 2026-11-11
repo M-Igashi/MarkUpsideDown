@@ -72,6 +72,28 @@ function toRelPath(absPath: string): string {
   return currentRootPath ? relativeToRoot(currentRootPath, absPath) : absPath;
 }
 
+/** Re-key or drop tag entries for a path and everything under it. */
+function updateTaggedPaths(absPath: string, newAbsPath: string | null): void {
+  const rel = toRelPath(absPath);
+  const newRel = newAbsPath === null ? null : toRelPath(newAbsPath);
+  let changed = false;
+  for (const [path, tags] of Object.entries(data.files)) {
+    if (path !== rel && !path.startsWith(`${rel}/`)) continue;
+    delete data.files[path];
+    if (newRel !== null) data.files[newRel + path.slice(rel.length)] = tags;
+    changed = true;
+  }
+  if (changed) save().catch(() => {});
+}
+
+export function renameFileTags(oldPath: string, newPath: string): void {
+  updateTaggedPaths(oldPath, newPath);
+}
+
+export function deleteFileTags(paths: string[]): void {
+  for (const p of paths) updateTaggedPaths(p, null);
+}
+
 export function getFileTags(absPath: string): string[] {
   const rel = toRelPath(absPath);
   return data.files[rel] ?? [];

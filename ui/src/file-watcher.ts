@@ -188,6 +188,13 @@ export function stopWatching(filePath: string) {
   }
 }
 
+/** Stop watching a path and every watched path under it. */
+export function stopWatchingUnder(path: string) {
+  for (const p of watchers.keys()) {
+    if (p === path || p.startsWith(`${path}/`)) stopWatching(p);
+  }
+}
+
 export function stopAll() {
   for (const unwatch of watchers.values()) unwatch();
   watchers.clear();
