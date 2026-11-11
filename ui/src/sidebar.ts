@@ -98,7 +98,6 @@ let anchorPath: string | null = null;
 let onFileOpen: ((content: string, filePath: string) => void) | null = null;
 let onFolderChange: ((rootPath: string) => void | Promise<void>) | null = null;
 let beforeFolderChange: (() => Promise<boolean>) | null = null;
-let onSidebarFold: (() => void) | null = null;
 let onExternalChange: (() => void) | null = null;
 let onEntryRename: ((oldPath: string, newPath: string) => void) | null = null;
 let onEntryDelete: ((paths: string[], hadDir: boolean) => void) | null = null;
@@ -207,7 +206,6 @@ export function initSidebar(
     onOpen,
     onFolder,
     beforeFolder,
-    onFold,
     onDirChange,
     onRename,
     onDelete,
@@ -216,7 +214,6 @@ export function initSidebar(
     onOpen: (content: string, filePath: string) => void;
     onFolder: (rootPath: string) => void | Promise<void>;
     beforeFolder?: () => Promise<boolean>;
-    onFold?: () => void;
     onDirChange?: () => void;
     onRename?: (oldPath: string, newPath: string) => void;
     onDelete?: (paths: string[], hadDir: boolean) => void;
@@ -227,7 +224,6 @@ export function initSidebar(
   onFileOpen = onOpen;
   onFolderChange = onFolder;
   beforeFolderChange = beforeFolder ?? null;
-  onSidebarFold = onFold ?? null;
   onExternalChange = onDirChange ?? null;
   onEntryRename = onRename ?? null;
   onEntryDelete = onDelete ?? null;
@@ -440,9 +436,26 @@ function render() {
   if (!sidebarEl) return;
   sidebarEl.innerHTML = "";
 
+  // Panel switcher (Clone is reached from Import, the palette, and the empty state)
+  navBar = document.createElement("div");
+  navBar.className = "segmented sidebar-switcher";
+  navBar.setAttribute("role", "tablist");
+  navBar.appendChild(createNavButton("files", "Files", "files"));
+  navBar.appendChild(createNavButton("git", "Changes", "git-compare"));
+  navBar.appendChild(createNavButton("github", "GitHub", "circle-dot"));
+  sidebarEl.appendChild(navBar);
+
   // Header
   const header = document.createElement("div");
   header.className = "sidebar-header";
+
+  const backBtn = document.createElement("button");
+  backBtn.className = "icon-btn icon-btn-sm sidebar-back";
+  backBtn.title = "Back to Files";
+  backBtn.setAttribute("aria-label", backBtn.title);
+  backBtn.innerHTML = icon("chevron-left", 14);
+  backBtn.addEventListener("click", () => switchPanel("files"));
+  header.appendChild(backBtn);
 
   const title = document.createElement("span");
   title.className = "sidebar-title";
@@ -453,14 +466,6 @@ function render() {
   actions.className = "sidebar-header-actions";
 
   populateHeaderActions(actions);
-
-  const foldBtn = document.createElement("button");
-  foldBtn.className = "icon-btn icon-btn-sm panel-fold-btn";
-  foldBtn.title = "Collapse Sidebar (⌘1)";
-  foldBtn.setAttribute("aria-label", foldBtn.title);
-  foldBtn.innerHTML = icon("chevron-left", 14);
-  foldBtn.addEventListener("click", () => onSidebarFold?.());
-  actions.appendChild(foldBtn);
 
   header.appendChild(actions);
   sidebarEl.appendChild(header);
@@ -546,12 +551,7 @@ function render() {
   treeEl.className = "sidebar-tree";
   attachTreeListeners(treeEl);
 
-  if (!rootPath) {
-    const empty = document.createElement("div");
-    empty.className = "sidebar-empty";
-    empty.textContent = "Open a folder to browse files";
-    treeEl.appendChild(empty);
-  }
+  if (!rootPath) treeEl.appendChild(emptyProjectState());
 
   filesContainer.appendChild(treeEl);
   sidebarEl.appendChild(filesContainer);
@@ -580,16 +580,24 @@ function render() {
   }
   sidebarEl.appendChild(clonePanelSlot);
 
-  // Bottom nav bar
-  navBar = document.createElement("div");
-  navBar.className = "sidebar-nav";
-  navBar.appendChild(createNavButton("files", "Files", SVG_FILES));
-  navBar.appendChild(createNavButton("git", "Git", SVG_GIT));
-  navBar.appendChild(createNavButton("github", "Issues & PRs", SVG_GITHUB));
-  navBar.appendChild(createNavButton("clone", "Clone", SVG_CLONE));
-  sidebarEl.appendChild(navBar);
-
   updatePanelVisibility();
+}
+
+function emptyProjectState(): HTMLElement {
+  const empty = document.createElement("div");
+  empty.className = "sidebar-empty";
+  const text = document.createElement("p");
+  text.textContent = "Open a folder to browse its files, or clone a repository.";
+  const open = document.createElement("button");
+  open.className = "btn btn-sm btn-primary btn-block";
+  open.innerHTML = `${icon("folder-open", 14)} Open Folder…`;
+  open.addEventListener("click", openFolder);
+  const clone = document.createElement("button");
+  clone.className = "btn btn-sm btn-block";
+  clone.innerHTML = `${icon("git-branch-plus", 14)} Clone Repository…`;
+  clone.addEventListener("click", () => switchPanel("clone"));
+  empty.append(text, open, clone);
+  return empty;
 }
 
 function panelTitle(): string {
@@ -597,7 +605,7 @@ function panelTitle(): string {
     case "files":
       return rootPath ? basename(rootPath) : "Files";
     case "git":
-      return "Source Control";
+      return "Changes";
     case "github":
       return "Issues & Pull Requests";
     case "clone":
@@ -605,30 +613,29 @@ function panelTitle(): string {
   }
 }
 
-const SVG_FILES = icon("files");
-const SVG_GIT = icon("git-compare");
-const SVG_CLONE = icon("git-branch-plus");
-const SVG_GITHUB = icon("circle-dot");
-
 function syncGitBadge(btn: Element, count: number) {
-  const existing = btn.querySelector(".sidebar-nav-badge");
+  const existing = btn.querySelector(".badge");
   if (existing) existing.remove();
   if (count > 0) {
     const badge = document.createElement("span");
-    badge.className = "sidebar-nav-badge";
+    badge.className = "badge";
     badge.textContent = String(count);
     btn.appendChild(badge);
   }
 }
 
-function createNavButton(panel: SidebarPanel, label: string, svgIcon: string): HTMLButtonElement {
+function createNavButton(
+  panel: SidebarPanel,
+  label: string,
+  iconName: IconName,
+): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.className = "sidebar-nav-btn";
   btn.dataset.panel = panel;
+  btn.setAttribute("role", "tab");
   if (panel === activePanel) btn.classList.add("active");
   btn.title = label;
-  btn.setAttribute("aria-label", btn.title);
-  btn.innerHTML = svgIcon;
+  btn.innerHTML = `${icon(iconName, 14)}<span class="seg-label">${label}</span>`;
 
   if (panel === "git") syncGitBadge(btn, gitChangeCount);
 
@@ -650,20 +657,17 @@ export function switchPanel(panel: SidebarPanel) {
   // Update header title
   const titleEl = sidebarEl?.querySelector(".sidebar-title");
   if (titleEl) titleEl.textContent = panelTitle();
-  // Update header actions (preserve fold button)
   const actionsEl = sidebarEl?.querySelector(".sidebar-header-actions");
   if (actionsEl) {
-    // Keep fold button, rebuild only panel-specific actions
-    const foldBtn = actionsEl.querySelector(".panel-fold-btn");
     actionsEl.innerHTML = "";
     populateHeaderActions(actionsEl);
-    if (foldBtn) actionsEl.appendChild(foldBtn);
   }
   updatePanelVisibility();
   updateNavButtons();
 }
 
 function updatePanelVisibility() {
+  sidebarEl?.classList.toggle("panel-clone", activePanel === "clone");
   if (filesContainer) filesContainer.style.display = activePanel === "files" ? "" : "none";
   if (gitPanelSlot) gitPanelSlot.style.display = activePanel === "git" ? "" : "none";
   if (gitHubPanelSlot) gitHubPanelSlot.style.display = activePanel === "github" ? "" : "none";
@@ -674,6 +678,7 @@ function updateNavButtons() {
   if (!navBar) return;
   for (const btn of navBar.querySelectorAll(".sidebar-nav-btn") as NodeListOf<HTMLElement>) {
     btn.classList.toggle("active", btn.dataset.panel === activePanel);
+    btn.setAttribute("aria-selected", String(btn.dataset.panel === activePanel));
     if (btn.dataset.panel === "git") syncGitBadge(btn, gitChangeCount);
   }
 }

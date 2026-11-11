@@ -40,6 +40,8 @@ export const KEY_SIDEBAR_COLLAPSED = "markupsidedown:sidebarCollapsed";
 export const KEY_EDITOR_COLLAPSED = "markupsidedown:editorCollapsed";
 export const KEY_PREVIEW_COLLAPSED = "markupsidedown:previewCollapsed";
 
+export const KEY_STATUS_COUNT = "markupsidedown:statusCount";
+
 // --- Features ---
 export const KEY_LINT_ENABLED = "markupsidedown:lintEnabled";
 export const KEY_SMART_TYPOGRAPHY = "markupsidedown:smartTypography";

@@ -64,7 +64,7 @@
 
   /* Layout */
   --toolbar-height: 44px;
-  --statusbar-height: 24px;
+  --statusbar-height: 26px;
   --content-width: 720px;
 }
 
@@ -617,19 +617,89 @@ body.fullscreen #toolbar {
 #status-bar {
   display: flex;
   align-items: center;
+  gap: 12px;
   height: var(--statusbar-height);
-  padding: 0 14px;
+  padding: 0 8px 0 12px;
   background: var(--chrome);
   border-top: 1px solid var(--rule);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   color: var(--ink-2);
-  font-family: var(--font-mono);
 }
 
 #status-bar #status {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+#status-meta {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.status-item[hidden] {
+  display: none;
+}
+
+.status-item:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+
+.status-item > span {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+#status-worker[data-health="none"] .status-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
+}
+
+#status-worker[data-health="ok"] .status-dot {
+  background: var(--success);
+}
+
+#status-worker[data-health="warn"] .status-dot {
+  background: #c99a1e;
+}
+
+#status-worker[data-health="error"] .status-dot {
+  background: var(--error);
 }
 
 #editor-container {
@@ -648,17 +718,21 @@ body.fullscreen #toolbar {
 #editor-header {
   display: flex;
   align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding-right: 6px;
   background: var(--chrome);
   border-bottom: 1px solid var(--rule);
-  height: 32px;
   flex-shrink: 0;
 }
 
 /* Tab Bar */
 #tab-bar {
   display: flex;
-  align-items: center;
-  height: 100%;
+  align-items: flex-end;
+  gap: 2px;
+  align-self: stretch;
+  padding: 0 6px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -675,33 +749,41 @@ body.fullscreen #toolbar {
 }
 
 .tab-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 10px;
-  height: 100%;
-  font-size: var(--fs-xs);
+  height: 30px;
+  margin-bottom: -1px;
+  padding: 0 12px 0 6px;
+  font-size: var(--fs-md);
   color: var(--ink-2);
-  border-right: 1px solid var(--rule);
-  cursor: pointer;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  cursor: default;
   white-space: nowrap;
   user-select: none;
   flex-shrink: 0;
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast);
 }
 
 .tab-item:hover {
-  background: var(--surface);
   color: var(--ink);
+  background: var(--hover);
 }
 
 .tab-item.active {
-  background: var(--surface);
   color: var(--ink);
-  border-bottom: 2px solid var(--accent);
+  background: var(--surface);
+  border-color: var(--rule);
+  z-index: 1;
 }
 
 .tab-name {
-  max-width: 140px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -709,12 +791,15 @@ body.fullscreen #toolbar {
 .tab-close {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--ink-2);
   background: none;
   border: none;
-  color: var(--ink-2);
-  padding: 2px;
-  cursor: pointer;
   border-radius: var(--r-sm);
+  cursor: pointer;
   opacity: 0;
 }
 
@@ -723,16 +808,26 @@ body.fullscreen #toolbar {
   opacity: 1;
 }
 
-.tab-item.dirty .tab-name::before {
-  content: "●";
-  margin-right: 4px;
-  color: var(--accent);
-  font-size: var(--fs-xs);
+.tab-close:hover {
+  color: var(--ink);
+  background: var(--pressed);
 }
 
-.tab-close:hover {
-  background: var(--rule);
-  color: var(--ink);
+/* Unsaved: the close slot shows a dot until hovered */
+.tab-item.dirty .tab-close {
+  opacity: 1;
+}
+
+.tab-item.dirty .tab-close:not(:hover) .icon {
+  display: none;
+}
+
+.tab-item.dirty .tab-close:not(:hover)::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-2);
 }
 
 /* Tab drag-and-drop */
@@ -755,11 +850,15 @@ body.fullscreen #toolbar {
 
 #divider {
   width: 1px;
+  padding: 0 4px;
+  margin: 0 -4px;
+  position: relative;
+  z-index: 2;
   background: var(--rule);
+  background-clip: content-box;
   cursor: col-resize;
   flex-shrink: 0;
-  padding: 0 4px;
-  background-clip: content-box;
+  transition: background-color var(--t-fast);
 }
 
 #preview-wrapper {
@@ -784,7 +883,7 @@ body.fullscreen #toolbar {
 
 /* Sidebar */
 #sidebar {
-  width: 220px;
+  width: 240px;
   min-width: 0;
   background: var(--surface);
   border-right: 1px solid var(--rule);
@@ -792,6 +891,31 @@ body.fullscreen #toolbar {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  container: sidebar / inline-size;
+}
+
+.sidebar-switcher {
+  margin: 8px 8px 0;
+  flex-shrink: 0;
+}
+
+.sidebar-switcher .badge {
+  height: 15px;
+  min-width: 15px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+/* Narrow sidebar: only the active segment keeps its label */
+@container sidebar (max-width: 259px) {
+  .sidebar-switcher > button:not(.active) .seg-label {
+    display: none;
+  }
+
+  .sidebar-switcher > button:not(.active) {
+    flex: 0 0 auto;
+    padding: 0 10px;
+  }
 }
 
 #sidebar.collapsed {
@@ -800,11 +924,22 @@ body.fullscreen #toolbar {
 
 #sidebar-divider {
   width: 1px;
+  padding: 0 4px;
+  margin: 0 -4px;
+  position: relative;
+  z-index: 2;
   background: var(--rule);
+  background-clip: content-box;
   cursor: col-resize;
   flex-shrink: 0;
-  padding: 0 4px;
-  background-clip: content-box;
+  transition: background-color var(--t-fast);
+}
+
+#divider:hover,
+#divider:active,
+#sidebar-divider:hover,
+#sidebar-divider:active {
+  background-color: var(--accent);
 }
 
 #sidebar.collapsed + #sidebar-divider {
@@ -826,41 +961,34 @@ body.fullscreen #toolbar {
 }
 
 .panel-unfold-btn {
-  width: 20px;
-  background: var(--surface);
-  border: none;
-  border-left: 1px solid var(--rule);
-  border-right: 1px solid var(--rule);
-  cursor: pointer;
   display: none;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: var(--ink-2);
-  font-size: var(--fs-sm);
-  padding: 0;
-  transition: background-color var(--t-fast);
-}
-
-.panel-unfold-btn:hover {
-  background: var(--chrome);
-  color: var(--ink);
 }
 
 .panel-unfold-btn.visible {
-  display: flex;
+  display: inline-flex;
 }
 
 /* Preview header bar */
 .preview-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  height: 32px;
-  padding: 0 8px;
+  gap: 4px;
+  height: 36px;
+  padding: 0 6px 0 12px;
   background: var(--chrome);
   border-bottom: 1px solid var(--rule);
   flex-shrink: 0;
+}
+
+.preview-header .panel-unfold-btn.visible {
+  margin-left: -6px;
+}
+
+.pane-title {
+  flex: 1;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--ink-2);
 }
 
 /* Find in preview (Cmd+F), docked below the preview header like the editor search panel */
@@ -902,21 +1030,29 @@ body.fullscreen #toolbar {
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--rule);
-  gap: 6px;
-  min-height: 36px;
+  gap: 4px;
+  min-height: 40px;
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.sidebar-back {
+  display: none;
+  margin-left: -6px;
+}
+
+#sidebar.panel-clone .sidebar-back {
+  display: inline-flex;
 }
 
 .sidebar-title {
-  font-size: var(--fs-sm);
+  flex: 1;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
 }
 
 .sidebar-header-actions {
@@ -987,11 +1123,14 @@ body.fullscreen #toolbar {
 }
 
 .sidebar-empty {
-  padding: 16px 12px;
-  font-size: var(--fs-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 16px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
   color: var(--ink-2);
   text-align: center;
-  line-height: 1.5;
 }
 
 .sidebar-error {
@@ -1001,16 +1140,19 @@ body.fullscreen #toolbar {
 }
 
 .sidebar-tree-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
-  cursor: pointer;
-  font-size: var(--fs-sm);
+  height: 26px;
+  margin: 0 6px;
+  padding: 0 8px;
+  font-size: var(--fs-md);
   color: var(--ink);
   white-space: nowrap;
+  border-radius: var(--r-sm);
+  cursor: default;
   user-select: none;
-  position: relative;
 }
 
 .sidebar-indent-guide {
@@ -1028,13 +1170,16 @@ body.fullscreen #toolbar {
 }
 
 .sidebar-tree-item.selected {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .sidebar-tree-item:focus {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
+  outline: none;
+}
+
+.sidebar-tree-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .sidebar-tree-indicator {
@@ -1492,28 +1637,30 @@ body.fullscreen #toolbar {
 }
 
 .sidebar-tag-chip {
+  height: 20px;
+  padding: 0 8px;
   font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--tag-color, #888);
-  background: transparent;
-  border: 1.5px solid var(--tag-color, #888);
-  border-radius: 999px;
-  padding: 1px 8px;
-  cursor: pointer;
+  font-weight: 500;
+  line-height: 18px;
   white-space: nowrap;
-  line-height: 16px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--tag-color, #888) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tag-color, #888) 40%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
   transition:
     background-color var(--t-fast),
     color var(--t-fast);
 }
 
 .sidebar-tag-chip:hover {
-  background: color-mix(in srgb, var(--tag-color, #888) 15%, transparent);
+  background: color-mix(in srgb, var(--tag-color, #888) 20%, transparent);
 }
 
 .sidebar-tag-chip.active {
-  background: var(--tag-color, #888);
   color: #fff;
+  background: var(--tag-color, #888);
+  border-color: var(--tag-color, #888);
 }
 
 /* Tag popover */
@@ -1641,62 +1788,6 @@ body.fullscreen #toolbar {
 }
 
 /* Sidebar bottom nav bar */
-.sidebar-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 4px 6px;
-  border-top: 1px solid var(--rule);
-  flex-shrink: 0;
-  background: var(--surface);
-}
-
-.sidebar-nav-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  background: transparent;
-  color: var(--ink-2);
-  border: none;
-  border-radius: var(--r-sm);
-  padding: 4px 8px;
-  cursor: pointer;
-  transition:
-    color var(--t-fast),
-    background-color var(--t-fast);
-}
-
-.sidebar-nav-btn:hover {
-  color: var(--ink);
-  background: var(--hover);
-}
-
-.sidebar-nav-btn.active {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.sidebar-nav-btn svg {
-  display: block;
-}
-
-.sidebar-nav-badge {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  min-width: 14px;
-  height: 14px;
-  line-height: 14px;
-  text-align: center;
-  border-radius: 999px;
-  padding: 0 3px;
-}
 
 /* Git Panel — Zed-like layout */
 #git-panel {
@@ -1746,11 +1837,12 @@ body.fullscreen #toolbar {
 }
 
 .git-section-header {
-  padding: 6px 10px 4px;
+  padding: 10px 12px 4px;
   font-size: var(--fs-xs);
   font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--ink-2);
-  letter-spacing: 0.3px;
 }
 
 .git-file-list {
@@ -1774,26 +1866,36 @@ body.fullscreen #toolbar {
 
 /* Status icon (colored dot) */
 .git-file-icon {
-  width: 10px;
-  height: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
   border-radius: var(--r-sm);
   flex-shrink: 0;
 }
 
 .git-file-icon.git-modified {
-  background: var(--warning);
+  color: var(--warning);
+  background: var(--warning-bg);
 }
 
 .git-file-icon.git-added {
-  background: var(--success);
+  color: var(--success);
+  background: var(--success-bg);
 }
 
 .git-file-icon.git-deleted {
-  background: var(--error);
+  color: var(--error);
+  background: var(--error-bg);
 }
 
 .git-file-icon.git-untracked {
-  background: var(--ink-2);
+  color: var(--ink-2);
+  background: var(--hover);
 }
 
 .git-file-name {
@@ -1886,24 +1988,31 @@ body.fullscreen #toolbar {
 .git-branch-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--rule);
+  padding: 8px 12px 0;
 }
 
 .git-branch-label {
-  font-size: var(--fs-xs);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--accent);
+  color: var(--ink);
+}
+
+.git-branch-label span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
 }
 
 /* Commit area */
 .git-commit-area {
-  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 12px;
 }
 
 .git-commit-textarea {
@@ -1916,14 +2025,12 @@ body.fullscreen #toolbar {
 /* Action row: Pull/Push ... Commit */
 .git-action-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 6px;
+  gap: 4px;
 }
 
-.git-action-left {
-  display: flex;
-  gap: 4px;
+.git-action-row .btn {
+  flex: 1;
+  padding: 0 4px;
 }
 
 /* Loading spinner */

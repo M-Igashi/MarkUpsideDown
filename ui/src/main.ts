@@ -20,6 +20,10 @@ import {
   isAutoSaveEnabled,
   isRenderAvailable,
   getWorkerUrl,
+  getWorkerHealth,
+  refreshWorkerHealth,
+  WORKER_STATUS_EVENT,
+  type WorkerHealth,
 } from "./settings.ts";
 import { checkForUpdate, watchBundleVersion } from "./update-toast.ts";
 import {
@@ -47,6 +51,7 @@ import {
   getStatusMap,
   getChangeCount,
   getBranch,
+  getSyncCounts,
 } from "./git-panel.ts";
 import {
   initGitHubPanel,
@@ -153,6 +158,7 @@ import {
   KEY_EDITOR_COLLAPSED,
   KEY_PREVIEW_COLLAPSED,
   KEY_V2_WINDOW_MIGRATED,
+  KEY_STATUS_COUNT,
   initWindowLabel,
   windowKey,
   getWindowLabel,
@@ -182,11 +188,13 @@ import {
   setPublishProjectRoot,
   loadPublishState,
   isPublished,
+  getPublishUrl,
   publishedItems,
   publishOptionItems,
 } from "./publish.ts";
 import { showDropdown, type MenuItem } from "./context-menu.ts";
 import { hydrateIcons, icon } from "./icons.ts";
+import { escapeHtml } from "./html-utils.ts";
 // --- Window label (must run before any state restoration) ---
 initWindowLabel();
 const isFreshWindow = new URLSearchParams(window.location.search).has("fresh");
@@ -373,15 +381,97 @@ function loadContentAsTab(content: string, filePath?: string, tabName?: string) 
   }
 }
 
+// --- Status bar ---
+// Left: #status shows transient messages from any module. Right: document state.
+
+const wordSegmenter =
+  "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "word" }) : null;
+let countedDoc: EditorState["doc"] | null = null;
+let countedWords = 0;
+
+function countWords(text: string): number {
+  if (!wordSegmenter) return text.split(/\s+/).filter(Boolean).length;
+  let n = 0;
+  for (const segment of wordSegmenter.segment(text)) if (segment.isWordLike) n++;
+  return n;
+}
+
 function updateStatus(state: EditorState) {
-  const lines = state.doc.lines;
-  const chars = state.doc.length;
-  const fp = getCurrentFilePath();
-  const pathInfo = fp ? ` | ${fp}` : "";
+  const showChars = localStorage.getItem(KEY_STATUS_COUNT) === "chars";
+  const count = document.getElementById("status-count")!;
+  if (showChars) {
+    count.textContent = `${state.doc.length.toLocaleString()} characters`;
+  } else {
+    if (countedDoc !== state.doc) {
+      countedDoc = state.doc;
+      countedWords = countWords(state.doc.toString());
+    }
+    count.textContent = `${countedWords.toLocaleString()} ${countedWords === 1 ? "word" : "words"}`;
+  }
+
+  const branchEl = document.getElementById("status-branch")!;
   const branch = getBranch();
-  const branchInfo = branch ? ` | \u{e0a0} ${branch}` : "";
-  statusEl.textContent = `${lines} lines | ${chars} chars${pathInfo}${branchInfo}`;
+  branchEl.hidden = !branch;
+  if (branch) {
+    const { ahead, behind } = getSyncCounts();
+    const sync =
+      (ahead ? `<span class="status-sync">${icon("arrow-up", 11)}${ahead}</span>` : "") +
+      (behind ? `<span class="status-sync">${icon("arrow-down", 11)}${behind}</span>` : "");
+    branchEl.innerHTML = `${icon("git-branch", 12)}<span>${escapeHtml(branch)}</span>${sync}`;
+  }
+
+  const publishedEl = document.getElementById("status-published")!;
+  const target = publishTarget();
+  const published = !!target && isPublished(target.relPath);
+  publishedEl.hidden = !published;
+  if (published) publishedEl.innerHTML = `${icon("cloud-upload", 12)}Published`;
+
   updatePublishButton();
+}
+
+const WORKER_HEALTH_TITLES: Record<WorkerHealth, string> = {
+  none: "No Cloudflare Worker set up. Click to open Settings.",
+  unknown: "Cloudflare Worker configured. Click to open Settings.",
+  ok: "Cloudflare Worker connected",
+  warn: "Cloudflare Worker needs an update. Click to open Settings.",
+  error: "Cloudflare Worker is not reachable. Click to open Settings.",
+};
+
+function updateWorkerStatus() {
+  const el = document.getElementById("status-worker")!;
+  const health = getWorkerHealth();
+  el.dataset.health = health;
+  el.title = WORKER_HEALTH_TITLES[health];
+}
+
+function initStatusBar() {
+  onClick("status-count", () => {
+    const showChars = localStorage.getItem(KEY_STATUS_COUNT) === "chars";
+    localStorage.setItem(KEY_STATUS_COUNT, showChars ? "words" : "chars");
+    updateStatus(editor.state);
+  });
+  onClick("status-branch", () => {
+    if (sidebarEl.classList.contains("collapsed")) toggleSidebar();
+    switchPanel("git");
+  });
+  onClick("status-published", async () => {
+    const target = publishTarget();
+    const url = target && getPublishUrl(target.relPath);
+    if (!url) return;
+    await invoke("copy_to_clipboard", { text: url });
+    statusEl.textContent = "Public URL copied";
+  });
+  onClick("status-worker", () => document.getElementById("btn-settings")!.click());
+  window.addEventListener(WORKER_STATUS_EVENT, updateWorkerStatus);
+  updateWorkerStatus();
+  setTimeout(refreshWorkerHealth, 1500);
+
+  // Transient messages fade after a while; document state lives on the right
+  let clearTimer: ReturnType<typeof setTimeout> | null = null;
+  new MutationObserver(() => {
+    if (clearTimer) clearTimeout(clearTimer);
+    clearTimer = setTimeout(() => (statusEl.textContent = ""), 10_000);
+  }).observe(statusEl, { childList: true, characterData: true, subtree: true });
 }
 
 let gitRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -537,6 +627,8 @@ onClick("btn-settings", () => {
     },
   });
 });
+
+initStatusBar();
 
 // File menu items emit these (src-tauri/src/menu.rs)
 const MENU_ACTIONS: Record<string, () => void> = {
@@ -802,7 +894,7 @@ previewPane.addEventListener("click", (e) => {
 // --- Frontmatter panel ---
 
 const editorContainer = document.getElementById("editor-container")!;
-initFrontmatterPanel(editor, editorContainer);
+initFrontmatterPanel(editor, editorContainer, editorPane);
 
 // --- Download images & note refactor ---
 
@@ -928,7 +1020,6 @@ initSidebar(sidebarEl, {
     loadPublishState().catch(() => {});
     refreshGitAndSyncNow();
   },
-  onFold: () => toggleSidebar(),
   onDirChange: () => {
     refreshGitAndSync();
   },
@@ -1048,31 +1139,33 @@ editorFoldBtn.innerHTML = SVG_CHEVRON_LEFT;
 // Preview header with fold button
 const previewHeader = document.createElement("div");
 previewHeader.className = "preview-header";
+const previewTitle = document.createElement("span");
+previewTitle.className = "pane-title";
+previewTitle.textContent = "Preview";
+previewHeader.appendChild(previewTitle);
 const previewFoldBtn = document.createElement("button");
 previewFoldBtn.className = "icon-btn icon-btn-sm panel-fold-btn";
 previewFoldBtn.title = "Collapse Preview (⌘3)";
 previewFoldBtn.setAttribute("aria-label", previewFoldBtn.title);
 previewFoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 previewHeader.appendChild(previewFoldBtn);
-previewWrapper.insertBefore(previewHeader, previewPane);
+previewWrapper.prepend(previewHeader);
 initPreviewSearch(previewPane, previewWrapper, editorContainer, { onClose: () => editor.focus() });
 
-// Unfold buttons (thin strips shown when panel is collapsed)
-const appEl = document.getElementById("app")!;
+// Unfold buttons live in the other pane's header while a pane is collapsed
 
 const editorUnfoldBtn = document.createElement("button");
-editorUnfoldBtn.className = "panel-unfold-btn";
+editorUnfoldBtn.className = "icon-btn icon-btn-sm panel-unfold-btn";
 editorUnfoldBtn.title = "Expand Editor (⌘2)";
 editorUnfoldBtn.setAttribute("aria-label", editorUnfoldBtn.title);
 editorUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
-appEl.insertBefore(editorUnfoldBtn, divider);
+previewHeader.prepend(editorUnfoldBtn);
 
 const previewUnfoldBtn = document.createElement("button");
-previewUnfoldBtn.className = "panel-unfold-btn";
+previewUnfoldBtn.className = "icon-btn icon-btn-sm panel-unfold-btn";
 previewUnfoldBtn.title = "Expand Preview (⌘3)";
 previewUnfoldBtn.setAttribute("aria-label", previewUnfoldBtn.title);
 previewUnfoldBtn.innerHTML = SVG_CHEVRON_LEFT;
-appEl.appendChild(previewUnfoldBtn);
 
 function updateDividerVisibility() {
   const eitherCollapsed =
@@ -1082,6 +1175,13 @@ function updateDividerVisibility() {
 }
 
 function toggleEditor() {
+  // Never hide both panes: collapsing one reveals the other
+  if (
+    !editorContainer.classList.contains("collapsed") &&
+    previewWrapper.classList.contains("collapsed")
+  ) {
+    togglePreview();
+  }
   preservePreviewScroll(() => {
     const collapsed = editorContainer.classList.toggle("collapsed");
     editorUnfoldBtn.classList.toggle("visible", collapsed);
@@ -1091,6 +1191,12 @@ function toggleEditor() {
 }
 
 function togglePreview() {
+  if (
+    !previewWrapper.classList.contains("collapsed") &&
+    editorContainer.classList.contains("collapsed")
+  ) {
+    toggleEditor();
+  }
   const collapsed = previewWrapper.classList.toggle("collapsed");
   previewUnfoldBtn.classList.toggle("visible", collapsed);
   updateDividerVisibility();
@@ -1131,7 +1237,10 @@ if (getStorageBool(windowKey(KEY_EDITOR_COLLAPSED), false)) {
   divider.classList.add("hidden");
   editorUnfoldBtn.classList.add("visible");
 }
-if (getStorageBool(windowKey(KEY_PREVIEW_COLLAPSED), false)) {
+if (
+  getStorageBool(windowKey(KEY_PREVIEW_COLLAPSED), false) &&
+  !editorContainer.classList.contains("collapsed")
+) {
   previewWrapper.classList.add("collapsed");
   divider.classList.add("hidden");
   previewUnfoldBtn.classList.add("visible");
@@ -1299,8 +1408,8 @@ if (!getActiveTab()) {
   updateStatus(editor.state);
 }
 
-// Append editor fold button to editor-header (stays at right edge)
-document.getElementById("editor-header")!.appendChild(editorFoldBtn);
+// Editor header: tabs, then the fold button (and the preview unfold button)
+document.getElementById("editor-header")!.append(previewUnfoldBtn, editorFoldBtn);
 
 // --- Keyboard Shortcuts ---
 

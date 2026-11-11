@@ -70,6 +70,7 @@ export function setWorkerUrl(url: string) {
   } else {
     localStorage.removeItem(KEY_WORKER_URL);
   }
+  window.dispatchEvent(new Event(WORKER_STATUS_EVENT));
 }
 
 /** API key the Worker requires on every non-public route (Worker v12+). */
@@ -137,6 +138,39 @@ function cacheTestStatus(status: WorkerStatus, testedUrl: string) {
   currentTestStatus = status;
   lastTestedUrl = testedUrl;
   setStorageBool(KEY_RENDER_AVAILABLE, Boolean(status.render_available));
+  window.dispatchEvent(new Event(WORKER_STATUS_EVENT));
+}
+
+/** Fired on `window` when the Worker URL or its last health result changes. */
+export const WORKER_STATUS_EVENT = "worker-status";
+
+export type WorkerHealth = "none" | "unknown" | "ok" | "warn" | "error";
+
+/** Summary of the configured Worker for the status bar. */
+export function getWorkerHealth(): WorkerHealth {
+  const url = getWorkerUrl();
+  if (!url) return "none";
+  const status = lastTestedUrl === url ? currentTestStatus : null;
+  if (!status) return "unknown";
+  if (!status.reachable || status.auth === "missing" || status.auth === "invalid") return "error";
+  if (status.update_available || status.auth === "unconfigured") return "warn";
+  return "ok";
+}
+
+/** Check the configured Worker's health once (used at startup). */
+export async function refreshWorkerHealth() {
+  const url = getWorkerUrl();
+  if (!url) return;
+  try {
+    const status = await invoke<WorkerStatus>("test_worker_url", {
+      workerUrl: url,
+      workerKey: getWorkerKey() || null,
+    });
+    cacheTestStatus(status, url);
+  } catch {
+    currentTestStatus = null;
+    window.dispatchEvent(new Event(WORKER_STATUS_EVENT));
+  }
 }
 
 export function isRenderAvailable(): boolean {
