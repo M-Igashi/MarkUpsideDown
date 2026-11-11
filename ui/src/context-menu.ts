@@ -9,18 +9,43 @@ export type MenuItem = {
   danger?: boolean;
   disabled?: boolean;
   title?: string;
+  shortcut?: string;
 } | null;
 
 let activeMenu: HTMLElement | null = null;
+let activeAnchor: HTMLElement | null = null;
 let closeHandler: ((e: Event) => void) | null = null;
+
+function onKeyDown(e: KeyboardEvent) {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    closeContextMenu();
+  }
+}
 
 export function closeContextMenu() {
   if (closeHandler) {
     document.removeEventListener("click", closeHandler, true);
     closeHandler = null;
   }
+  document.removeEventListener("keydown", onKeyDown, true);
+  activeAnchor?.setAttribute("aria-expanded", "false");
+  activeAnchor = null;
   activeMenu?.remove();
   activeMenu = null;
+}
+
+/** Toggle a menu below `anchor` (a toolbar button); a second click closes it. */
+export function showDropdown(anchor: HTMLElement, items: MenuItem[]) {
+  if (activeAnchor === anchor) {
+    closeContextMenu();
+    return;
+  }
+  const rect = anchor.getBoundingClientRect();
+  showContextMenu(rect.left, rect.bottom + 4, items, "dropdown");
+  activeAnchor = anchor;
+  anchor.setAttribute("aria-expanded", "true");
 }
 
 /**
@@ -51,6 +76,12 @@ export function showContextMenu(
     btn.className = "menu-item";
     if (item.danger) btn.classList.add("danger");
     btn.textContent = item.label;
+    if (item.shortcut) {
+      const kbd = document.createElement("span");
+      kbd.className = "menu-shortcut";
+      kbd.textContent = item.shortcut;
+      btn.appendChild(kbd);
+    }
     btn.disabled = !!item.disabled;
     if (item.title) btn.title = item.title;
     btn.addEventListener("click", () => {
@@ -65,9 +96,12 @@ export function showContextMenu(
   clampToViewport(menu);
 
   const handler = (e: Event) => {
-    if (!menu.contains(e.target as Node)) closeContextMenu();
+    const target = e.target as Node;
+    // Clicks on the anchor are left to showDropdown, which toggles the menu
+    if (!menu.contains(target) && !activeAnchor?.contains(target)) closeContextMenu();
   };
   closeHandler = handler;
+  document.addEventListener("keydown", onKeyDown, true);
   // Defer so the click that opened the menu does not close it.
   setTimeout(() => {
     if (closeHandler === handler) document.addEventListener("click", handler, true);

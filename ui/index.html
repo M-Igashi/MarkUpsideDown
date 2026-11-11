@@ -7,21 +7,31 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <div id="toolbar">
-      <button id="btn-open" title="Open file" class="icon-btn" data-icon="folder-open"></button>
-      <button id="btn-save" title="Save file" class="icon-btn" data-icon="save"></button>
-      <button id="btn-import" title="Import document as Markdown" class="icon-btn" data-icon="file-down"></button>
-      <span class="separator"></span>
-      <div id="url-bar">
-        <input type="url" id="url-input" placeholder="Enter URL to fetch as Markdown…" />
-        <button id="btn-get" title="Get URL as Markdown (auto-detects JS pages)">Get</button>
-        <button id="btn-crawl" title="Crawl website and save as Markdown files">Crawl</button>
+    <div id="toolbar" data-tauri-drag-region="deep">
+      <button id="btn-sidebar" class="icon-btn" data-icon="panel-left" title="Toggle Sidebar (⌘1)"></button>
+      <div class="tb-group tb-in">
+        <div id="url-bar" data-tauri-drag-region="false">
+          <span class="url-bar-icon" data-icon="link" data-icon-size="14"></span>
+          <input type="url" id="url-input" placeholder="Paste a URL to bring in as Markdown…" spellcheck="false" />
+          <button id="btn-get" class="url-bar-get" title="Get URL as Markdown (↩). Auto-detects JavaScript pages.">Get</button>
+          <button id="btn-get-menu" class="url-bar-more" title="More ways to get this URL" aria-haspopup="menu" data-icon="chevron-down" data-icon-size="14"></button>
+        </div>
+        <button id="btn-import" class="tb-btn" title="Import a document, open files, or clone a repository" aria-haspopup="menu" data-icon="file-down"><span class="tb-label">Import</span><span class="tb-caret" data-icon="chevron-down" data-icon-size="12"></span></button>
       </div>
-      <span class="separator"></span>
-      <button id="btn-table" title="Insert or edit Markdown table">Table</button>
-      <button id="btn-cleanup" title="Clean up Markdown structure (normalize headings, links, tables)">Clean up</button>
-      <span class="spacer"></span>
-      <button id="btn-settings" title="Settings" class="icon-btn" data-icon="settings"></button>
+      <div class="tb-group tb-shape">
+        <button id="btn-table" class="tb-btn" title="Insert or edit a table" data-icon="table"><span class="tb-label">Table</span></button>
+        <button id="btn-cleanup" class="tb-btn" title="Clean up Markdown structure (headings, links, tables)" data-icon="sparkles"><span class="tb-label">Clean up</span></button>
+      </div>
+      <div class="tb-spacer"></div>
+      <div class="tb-group tb-out">
+        <button id="btn-copy" class="tb-btn" title="Copy the document as rich text or Markdown" aria-haspopup="menu" data-icon="copy"><span class="tb-label">Copy</span><span class="tb-caret" data-icon="chevron-down" data-icon-size="12"></span></button>
+        <button id="btn-publish" class="tb-btn" title="Publish this file to a shareable URL" aria-haspopup="menu" data-icon="cloud-upload"><span class="tb-label">Publish</span><span class="tb-caret" data-icon="chevron-down" data-icon-size="12"></span></button>
+        <button id="btn-present" class="tb-btn" title="Present this document as slides" data-icon="presentation"><span class="tb-label">Present</span></button>
+      </div>
+      <div class="tb-group tb-app">
+        <button id="btn-palette" class="icon-btn" data-icon="command" title="Command Palette (⌘K)"></button>
+        <button id="btn-settings" class="icon-btn" data-icon="settings" title="Settings"></button>
+      </div>
     </div>
     <div id="app">
       <div id="sidebar"></div>

@@ -4,8 +4,10 @@
 import { basename } from "./path-utils.ts";
 import { workerFetch } from "./worker-fetch.ts";
 import { writeTextFile } from "./html-utils.ts";
+import type { MenuItem } from "./context-menu.ts";
 
 const { invoke } = window.__TAURI__.core;
+const { message } = window.__TAURI__.dialog;
 const { join } = window.__TAURI__.path;
 
 // --- Types ---
@@ -170,4 +172,96 @@ export function isPublished(relativePath: string): boolean {
 
 export function getPublishUrl(relativePath: string): string | null {
   return state.files[relativePath]?.url ?? null;
+}
+
+// --- Menu actions (sidebar context menu and toolbar Publish button) ---
+
+const PUBLISH_OPTIONS: { label: string; expiry: ExpiryOption }[] = [
+  { label: "Publish as Permanent Link", expiry: "permanent" },
+  { label: "Publish for 1 Hour", expiry: "1h" },
+  { label: "Publish for 24 Hours", expiry: "24h" },
+  { label: "Publish for 7 Days", expiry: "7d" },
+];
+
+async function copyText(text: string) {
+  try {
+    await invoke("copy_to_clipboard", { text });
+  } catch (e) {
+    message(`Copy failed: ${e}`, { kind: "error" });
+  }
+}
+
+type BeforeRead = () => Promise<void>;
+const noop: BeforeRead = async () => {};
+
+/**
+ * Menu items that publish the saved file at `absPath` with each expiry option.
+ * `beforeRead` runs first, e.g. to save pending edits.
+ */
+export function publishOptionItems(
+  absPath: string,
+  relPath: string,
+  onChange: () => void,
+  beforeRead: BeforeRead = noop,
+): MenuItem[] {
+  return PUBLISH_OPTIONS.map(({ label, expiry }) => ({
+    label,
+    action: async () => {
+      try {
+        await beforeRead();
+        const content = await invoke<string>("read_text_file", { path: absPath });
+        const entry = await publishFile(relPath, content, expiry);
+        await copyText(entry.url);
+        message(`Published! URL copied to clipboard.\n${entry.url}`, {
+          title: "Published",
+          kind: "info",
+        });
+        onChange();
+      } catch (e) {
+        message(`Publish failed: ${e}`, { title: "Error", kind: "error" });
+      }
+    },
+  }));
+}
+
+/** Menu items for a file that is already published: update, copy URL, unpublish. */
+export function publishedItems(
+  absPath: string,
+  relPath: string,
+  onChange: () => void,
+  beforeRead: BeforeRead = noop,
+): MenuItem[] {
+  const items: MenuItem[] = [
+    {
+      label: "Update Published Version",
+      action: async () => {
+        try {
+          await beforeRead();
+          const content = await invoke<string>("read_text_file", { path: absPath });
+          await updatePublishedFile(relPath, content);
+          message("The published URL now shows the saved version of this file.", {
+            title: "Published",
+            kind: "info",
+          });
+        } catch (e) {
+          message(`Update failed: ${e}`, { title: "Error", kind: "error" });
+        }
+      },
+    },
+  ];
+  const url = getPublishUrl(relPath);
+  if (url) items.push({ label: "Copy Public URL", action: () => copyText(url) });
+  items.push({
+    label: "Unpublish",
+    danger: true,
+    action: async () => {
+      try {
+        await unpublishFile(relPath);
+        onChange();
+      } catch (e) {
+        message(`Unpublish failed: ${e}`, { title: "Error", kind: "error" });
+      }
+    },
+  });
+  return items;
 }

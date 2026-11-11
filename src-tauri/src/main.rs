@@ -10,7 +10,7 @@ mod util;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl};
 use tauri_plugin_cli::CliExt;
 
 /// Resolve file path strings to absolute paths, filtering to files that exist.
@@ -131,10 +131,10 @@ fn main() {
             if let Ok(entries) = commands::load_window_registry(app.handle().clone()) {
                 for entry in entries.iter().filter(|e| e.label != "main") {
                     let url = WebviewUrl::App("index.html".into());
-                    let mut builder = WebviewWindowBuilder::new(app, &entry.label, url)
-                        .title("MarkUpsideDown")
-                        .inner_size(entry.width, entry.height)
-                        .disable_drag_drop_handler();
+                    let Ok(builder) = util::app_window_builder(app, &entry.label, url) else {
+                        continue;
+                    };
+                    let mut builder = builder.inner_size(entry.width, entry.height);
                     if let (Some(x), Some(y)) = (entry.x, entry.y) {
                         builder = builder.position(x, y);
                     }

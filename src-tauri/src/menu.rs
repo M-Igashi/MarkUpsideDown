@@ -1,6 +1,6 @@
 use serde_json::json;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu, SubmenuBuilder};
-use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, WebviewUrl, Wry};
 use tauri_plugin_store::StoreExt;
 
 const STORE_FILE: &str = "recent-files.json";
@@ -40,7 +40,12 @@ pub fn build(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
             Some("CmdOrCtrl+Shift+N"),
         )?)
         .separator()
+        .item(&action_item(handle, "open", "Open…", Some("CmdOrCtrl+O"))?)
+        .item(&action_item(handle, "open-folder", "Open Folder…", Some("CmdOrCtrl+Shift+O"))?)
         .item(&recent_submenu)
+        .separator()
+        .item(&action_item(handle, "save", "Save", Some("CmdOrCtrl+S"))?)
+        .item(&action_item(handle, "import", "Import Document…", Some("CmdOrCtrl+Shift+I"))?)
         .separator()
         .close_window()
         .build()?;
@@ -57,6 +62,16 @@ pub fn build(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .build()?;
 
     Menu::with_items(handle, &[&app_menu, &file_menu, &edit_menu])
+}
+
+/// A File menu item handled by the focused window's frontend (`menu:action` event).
+fn action_item(
+    handle: &AppHandle,
+    action: &str,
+    label: &str,
+    accelerator: Option<&str>,
+) -> tauri::Result<MenuItem<Wry>> {
+    MenuItem::with_id(handle, format!("action:{action}"), label, true, accelerator)
 }
 
 /// Replace the contents of the "Open Recent" submenu with `files`.
@@ -142,12 +157,15 @@ pub fn handle_event(handle: &AppHandle, event: &MenuEvent) {
             .map(|d| d.as_millis())
             .unwrap_or(0);
         let label = format!("main-{ts}");
-        let _ = WebviewWindowBuilder::new(handle, &label, WebviewUrl::App("index.html?fresh=1".into()))
-            .title("MarkUpsideDown")
-            .inner_size(1200.0, 800.0)
-            // Same as the main window: drops are handled by HTML5 drag and drop
-            .disable_drag_drop_handler()
-            .build();
+        let url = WebviewUrl::App("index.html?fresh=1".into());
+        if let Ok(builder) = crate::util::app_window_builder(handle, &label, url) {
+            let _ = builder.build();
+        }
+        return;
+    }
+
+    if let Some(action) = id.strip_prefix("action:") {
+        crate::util::emit_to_focused(handle, "menu:action", action.to_string());
         return;
     }
 

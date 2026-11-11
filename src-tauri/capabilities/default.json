@@ -21,6 +21,7 @@
     "store:default",
     "core:event:allow-listen",
     "core:window:allow-destroy",
+    "core:window:allow-start-dragging",
     "fs:allow-watch"
   ]
 }

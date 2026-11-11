@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Wry};
 
 use crate::commands::EditorStates;
 
@@ -54,4 +54,23 @@ pub fn extract_html_title(html: &str) -> crate::error::Result<String> {
         }
         _ => Err(AppError::Validation("No title found".into())),
     }
+}
+
+/// Builder for an extra app window, derived from the main window in
+/// tauri.conf.json so every window gets the same title bar and settings.
+pub fn app_window_builder<'a, M: Manager<Wry>>(
+    manager: &'a M,
+    label: &str,
+    url: WebviewUrl,
+) -> tauri::Result<WebviewWindowBuilder<'a, Wry, M>> {
+    let mut config = manager
+        .config()
+        .app
+        .windows
+        .first()
+        .cloned()
+        .unwrap_or_default();
+    config.label = label.to_string();
+    config.url = url;
+    WebviewWindowBuilder::from_config(manager, &config)
 }

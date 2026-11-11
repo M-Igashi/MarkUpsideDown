@@ -63,7 +63,7 @@
   --t-med: 180ms ease-out;
 
   /* Layout */
-  --toolbar-height: 40px;
+  --toolbar-height: 44px;
   --statusbar-height: 24px;
   --content-width: 720px;
 }
@@ -325,6 +325,13 @@ select.field {
   color: var(--ink-3);
 }
 
+.menu-shortcut {
+  margin-left: auto;
+  padding-left: 24px;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
 .menu-separator {
   height: 1px;
   margin: 4px 6px;
@@ -402,96 +409,204 @@ kbd {
   border-radius: var(--r-sm);
 }
 
+/* --- Toolbar (doubles as the macOS title bar) --- */
+
 #toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   height: var(--toolbar-height);
-  padding: 0 14px;
+  /* Room for the traffic lights (trafficLightPosition in tauri.conf.json) */
+  padding: 0 10px 0 78px;
   background: var(--chrome);
   border-bottom: 1px solid var(--rule);
-  -webkit-app-region: drag;
+  container-type: inline-size;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
-#toolbar button {
-  -webkit-app-region: no-drag;
-  background: transparent;
+body.fullscreen #toolbar {
+  padding-left: 10px;
+}
+
+#btn-sidebar[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+.tb-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tb-group,
+.tb-spacer {
+  margin-left: 10px;
+}
+
+.tb-in {
+  flex: 1 1 520px;
+  min-width: 0;
+  max-width: 640px;
+  gap: 6px;
+}
+
+.tb-spacer {
+  flex: 1;
+  align-self: stretch;
+}
+
+.tb-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  white-space: nowrap;
   color: var(--ink-2);
+  background: transparent;
   border: 1px solid transparent;
   border-radius: var(--r-md);
-  padding: 5px 12px;
-  font-size: var(--fs-sm);
+  flex-shrink: 0;
   cursor: pointer;
   transition:
     background-color var(--t-fast),
     color var(--t-fast);
 }
 
-#toolbar button:hover {
+.tb-btn:hover:not(:disabled) {
   color: var(--ink);
-  background: var(--surface);
+  background: var(--hover);
 }
 
-#toolbar button.icon-btn {
-  padding: 5px 8px;
+.tb-btn:active:not(:disabled),
+.tb-btn[aria-expanded="true"] {
+  color: var(--ink);
+  background: var(--pressed);
+}
+
+.tb-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tb-caret {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  margin-left: -3px;
+  color: var(--ink-3);
 }
 
-#toolbar button.icon {
-  flex-shrink: 0;
-  vertical-align: -2px;
-}
-
-.icon-btn svg {
-  display: block;
-}
-
-#toolbar .separator {
-  width: 1px;
-  height: 20px;
-  background: var(--rule);
-}
-
-#toolbar .spacer {
-  flex: 1;
+/* Accent dot on Publish while the active file is published */
+#btn-publish.published::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 20px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--chrome);
 }
 
 #url-bar {
-  -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
   flex: 1;
-  min-width: 180px;
-  background: var(--surface);
+  min-width: 140px;
+  height: 30px;
+  padding-right: 3px;
+  background: var(--paper);
   border: 1px solid var(--rule);
-  border-radius: var(--r-sm);
-  overflow: hidden;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 1px rgba(60, 50, 30, 0.04);
+  transition:
+    border-color var(--t-fast),
+    box-shadow var(--t-fast);
 }
 
 #url-bar:focus-within {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.url-bar-icon {
+  display: flex;
+  padding-left: 9px;
+  color: var(--ink-3);
 }
 
 #url-input {
   flex: 1;
-  background: transparent;
-  color: var(--ink);
-  border: none;
-  padding: 4px 10px;
-  font-size: var(--fs-sm);
-  font-family: var(--font-mono);
-  outline: none;
+  width: 0;
   min-width: 0;
+  height: 100%;
+  padding: 0 8px;
+  font-size: var(--fs-md);
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  outline: none;
 }
 
 #url-input::placeholder {
   color: var(--ink-3);
 }
 
-#url-bar.loading #url-input {
+.url-bar-get,
+.url-bar-more {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--t-fast);
+}
+
+.url-bar-get {
+  padding: 0 10px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+}
+
+.url-bar-more {
+  padding: 0 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+
+.url-bar-get:hover,
+.url-bar-more:hover,
+.url-bar-more[aria-expanded="true"] {
+  background: var(--accent-hover);
+}
+
+#url-bar.loading #url-input,
+#url-bar.loading .url-bar-get {
   opacity: 0.6;
+}
+
+/* Narrow windows: icon-only toolbar buttons (titles keep the labels) */
+@container (max-width: 1000px) {
+  .tb-label,
+  .tb-caret {
+    display: none;
+  }
+
+  .tb-btn {
+    padding: 0 6px;
+  }
+
+  .tb-group,
+  .tb-spacer {
+    margin-left: 4px;
+  }
 }
 
 #app {
