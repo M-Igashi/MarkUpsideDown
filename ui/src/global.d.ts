@@ -24,6 +24,8 @@ interface TauriWindowModule {
     onCloseRequested(
       handler: (event: TauriCloseRequestedEvent) => Promise<void>,
     ): Promise<() => void>;
+    onResized(handler: () => void): Promise<() => void>;
+    isFullscreen(): Promise<boolean>;
   };
 }
 

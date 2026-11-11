@@ -33,14 +33,7 @@ import {
   renameFileTags,
   deleteFileTags,
 } from "./tags.ts";
-import {
-  isPublished,
-  getPublishUrl,
-  publishFile,
-  updatePublishedFile,
-  unpublishFile,
-  type ExpiryOption,
-} from "./publish.ts";
+import { isPublished, publishedItems, publishOptionItems } from "./publish.ts";
 import { icon, type IconName } from "./icons.ts";
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
@@ -1447,35 +1440,6 @@ function showEmptyAreaContextMenu(event: MouseEvent) {
   showContextMenu(event.clientX, event.clientY, items);
 }
 
-function showPublishMenu(x: number, y: number, absPath: string, relPath: string) {
-  const options: { label: string; expiry: ExpiryOption }[] = [
-    { label: "Permanent Link", expiry: "permanent" },
-    { label: "Expires in 1 hour", expiry: "1h" },
-    { label: "Expires in 24 hours", expiry: "24h" },
-    { label: "Expires in 7 days", expiry: "7d" },
-  ];
-
-  const items = options.map(({ label, expiry }) => ({
-    label,
-    action: async () => {
-      try {
-        const content = await invoke<string>("read_text_file", { path: absPath });
-        const entry = await publishFile(relPath, content, expiry);
-        await copyToClipboard(entry.url);
-        message(`Published! URL copied to clipboard.\n${entry.url}`, {
-          title: "Published",
-          kind: "info",
-        });
-        refreshTree();
-      } catch (e) {
-        message(`Publish failed: ${e}`, { title: "Error", kind: "error" });
-      }
-    },
-  }));
-
-  showContextMenu(x, y, items);
-}
-
 function showEntryContextMenu(event: MouseEvent, entry: DirEntry) {
   removeTagPopover();
 
@@ -1512,44 +1476,16 @@ function showEntryContextMenu(event: MouseEvent, entry: DirEntry) {
     if (MD_EXTENSIONS.has(ext)) {
       const relPath = relativeToRoot(rootPath, entry.path);
       if (isPublished(relPath)) {
-        items.push({
-          label: "Update Published Version",
-          action: async () => {
-            try {
-              const content = await invoke<string>("read_text_file", { path: entry.path });
-              await updatePublishedFile(relPath, content);
-              message("The published URL now shows the saved version of this file.", {
-                title: "Published",
-                kind: "info",
-              });
-            } catch (e) {
-              message(`Update failed: ${e}`, { title: "Error", kind: "error" });
-            }
-          },
-        });
-        const pubUrl = getPublishUrl(relPath);
-        if (pubUrl) {
-          items.push({
-            label: "Copy Public URL",
-            action: () => copyToClipboard(pubUrl),
-          });
-        }
-        items.push({
-          label: "Unpublish",
-          action: async () => {
-            try {
-              await unpublishFile(relPath);
-              refreshTree();
-            } catch (e) {
-              message(`Unpublish failed: ${e}`, { title: "Error", kind: "error" });
-            }
-          },
-        });
+        items.push(...publishedItems(entry.path, relPath, refreshTree));
       } else {
         items.push({
           label: "Publish…",
           action: () => {
-            showPublishMenu(event.clientX, event.clientY, entry.path, relPath);
+            showContextMenu(
+              event.clientX,
+              event.clientY,
+              publishOptionItems(entry.path, relPath, refreshTree),
+            );
           },
         });
       }

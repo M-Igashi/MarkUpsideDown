@@ -14,7 +14,13 @@ import { lintGutter } from "@codemirror/lint";
 import { markdownLinter } from "./markdown-lint.ts";
 import { editorTheme } from "./theme.ts";
 import { editTableAtCursor } from "./table-editor.ts";
-import { showSettings, checkFirstRun, isAutoSaveEnabled } from "./settings.ts";
+import {
+  showSettings,
+  checkFirstRun,
+  isAutoSaveEnabled,
+  isRenderAvailable,
+  getWorkerUrl,
+} from "./settings.ts";
 import { checkForUpdate, watchBundleVersion } from "./update-toast.ts";
 import {
   initSidebar,
@@ -31,6 +37,7 @@ import {
   getActivePanel,
   switchPanel,
   getGitHubPanelEl,
+  openFolder,
   SIDEBAR_IMAGE_MIME,
 } from "./sidebar.ts";
 import {
@@ -132,6 +139,7 @@ import {
   encodeLinkPath,
   escapeLinkText,
   getExtension,
+  MD_EXTENSIONS,
   relativeToRoot,
   resolveRelativePath,
   SYSTEM_OPEN_EXTENSIONS,
@@ -170,7 +178,14 @@ import {
   toggleTocPanel,
 } from "./toc-panel.ts";
 import { startPresentation } from "./presentation.ts";
-import { setPublishProjectRoot, loadPublishState } from "./publish.ts";
+import {
+  setPublishProjectRoot,
+  loadPublishState,
+  isPublished,
+  publishedItems,
+  publishOptionItems,
+} from "./publish.ts";
+import { showDropdown, type MenuItem } from "./context-menu.ts";
 import { hydrateIcons, icon } from "./icons.ts";
 // --- Window label (must run before any state restoration) ---
 initWindowLabel();
@@ -366,6 +381,7 @@ function updateStatus(state: EditorState) {
   const branch = getBranch();
   const branchInfo = branch ? ` | \u{e0a0} ${branch}` : "";
   statusEl.textContent = `${lines} lines | ${chars} chars${pathInfo}${branchInfo}`;
+  updatePublishButton();
 }
 
 let gitRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -468,12 +484,28 @@ initMcpSync({
 
 // --- Toolbar Actions ---
 
-document.getElementById("btn-open")!.addEventListener("click", openFile);
-document.getElementById("btn-save")!.addEventListener("click", saveFile);
-document.getElementById("btn-import")!.addEventListener("click", importFile);
-document.getElementById("btn-table")!.addEventListener("click", () => {
-  editTableAtCursor(editor);
-});
+function onClick(id: string, handler: (button: HTMLElement) => void) {
+  const button = document.getElementById(id)!;
+  button.addEventListener("click", () => handler(button));
+}
+
+/** Reveal the clone panel, expanding the sidebar when it is collapsed. */
+function showClonePanel() {
+  if (sidebarEl.classList.contains("collapsed")) toggleSidebar();
+  switchPanel("clone");
+}
+
+onClick("btn-sidebar", () => toggleSidebar());
+onClick("btn-import", (button) =>
+  showDropdown(button, [
+    { label: "Import Document…", shortcut: "⇧⌘I", action: importFile },
+    null,
+    { label: "Open File…", shortcut: "⌘O", action: openFile },
+    { label: "Open Folder…", shortcut: "⇧⌘O", action: openFolder },
+    { label: "Clone Repository…", action: showClonePanel },
+  ]),
+);
+onClick("btn-table", () => editTableAtCursor(editor));
 
 function cleanupDocument() {
   const content = editor.state.doc.toString();
@@ -487,14 +519,79 @@ function cleanupDocument() {
   }
 }
 
-document.getElementById("btn-cleanup")!.addEventListener("click", cleanupDocument);
-document.getElementById("btn-settings")!.addEventListener("click", () => {
+onClick("btn-cleanup", cleanupDocument);
+onClick("btn-copy", (button) =>
+  showDropdown(button, [
+    { label: "Copy as Rich Text", action: copyRichText },
+    { label: "Copy as Markdown", action: copyMarkdown },
+  ]),
+);
+onClick("btn-publish", (button) => showDropdown(button, publishMenu()));
+onClick("btn-present", () => startPresentation(editor.state.doc.toString()));
+onClick("btn-palette", () => toggleCommandPalette());
+onClick("btn-settings", () => {
   showSettings({
     onSave: (url: string) => {
       statusEl.textContent = url ? `Worker URL: ${url}` : "Worker URL cleared";
+      updatePublishButton();
     },
   });
 });
+
+// File menu items emit these (src-tauri/src/menu.rs)
+const MENU_ACTIONS: Record<string, () => void> = {
+  open: openFile,
+  "open-folder": openFolder,
+  save: saveFile,
+  import: importFile,
+};
+
+// The toolbar leaves room for the traffic lights except in fullscreen
+const appWindow = window.__TAURI__.window?.getCurrentWindow();
+async function syncFullscreen() {
+  if (appWindow) document.body.classList.toggle("fullscreen", await appWindow.isFullscreen());
+}
+appWindow?.onResized(syncFullscreen);
+syncFullscreen();
+
+/** The active tab's file, if it is a saved Markdown file inside the open project. */
+function publishTarget(): { absPath: string; relPath: string } | null {
+  const path = getCurrentFilePath();
+  const root = getRootPath();
+  if (!path || !root || !path.startsWith(`${root}/`)) return null;
+  if (!MD_EXTENSIONS.has(getExtension(path))) return null;
+  return { absPath: path, relPath: relativeToRoot(root, path) };
+}
+
+function publishMenu(): MenuItem[] {
+  const target = publishTarget();
+  if (!target) return [];
+  const onChange = () => {
+    refreshTree();
+    updatePublishButton();
+  };
+  // Publishing reads the file from disk, so save pending edits first
+  const saveFirst = async () => {
+    const tab = getActiveTab();
+    if (tab && isTabDirty(tab)) await saveFile();
+  };
+  return isPublished(target.relPath)
+    ? publishedItems(target.absPath, target.relPath, onChange, saveFirst)
+    : publishOptionItems(target.absPath, target.relPath, onChange, saveFirst);
+}
+
+function updatePublishButton() {
+  const btnPublish = document.getElementById("btn-publish") as HTMLButtonElement;
+  const target = publishTarget();
+  const reason = !getWorkerUrl()
+    ? "Set up a Cloudflare Worker in Settings to publish"
+    : !target
+      ? "Open a Markdown file from the project folder to publish it"
+      : null;
+  btnPublish.disabled = reason !== null;
+  btnPublish.title = reason ?? "Publish this file to a shareable URL";
+  btnPublish.classList.toggle("published", !!target && isPublished(target.relPath));
+}
 
 // --- Auto-save ---
 
@@ -516,8 +613,24 @@ window.addEventListener("focus", () => {
 const urlBar = document.getElementById("url-bar")!;
 const urlInput = document.getElementById("url-input")! as HTMLInputElement;
 
-document.getElementById("btn-get")!.addEventListener("click", () => getUrl(urlInput, urlBar));
-document.getElementById("btn-crawl")!.addEventListener("click", () => crawlUrl(urlInput, urlBar));
+onClick("btn-get", () => getUrl(urlInput, urlBar));
+onClick("btn-get-menu", (button) => {
+  const renderReady = isRenderAvailable();
+  showDropdown(button, [
+    { label: "Get as Markdown", shortcut: "↩", action: () => getUrl(urlInput, urlBar) },
+    { label: "Fetch Static Page", action: () => fetchUrl(urlInput, urlBar) },
+    {
+      label: "Render with Browser",
+      action: () => renderUrl(urlInput, urlBar),
+      disabled: !renderReady,
+      title: renderReady
+        ? "Render JavaScript pages before converting"
+        : "Needs a Worker with Browser Run",
+    },
+    null,
+    { label: "Crawl Site…", action: () => crawlUrl(urlInput, urlBar) },
+  ]);
+});
 urlInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") getUrl(urlInput, urlBar);
 });
@@ -587,6 +700,7 @@ if (window.__TAURI__.event) {
     }
   });
   listenToWindow<string>("menu:open-recent", (e) => openFileByPath(e.payload));
+  listenToWindow<string>("menu:action", (e) => MENU_ACTIONS[e.payload]?.());
 }
 
 async function openSearchResult(filePath: string) {
@@ -885,10 +999,16 @@ if (initialRoot) {
   refreshGitAndSyncNow();
 }
 
+const sidebarToggleBtn = document.getElementById("btn-sidebar")!;
+
+function syncSidebarToggle() {
+  sidebarToggleBtn.setAttribute("aria-pressed", String(!sidebarEl.classList.contains("collapsed")));
+}
+
 function toggleSidebar() {
   preservePreviewScroll(() => {
     const collapsed = sidebarEl.classList.toggle("collapsed");
-    sidebarUnfoldBtn.classList.toggle("visible", collapsed);
+    syncSidebarToggle();
     setStorageBool(windowKey(KEY_SIDEBAR_COLLAPSED), collapsed);
   });
 }
@@ -906,7 +1026,7 @@ makeDraggable(
     const width = Math.max(120, Math.min(400, clientX));
     sidebarEl.style.width = `${width}px`;
     sidebarEl.classList.remove("collapsed");
-    sidebarUnfoldBtn.classList.remove("visible");
+    syncSidebarToggle();
   },
   () => {
     setStorageBool(windowKey(KEY_SIDEBAR_COLLAPSED), false);
@@ -939,13 +1059,6 @@ initPreviewSearch(previewPane, previewWrapper, editorContainer, { onClose: () =>
 
 // Unfold buttons (thin strips shown when panel is collapsed)
 const appEl = document.getElementById("app")!;
-
-const sidebarUnfoldBtn = document.createElement("button");
-sidebarUnfoldBtn.className = "panel-unfold-btn";
-sidebarUnfoldBtn.title = "Expand Sidebar (⌘1)";
-sidebarUnfoldBtn.setAttribute("aria-label", sidebarUnfoldBtn.title);
-sidebarUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
-appEl.insertBefore(sidebarUnfoldBtn, sidebarDivider);
 
 const editorUnfoldBtn = document.createElement("button");
 editorUnfoldBtn.className = "panel-unfold-btn";
@@ -1007,15 +1120,12 @@ async function printPreview() {
   }
 }
 
-sidebarUnfoldBtn.addEventListener("click", toggleSidebar);
 editorFoldBtn.addEventListener("click", toggleEditor);
 previewFoldBtn.addEventListener("click", togglePreview);
 editorUnfoldBtn.addEventListener("click", toggleEditor);
 previewUnfoldBtn.addEventListener("click", togglePreview);
 // Restore collapsed states
-if (sidebarCollapsed) {
-  sidebarUnfoldBtn.classList.add("visible");
-}
+syncSidebarToggle();
 if (getStorageBool(windowKey(KEY_EDITOR_COLLAPSED), false)) {
   editorContainer.classList.add("collapsed");
   divider.classList.add("hidden");
@@ -1239,10 +1349,8 @@ document.addEventListener("keydown", (e) => {
       }
     }
   } else {
-    if (e.key === "s") {
-      e.preventDefault();
-      saveFile();
-    } else if (e.key === "w") {
+    // ⌘S and ⌘O are File menu accelerators (see menu:action below)
+    if (e.key === "w") {
       e.preventDefault();
       closeActiveTab();
     } else if (e.key === "k") {
