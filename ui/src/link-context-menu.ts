@@ -27,7 +27,7 @@ export function initLinkContextMenu(previewPane: HTMLElement, d: LinkMenuDeps) {
     const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
     if (!anchor) return;
     const href = anchor.getAttribute("href") ?? "";
-    if (!/^https?:\/\//.test(href)) return;
+    if (!/^https?:\/\//i.test(href)) return;
 
     e.preventDefault();
     showMenu(e.clientX, e.clientY, href);

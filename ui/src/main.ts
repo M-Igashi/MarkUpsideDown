@@ -642,19 +642,31 @@ async function openLocalLink(href: string) {
   await openFileByPath(path);
 }
 
+// Never let a link navigate the app webview away (preview, presentation
+// slides, settings, toasts). Web and mail links open in the default app
+// instead; local links are handled by the preview handler below, which still
+// sees the click because this runs in the capture phase.
+document.addEventListener(
+  "click",
+  (e) => {
+    const anchor = (e.target as Element | null)?.closest?.("a[href]");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href") ?? "";
+    if (href === "" || href.startsWith("#")) return;
+    e.preventDefault();
+    if (/^(https?:\/\/|mailto:)/i.test(href)) invoke("plugin:shell|open", { path: href });
+  },
+  true,
+);
+
 previewPane.addEventListener("click", (e) => {
   const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
   if (anchor) {
     const href = anchor.getAttribute("href") ?? "";
-    if (/^https?:\/\//.test(href)) {
-      e.preventDefault();
-      invoke("plugin:shell|open", { path: href });
-      return;
-    }
-    // Relative/absolute local path (not a fragment or another URI scheme)
-    if (href && !href.startsWith("#") && !/^[a-z][a-z0-9+.-]*:/i.test(href)) {
-      e.preventDefault();
-      openLocalLink(href);
+    if (href && !href.startsWith("#")) {
+      // Relative/absolute local path (URI schemes are handled by the
+      // document-level link handler above)
+      if (!/^[a-z][a-z0-9+.-]*:/i.test(href)) openLocalLink(href);
       return;
     }
   }

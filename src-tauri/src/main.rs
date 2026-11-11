@@ -49,6 +49,21 @@ fn emit_open_files_delayed(handle: tauri::AppHandle, paths: Vec<String>) {
     });
 }
 
+/// The webview may only show the app itself. A link or form in a previewed
+/// document must never replace the app UI with a remote page.
+fn is_app_url(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "tauri" | "asset" | "about" => true,
+        "http" | "https" => match url.host_str() {
+            Some("tauri.localhost" | "asset.localhost") => true,
+            // Vite dev server (`cargo tauri dev`)
+            Some("localhost") => cfg!(debug_assertions),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 /// Extract file path strings from a CLI arg value (handles both string and array).
 fn extract_cli_file_values(value: &serde_json::Value) -> Vec<&str> {
     match value {
@@ -66,6 +81,11 @@ fn main() {
         .build()
         .expect("Failed to create HTTP client");
     tauri::Builder::default()
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("navigation-guard")
+                .on_navigation(|_, url| is_app_url(url))
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())

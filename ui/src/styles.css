@@ -2529,7 +2529,7 @@ body {
   display: inline-block;
   max-width: 100%;
 }
-#preview-pane .inline-svg svg {
+#preview-pane .inline-svg img {
   max-width: 100%;
   height: auto;
 }

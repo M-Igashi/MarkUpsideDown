@@ -412,12 +412,13 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
   // Close / Apply
   const close = (): void => overlay.remove();
 
-  document.getElementById("table-editor-cancel")!.addEventListener("click", close);
+  // Look up inside the dialog: the preview may contain elements with the same id
+  overlay.querySelector("#table-editor-cancel")!.addEventListener("click", close);
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) close();
   });
 
-  document.getElementById("table-editor-ok")!.addEventListener("click", () => {
+  overlay.querySelector("#table-editor-ok")!.addEventListener("click", () => {
     const md = generateMarkdownTable(table);
     if (tableRange) {
       editor.dispatch({
