@@ -142,13 +142,36 @@ fn run_wrangler(
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Err(format!(
+        Err(strip_ansi(&format!(
             "wrangler {} failed:\n{}{}",
             args.join(" "),
             stderr,
             stdout
-        ))
+        )))
     }
+}
+
+/// Remove ANSI escape sequences (wrangler colors its error output), so the
+/// message reads cleanly in Settings.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        // CSI sequence: ESC [ parameters, then a final byte in @..~
+        if chars.clone().next() == Some('[') {
+            chars.next();
+            for nc in chars.by_ref() {
+                if ('@'..='~').contains(&nc) {
+                    break;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Wait for the child, killing it on timeout so it does not keep holding
@@ -456,6 +479,15 @@ pub async fn wrangler_login() -> crate::error::Result<()> {
     .await?
 }
 
+/// Queue that Workers before v13 consumed for server-side batch conversion.
+const LEGACY_BATCH_QUEUE: &str = "markupsidedown-convert";
+/// Worker name in worker/wrangler.jsonc, used when no custom name is given.
+const DEFAULT_WORKER_NAME: &str = "markupsidedown-converter";
+
+fn is_missing_queue_handler(error: &str) -> bool {
+    error.contains("[code: 11001]") || error.contains("Queue handler is missing")
+}
+
 #[tauri::command]
 pub async fn deploy_worker(
     account_id: Option<String>,
@@ -473,11 +505,26 @@ pub async fn deploy_worker(
         let result = (|| {
             write_temp_worker_files(&temp_dir, &flags, worker_name.as_deref())?;
 
-            if let Some(id) = account_id.as_deref() {
-                let env = [("CLOUDFLARE_ACCOUNT_ID", id)];
-                run_wrangler(&["deploy"], Some(&temp_dir), 120, &env)
-            } else {
-                run_wrangler(&["deploy"], Some(&temp_dir), 120, &[])
+            let env: Vec<(&str, &str)> = account_id
+                .as_deref()
+                .map(|id| vec![("CLOUDFLARE_ACCOUNT_ID", id)])
+                .unwrap_or_default();
+            let deploy = || run_wrangler(&["deploy"], Some(&temp_dir), 120, &env);
+            match deploy() {
+                // Workers deployed before v13 are still registered as the
+                // consumer of the removed batch queue, and Cloudflare rejects
+                // a version without a queue handler. Detach it and retry.
+                Err(e) if is_missing_queue_handler(&e) => {
+                    let name = worker_name.as_deref().unwrap_or(DEFAULT_WORKER_NAME);
+                    run_wrangler(
+                        &["queues", "consumer", "remove", LEGACY_BATCH_QUEUE, name],
+                        None,
+                        60,
+                        &env,
+                    )?;
+                    deploy()
+                }
+                other => other,
             }
         })();
 
@@ -503,7 +550,7 @@ pub async fn setup_worker_secrets_with_token(
     worker_name: Option<String>,
 ) -> crate::error::Result<()> {
     use crate::error::AppError;
-    let name = worker_name.unwrap_or_else(|| "markupsidedown-converter".to_string());
+    let name = worker_name.unwrap_or_else(|| DEFAULT_WORKER_NAME.to_string());
     let name1 = name.clone();
     let name2 = name;
     let acct_for_r1 = account_id.clone();
@@ -591,7 +638,24 @@ fn set_wrangler_secret(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_node_version;
+    use super::{is_missing_queue_handler, parse_node_version, strip_ansi};
+
+    #[test]
+    fn strips_wrangler_colors() {
+        let raw = "\x1b[31m\u{2718} \x1b[41;31m[\x1b[41;97mERROR\x1b[41;31m]\x1b[0m \x1b[1mA request failed.\x1b[0m";
+        assert_eq!(strip_ansi(raw), "\u{2718} [ERROR] A request failed.");
+        assert_eq!(strip_ansi("plain"), "plain");
+    }
+
+    #[test]
+    fn detects_missing_queue_handler() {
+        assert!(is_missing_queue_handler(
+            "Queue handler is missing. Please see our docs [code: 11001]"
+        ));
+        assert!(!is_missing_queue_handler(
+            "Authentication error [code: 10000]"
+        ));
+    }
 
     #[test]
     fn node_versions_compare_numerically() {
