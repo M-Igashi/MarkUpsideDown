@@ -4,17 +4,41 @@ use std::time::Duration;
 use super::files::validate_path;
 use crate::error::{AppError, Result};
 
-/// Reject responses whose Content-Length exceeds `max_bytes`.
-/// If the header is absent the response is allowed through (post-read checks still apply).
-fn reject_oversized_response(response: &reqwest::Response, max_bytes: u64) -> Result<()> {
-    if let Some(len) = response.content_length()
-        && len > max_bytes
+fn too_large(max_bytes: usize) -> AppError {
+    AppError::Validation(format!("Response too large (max {max_bytes} bytes)"))
+}
+
+/// Read the body chunk by chunk, since Content-Length may be absent (chunked
+/// encoding). Past `max_bytes` it fails, or with `truncate` keeps the first
+/// `max_bytes` and stops reading.
+async fn read_body_limited(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+    truncate: bool,
+) -> Result<Vec<u8>> {
+    if !truncate
+        && response
+            .content_length()
+            .is_some_and(|len| len > max_bytes as u64)
     {
-        return Err(AppError::Validation(format!(
-            "Response too large ({len} bytes, max {max_bytes})"
-        )));
+        return Err(too_large(max_bytes));
     }
-    Ok(())
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| AppError::Network(format!("Failed to read body: {e}")))?
+    {
+        if body.len() + chunk.len() > max_bytes {
+            if !truncate {
+                return Err(too_large(max_bytes));
+            }
+            body.extend_from_slice(&chunk[..max_bytes - body.len()]);
+            break;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 // --- Shared Worker Request Helper ---
@@ -164,6 +188,8 @@ pub struct MarkdownResponse {
     pub is_markdown: bool,
 }
 
+const MAX_MARKDOWN_FETCH_SIZE: usize = 20 * 1_024 * 1_024; // 20 MB
+
 #[tauri::command]
 pub async fn fetch_url_as_markdown(
     url: String,
@@ -184,13 +210,10 @@ pub async fn fetch_url_as_markdown(
         .unwrap_or("")
         .to_string();
 
-    let body = response
-        .text()
-        .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    let body = read_body_limited(response, MAX_MARKDOWN_FETCH_SIZE, false).await?;
 
     Ok(MarkdownResponse {
-        body,
+        body: String::from_utf8_lossy(&body).into_owned(),
         is_markdown: content_type.contains("text/markdown"),
     })
 }
@@ -276,7 +299,7 @@ pub async fn fetch_url_via_worker(
 
 // --- Fetch Page Title ---
 
-const MAX_TITLE_FETCH_SIZE: u64 = 65_536; // 64 KB
+const MAX_TITLE_FETCH_SIZE: usize = 65_536; // 64 KB
 
 pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Result<String> {
     let validated_url = validate_url(url)?;
@@ -292,13 +315,8 @@ pub async fn fetch_page_title_with(client: &reqwest::Client, url: &str) -> Resul
         return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
 
-    reject_oversized_response(&response, MAX_TITLE_FETCH_SIZE)?;
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to read body: {e}")))?;
-    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_TITLE_FETCH_SIZE as usize)]);
+    let bytes = read_body_limited(response, MAX_TITLE_FETCH_SIZE, true).await?;
+    let text = String::from_utf8_lossy(&bytes);
 
     crate::util::extract_html_title(&text)
 }
@@ -313,7 +331,7 @@ pub async fn fetch_page_title(
 
 // --- Download Image to Local File ---
 
-const MAX_IMAGE_SIZE: u64 = 50 * 1_024 * 1_024; // 50 MB
+const MAX_IMAGE_SIZE: usize = 50 * 1_024 * 1_024; // 50 MB
 
 pub async fn download_image_with(
     client: &reqwest::Client,
@@ -333,12 +351,7 @@ pub async fn download_image_with(
         return Err(AppError::Network(format!("HTTP {}", response.status())));
     }
 
-    reject_oversized_response(&response, MAX_IMAGE_SIZE)?;
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to read image: {e}")))?;
+    let bytes = read_body_limited(response, MAX_IMAGE_SIZE, false).await?;
 
     if let Some(parent) = validated_path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -542,22 +555,9 @@ pub async fn fetch_svg(url: String) -> Result<String> {
         )));
     }
 
-    reject_oversized_response(&response, MAX_SVG_SIZE as u64)?;
+    let bytes = read_body_limited(response, MAX_SVG_SIZE, false).await?;
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
-
-    if bytes.len() > MAX_SVG_SIZE {
-        return Err(AppError::Validation(format!(
-            "SVG too large ({} bytes, max {})",
-            bytes.len(),
-            MAX_SVG_SIZE
-        )));
-    }
-
-    let svg_text = String::from_utf8(bytes.to_vec())
+    let svg_text = String::from_utf8(bytes)
         .map_err(|_| AppError::Validation("SVG contains invalid UTF-8".into()))?;
 
     Ok(sanitize_svg(&svg_text))
