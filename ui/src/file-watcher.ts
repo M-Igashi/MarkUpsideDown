@@ -48,7 +48,8 @@ export function suppressNext(filePath: string) {
   suppressUntil.set(filePath, Date.now() + SUPPRESS_WINDOW_MS);
 }
 
-function isRecentlySuppressed(filePath: string): boolean {
+/** True while a path is inside the window opened by `suppressNext` (the app just wrote it). */
+export function isRecentlySuppressed(filePath: string): boolean {
   const until = suppressUntil.get(filePath);
   if (until && Date.now() < until) return true;
   suppressUntil.delete(filePath);
@@ -146,6 +147,7 @@ function startPolling() {
 }
 
 export async function startWatching(filePath: string) {
+  startPolling(); // stopAll() clears the poll timer on project switch
   if (watchers.has(filePath)) return;
   try {
     const unwatch = await watch(filePath, onFileChanged, { delayMs: 50 });

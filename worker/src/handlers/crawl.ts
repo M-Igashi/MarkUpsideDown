@@ -1,6 +1,12 @@
 import type { Env } from "../types.js";
-import { CRAWL_LIMIT_MAX, CRAWL_LIMIT_DEFAULT, CRAWL_DEPTH_DEFAULT } from "../config.js";
-import { jsonResponse, parseJsonBody, hasCrawlSecrets, wrapJsonSchema, CORS_HEADERS } from "../utils.js";
+import {
+  BROWSER_RUN_GOTO,
+  BROWSER_RUN_REJECT,
+  CRAWL_LIMIT_MAX,
+  CRAWL_LIMIT_DEFAULT,
+  CRAWL_DEPTH_DEFAULT,
+} from "../config.js";
+import { jsonResponse, parseJsonBody, hasCrawlSecrets, wrapJsonSchema, CORS_HEADERS, errorMessage } from "../utils.js";
 import { validateUrlForSsrf } from "../ssrf.js";
 
 const SECRETS_MISSING_ERROR =
@@ -48,8 +54,8 @@ export async function handleCrawlStart(request: Request, env: Env): Promise<Resp
     render,
   };
   if (render) {
-    crawlBody.gotoOptions = { waitUntil: "networkidle2", timeout: 45000 };
-    crawlBody.rejectResourceTypes = ["image", "media", "font", "stylesheet"];
+    crawlBody.gotoOptions = BROWSER_RUN_GOTO;
+    crawlBody.rejectResourceTypes = BROWSER_RUN_REJECT;
   }
   if (formats.includes("json")) {
     const jsonOptions: Record<string, unknown> = {};
@@ -86,7 +92,7 @@ export async function handleCrawlStart(request: Request, env: Env): Promise<Resp
 
     return jsonResponse({ job_id: data.result });
   } catch (e) {
-    return jsonResponse({ error: `Crawl failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    return jsonResponse({ error: `Crawl failed: ${errorMessage(e)}` }, 500);
   }
 }
 
@@ -128,7 +134,7 @@ export async function handleCrawlStatus(jobId: string, url: URL, env: Env): Prom
       headers: { ...CORS_HEADERS, "content-type": "application/json" },
     });
   } catch (e) {
-    return jsonResponse({ error: `Crawl status failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    return jsonResponse({ error: `Crawl status failed: ${errorMessage(e)}` }, 500);
   }
 }
 
@@ -149,6 +155,6 @@ export async function handleCrawlCancel(jobId: string, env: Env): Promise<Respon
     }
     return jsonResponse({ cancelled: jobId });
   } catch (e) {
-    return jsonResponse({ error: `Crawl cancel failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    return jsonResponse({ error: `Crawl cancel failed: ${errorMessage(e)}` }, 500);
   }
 }

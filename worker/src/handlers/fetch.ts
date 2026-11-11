@@ -1,5 +1,5 @@
 import type { Env } from "../types.js";
-import { jsonResponse, parseJsonBody, htmlToMarkdown, detectSpa } from "../utils.js";
+import { jsonResponse, parseJsonBody, htmlToMarkdown, detectSpa, errorMessage } from "../utils.js";
 import { validateUrlForSsrf } from "../ssrf.js";
 
 export async function handleFetch(request: Request, env: Env): Promise<Response> {
@@ -37,6 +37,6 @@ export async function handleFetch(request: Request, env: Env): Promise<Response>
     const markdown = await htmlToMarkdown(html, response.url || body.url, env);
     return jsonResponse({ markdown, source: "ai-to-markdown", spa_detected: detectSpa(html) });
   } catch (e) {
-    return jsonResponse({ error: `Fetch failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    return jsonResponse({ error: `Fetch failed: ${errorMessage(e)}` }, 500);
   }
 }

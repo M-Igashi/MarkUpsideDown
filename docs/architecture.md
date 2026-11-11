@@ -148,6 +148,7 @@ See [ai-integration.md](ai-integration.md) for setup and [mcp-server.md](mcp-ser
 | Command | Description | Module |
 |---------|-------------|--------|
 | `sync_editor_state` | Sync editor state to Rust (for MCP bridge) | `commands/editor.rs` |
+| `sync_editor_cursor` | Sync cursor position only (for MCP bridge) | `commands/editor.rs` |
 | `get_mcp_binary_path` | Get path to bundled MCP sidecar binary | `commands/editor.rs` |
 | `create_cowork_workspace` | Create a Cowork workspace folder with MCP config | `commands/editor.rs` |
 | `validate_markdown` | Validate Markdown structure via comrak parser | `commands/editor.rs` |
@@ -186,6 +187,7 @@ See [ai-integration.md](ai-integration.md) for setup and [mcp-server.md](mcp-ser
 | `create_directory` | Create directory | `commands/files.rs` |
 | `rename_entry` | Rename file or folder | `commands/files.rs` |
 | `delete_entry` | Delete file or folder (recursive for dirs) | `commands/files.rs` |
+| `delete_entries` | Move several files or folders to the trash in one call | `commands/files.rs` |
 | `copy_entry` | Copy file or folder | `commands/files.rs` |
 | `duplicate_entry` | Copy with unique name suffix ("file copy.md") | `commands/files.rs` |
 | `write_file_bytes` | Write raw bytes to file (for drag & drop) | `commands/files.rs` |
@@ -274,7 +276,6 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 | `/editor/lint` | GET | Get cached lint diagnostics |
 | `/editor/tabs` | GET | List open tabs |
 | `/editor/root` | GET | Get project root path |
-| `/editor/dirty-files` | GET | List files with unsaved changes |
 | `/editor/switch-tab` | POST | Switch active tab |
 
 ### Files

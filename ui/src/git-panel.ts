@@ -71,11 +71,9 @@ export function initGitPanel(
   render();
 }
 
-export function setRepoPath(path: string | null, skipRefresh = false) {
+export function setRepoPath(path: string | null) {
   repoPath = path;
-  if (path) {
-    if (!skipRefresh) refresh();
-  } else {
+  if (!path) {
     gitData = null;
     logEntries = [];
     render();
@@ -103,10 +101,6 @@ export function getBranch(): string | null {
   return gitData?.is_repo ? gitData.branch || null : null;
 }
 
-export function isRepo(): boolean {
-  return gitData?.is_repo ?? false;
-}
-
 const HIDDEN_FILES = [".DS_Store", "Thumbs.db"];
 
 function isHiddenFile(path: string): boolean {
@@ -132,59 +126,29 @@ export function getStatusMap(): Map<string, GitFile> {
 
 // --- Actions ---
 
-async function stageFile(filePath: string) {
+/** Run a git command on the repo, then refresh. `filesChanged` also reloads open tabs. */
+async function runGit(
+  command: string,
+  args: Record<string, unknown>,
+  failLabel: string,
+  filesChanged = false,
+) {
   if (!repoPath) return;
   try {
-    await invoke("git_stage", { repoPath, filePath });
+    await invoke(command, { repoPath, ...args });
+    if (filesChanged) expandedDiffPath = null;
     await refresh();
+    if (filesChanged) onFilesChangedCb?.();
   } catch (e) {
-    showStatus(`Stage failed: ${e}`, true);
+    showStatus(`${failLabel} failed: ${e}`, true);
   }
 }
 
-async function stageAll() {
-  if (!repoPath) return;
-  try {
-    await invoke("git_stage_all", { repoPath });
-    await refresh();
-  } catch (e) {
-    showStatus(`Stage all failed: ${e}`, true);
-  }
-}
-
-async function unstageFile(filePath: string) {
-  if (!repoPath) return;
-  try {
-    await invoke("git_unstage", { repoPath, filePath });
-    await refresh();
-  } catch (e) {
-    showStatus(`Unstage failed: ${e}`, true);
-  }
-}
-
-async function discardFile(filePath: string) {
-  if (!repoPath) return;
-  try {
-    await invoke("git_discard", { repoPath, filePath });
-    expandedDiffPath = null;
-    await refresh();
-    onFilesChangedCb?.();
-  } catch (e) {
-    showStatus(`Discard failed: ${e}`, true);
-  }
-}
-
-async function discardAll() {
-  if (!repoPath) return;
-  try {
-    await invoke("git_discard_all", { repoPath });
-    expandedDiffPath = null;
-    await refresh();
-    onFilesChangedCb?.();
-  } catch (e) {
-    showStatus(`Discard all failed: ${e}`, true);
-  }
-}
+const stageFile = (filePath: string) => runGit("git_stage", { filePath }, "Stage");
+const stageAll = () => runGit("git_stage_all", {}, "Stage all");
+const unstageFile = (filePath: string) => runGit("git_unstage", { filePath }, "Unstage");
+const discardFile = (filePath: string) => runGit("git_discard", { filePath }, "Discard", true);
+const discardAll = () => runGit("git_discard_all", {}, "Discard all", true);
 
 async function commitChanges(mode: "staged" | "tracked") {
   if (!repoPath || !commitMessage.trim()) return;

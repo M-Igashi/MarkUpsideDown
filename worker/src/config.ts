@@ -5,6 +5,7 @@ export const WORKER_VERSION = 13;
 // Quick Actions cache their results on Cloudflare's side (max 86,400 seconds).
 export const RENDER_CACHE_TTL = 3600; // 1 hour
 export const BROWSER_RUN_GOTO = { waitUntil: "networkidle2", timeout: 45000 } as const;
+export const BROWSER_RUN_REJECT: ("image" | "media" | "font" | "stylesheet")[] = ["image", "media", "font", "stylesheet"];
 
 // --- Crawl ---
 export const CRAWL_LIMIT_MAX = 100_000;

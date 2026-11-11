@@ -275,7 +275,7 @@ marked.use({
         return `<div${sl} class="mermaid-container" data-mermaid-source="${encodeURIComponent(text)}"></div>`;
       }
       const escaped = escapeHtml(text);
-      const langAttr = hlLang ? ` data-hljs-lang="${hlLang}"` : "";
+      const langAttr = hlLang ? ` data-hljs-lang="${escapeHtml(hlLang)}"` : "";
       const filenameEl = filename ? `<div class="code-filename">${escapeHtml(filename)}</div>` : "";
       return `${filenameEl}<pre${sl}><code class="hljs"${langAttr}>${escaped}</code></pre>`;
     },
@@ -409,6 +409,33 @@ async function inlineSvgImages(container: HTMLElement) {
 
 // --- Preview rendering ---
 
+const PURIFY_CONFIG = {
+  // Allow Tauri's `asset:` scheme so local images survive sanitization
+  // (convertFileSrc returns asset://localhost/... on macOS/Linux). Mirrors
+  // DOMPurify's default ALLOWED_URI_REGEXP with `asset` added to the allowlist.
+  ALLOWED_URI_REGEXP:
+    /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|asset):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  ADD_TAGS: ["foreignObject"],
+  ADD_ATTR: [
+    "data-mermaid-source",
+    "data-source-line",
+    "data-math-source",
+    "data-math-display",
+    "data-math-rendered",
+    "data-hljs-lang",
+    "data-hljs-rendered",
+  ],
+};
+
+function sanitize(html: string): string {
+  return DOMPurify.sanitize(html, PURIFY_CONFIG);
+}
+
+/** Markdown → sanitized HTML, for views outside the preview pane (presentation mode). */
+export function markdownToSafeHtml(source: string): string {
+  return sanitize(marked.parse(fixCjkEmphasis(source), { async: false }));
+}
+
 let previewPane: HTMLElement;
 
 export function initPreview(pp: HTMLElement) {
@@ -416,8 +443,6 @@ export function initPreview(pp: HTMLElement) {
 }
 
 export async function renderPreview(source: string) {
-  const hasMermaid = /```mermaid\b/.test(source);
-
   scrollState.renderingPreview = true;
   cancelAnimationFrame(scrollState.syncRAF);
 
@@ -431,26 +456,7 @@ export async function renderPreview(source: string) {
 
   const html = marked.parser(tokens);
 
-  const sanitizedHtml = DOMPurify.sanitize(
-    `<article class="preview-page" lang="en">${html}</article>`,
-    {
-      // Allow Tauri's `asset:` scheme so local images survive sanitization
-      // (convertFileSrc returns asset://localhost/... on macOS/Linux). Mirrors
-      // DOMPurify's default ALLOWED_URI_REGEXP with `asset` added to the allowlist.
-      ALLOWED_URI_REGEXP:
-        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|asset):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
-      ADD_TAGS: ["foreignObject"],
-      ADD_ATTR: [
-        "data-mermaid-source",
-        "data-source-line",
-        "data-math-source",
-        "data-math-display",
-        "data-math-rendered",
-        "data-hljs-lang",
-        "data-hljs-rendered",
-      ],
-    },
-  );
+  const sanitizedHtml = sanitize(`<article class="preview-page" lang="en">${html}</article>`);
 
   // Mark programmatic scroll BEFORE morph — morphing adds/removes DOM nodes
   // which can trigger scroll events on previewPane. Without this mark, those
@@ -570,7 +576,7 @@ export async function renderPreview(source: string) {
     pre.appendChild(btn);
   }
 
-  if (hasMermaid && mermaidEls.length > 0) {
+  if (mermaidEls.length > 0) {
     try {
       const mermaid = await getMermaid();
       await Promise.all(
@@ -594,7 +600,9 @@ export async function renderPreview(source: string) {
             expandHint.textContent = "Click to expand";
             el.appendChild(expandHint);
             el.style.cursor = "pointer";
-            el.addEventListener("click", () => openMermaidViewer(el));
+            // Property, not addEventListener: Idiomorph reuses this element when the
+            // diagram source changes, and listeners would pile up across renders.
+            el.onclick = () => openMermaidViewer(el);
           } catch (err) {
             const pre = document.createElement("pre");
             pre.className = "mermaid-error";
@@ -619,7 +627,7 @@ export async function renderPreview(source: string) {
           el.innerHTML = katex.renderToString(src, { displayMode: display, throwOnError: false });
           el.dataset.mathRendered = "true";
         } catch {
-          el.innerHTML = `<code class="math-error">${src}</code>`;
+          el.innerHTML = `<code class="math-error">${escapeHtml(src)}</code>`;
           el.dataset.mathRendered = "true";
         }
       }

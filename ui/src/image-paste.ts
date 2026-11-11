@@ -3,7 +3,13 @@ import { basename, getAssetsDir, getExtension, sanitizeFilename } from "./path-u
 
 const { invoke } = window.__TAURI__.core;
 
-const IMAGE_MIME_PREFIXES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"];
+const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp",
+};
 
 interface ImagePasteDeps {
   editor: EditorView;
@@ -21,15 +27,6 @@ function formatTimestamp(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-}
-
-function extensionForMime(mime: string): string {
-  if (mime === "image/jpeg") return "jpg";
-  if (mime === "image/png") return "png";
-  if (mime === "image/gif") return "gif";
-  if (mime === "image/webp") return "webp";
-  if (mime === "image/bmp") return "bmp";
-  return "png";
 }
 
 async function saveAndInsert(data: Uint8Array, filename: string, pos: number) {
@@ -63,13 +60,13 @@ export async function handlePaste(e: ClipboardEvent) {
   if (!items) return;
 
   for (const item of items) {
-    if (!IMAGE_MIME_PREFIXES.some((p) => item.type.startsWith(p))) continue;
+    const ext = IMAGE_MIME_EXTENSIONS[item.type];
+    if (!ext) continue;
     const blob = item.getAsFile();
     if (!blob) continue;
 
     e.preventDefault();
     const bytes = new Uint8Array(await blob.arrayBuffer());
-    const ext = extensionForMime(item.type);
     const filename = `clipboard-${formatTimestamp()}.${ext}`;
     const pos = deps.editor.state.selection.main.head;
     await saveAndInsert(bytes, filename, pos);
@@ -82,7 +79,7 @@ export async function handleImageDrop(e: DragEvent) {
   if (!files || files.length === 0) return;
 
   const file = files[0];
-  if (!IMAGE_MIME_PREFIXES.some((p) => file.type.startsWith(p))) return;
+  if (!IMAGE_MIME_EXTENSIONS[file.type]) return;
 
   e.preventDefault();
   e.stopPropagation();

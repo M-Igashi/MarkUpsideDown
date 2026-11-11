@@ -28,6 +28,17 @@ function getWorkerSuffix(): string {
   return suffix;
 }
 
+type ResultKind = "ok" | "warn" | "error" | "pending";
+
+function setResult(el: HTMLElement, kind: ResultKind | null, text: string) {
+  el.className = kind ? `settings-test-result test-${kind}` : "settings-test-result";
+  el.textContent = text;
+}
+
+function getWorkerName(): string {
+  return `markupsidedown-${getWorkerSuffix()}`;
+}
+
 interface WorkerStatus {
   reachable: boolean;
   convert_available: boolean;
@@ -326,7 +337,7 @@ async function startAutoSetup(
   localStorage.setItem(KEY_ACCOUNT_ID, accountId);
 
   // Generate a stable, non-guessable Worker name (e.g. "markupsidedown-a3f8k2xp7m9qb")
-  const workerName = `markupsidedown-${getWorkerSuffix()}`;
+  const workerName = getWorkerName();
 
   // Step 3: Create the R2 bucket. The other bindings need no setup.
   update("resources", "running");
@@ -470,7 +481,7 @@ function showR2PublicAccessTip(container: HTMLElement) {
       result.style.color = "var(--error)";
       return;
     }
-    const workerName = `markupsidedown-${getWorkerSuffix()}`;
+    const workerName = getWorkerName();
     saveBtn.disabled = true;
     saveBtn.textContent = "Saving\u2026";
     try {
@@ -844,8 +855,7 @@ export function showSettings({
         } else if (wStatus.accounts.length > 1) {
           // Show account picker inline
           updateResult.style.display = "";
-          updateResult.className = "settings-test-result test-warn";
-          updateResult.textContent = "Multiple accounts detected. Selecting account\u2026";
+          setResult(updateResult, "warn", "Multiple accounts detected. Selecting account\u2026");
           resolvedAccountId = await showAccountPicker(
             updateResult.parentElement!,
             wStatus.accounts,
@@ -862,8 +872,7 @@ export function showSettings({
     updateWorkerBtn.disabled = true;
     updateWorkerBtn.textContent = "Updating\u2026";
     updateResult.style.display = "";
-    updateResult.className = "settings-test-result test-pending";
-    updateResult.textContent = "Re-deploying Worker\u2026";
+    setResult(updateResult, "pending", "Re-deploying Worker\u2026");
 
     try {
       // Re-create the R2 bucket before re-deploy so its binding is valid
@@ -873,14 +882,13 @@ export function showSettings({
           const { resources, failed } = await setupResources(resolvedAccountId);
           updateResources = resources;
           if (failed.length > 0) {
-            updateResult.className = "settings-test-result test-warn";
-            updateResult.textContent = `Some resources failed: ${failed.join(", ")}`;
+            setResult(updateResult, "warn", `Some resources failed: ${failed.join(", ")}`);
           }
         } catch {
           // Continue with defaults — Worker will deploy without optional bindings
         }
       }
-      const updateWorkerName = `markupsidedown-${getWorkerSuffix()}`;
+      const updateWorkerName = getWorkerName();
       const newUrl = await invoke<string>("deploy_worker", {
         accountId: resolvedAccountId,
         resources: updateResources,
@@ -889,8 +897,7 @@ export function showSettings({
       // Older Workers had no API key; set (or re-set) it on every update.
       const workerKey = await protectWorker(resolvedAccountId, updateWorkerName);
       keyInput.value = workerKey;
-      updateResult.className = "settings-test-result test-ok";
-      updateResult.textContent = `Worker updated successfully: ${newUrl}`;
+      setResult(updateResult, "ok", `Worker updated successfully: ${newUrl}`);
       urlInput.value = newUrl;
       // Re-test to refresh capabilities
       const status = await invoke<WorkerStatus>("test_worker_url", {
@@ -901,12 +908,10 @@ export function showSettings({
       renderFeatureList(featureList, status);
       showUpdateButton(status);
       if (status.reachable && !status.update_available) {
-        updateResult.className = "settings-test-result test-ok";
-        updateResult.textContent = "Worker updated and verified \u2014 all features refreshed";
+        setResult(updateResult, "ok", "Worker updated and verified \u2014 all features refreshed");
       }
     } catch (e) {
-      updateResult.className = "settings-test-result test-error";
-      updateResult.textContent = `Update failed: ${e}`;
+      setResult(updateResult, "error", `Update failed: ${e}`);
     } finally {
       updateWorkerBtn.disabled = false;
       updateWorkerBtn.textContent = "Update Worker";
@@ -917,15 +922,13 @@ export function showSettings({
   testBtn.addEventListener("click", async () => {
     const url = urlInput.value.trim();
     if (!url) {
-      testResult.className = "settings-test-result test-error";
-      testResult.textContent = "Enter a Worker URL first";
+      setResult(testResult, "error", "Enter a Worker URL first");
       return;
     }
 
     testBtn.disabled = true;
     testBtn.textContent = "Testing\u2026";
-    testResult.className = "settings-test-result test-pending";
-    testResult.textContent = "Connecting\u2026";
+    setResult(testResult, "pending", "Connecting\u2026");
 
     try {
       const status = await invoke<WorkerStatus>("test_worker_url", {
@@ -935,36 +938,37 @@ export function showSettings({
       cacheTestStatus(status, url);
 
       if (!status.reachable) {
-        testResult.className = "settings-test-result test-error";
-        testResult.textContent = status.error || "Cannot reach Worker";
+        setResult(testResult, "error", status.error || "Cannot reach Worker");
       } else if (status.auth === "missing" || status.auth === "invalid") {
-        testResult.className = "settings-test-result test-error";
-        testResult.textContent =
-          status.auth === "invalid" ? "API key is invalid" : "This Worker requires an API key";
+        setResult(
+          testResult,
+          "error",
+          status.auth === "invalid" ? "API key is invalid" : "This Worker requires an API key",
+        );
       } else if (status.auth === "unconfigured") {
-        testResult.className = "settings-test-result test-warn";
-        testResult.textContent =
-          "Worker has no API key set \u2014 click Update Worker to protect it";
+        setResult(
+          testResult,
+          "warn",
+          "Worker has no API key set \u2014 click Update Worker to protect it",
+        );
       } else if (status.update_available) {
-        testResult.className = "settings-test-result test-warn";
-        testResult.textContent =
-          "Worker update available \u2014 click Update Worker to get new features";
+        setResult(
+          testResult,
+          "warn",
+          "Worker update available \u2014 click Update Worker to get new features",
+        );
       } else if (status.crawl_available) {
-        testResult.className = "settings-test-result test-ok";
-        testResult.textContent = "Fully configured \u2014 all features available";
+        setResult(testResult, "ok", "Fully configured \u2014 all features available");
       } else if (status.convert_available) {
-        testResult.className = "settings-test-result test-warn";
-        testResult.textContent = "Connected \u2014 Website Crawl needs secrets";
+        setResult(testResult, "warn", "Connected \u2014 Website Crawl needs secrets");
       } else {
-        testResult.className = "settings-test-result test-warn";
-        testResult.textContent = status.error || "Reachable but returned unexpected response";
+        setResult(testResult, "warn", status.error || "Reachable but returned unexpected response");
       }
 
       renderFeatureList(featureList, status);
       showUpdateButton(status);
     } catch (e) {
-      testResult.className = "settings-test-result test-error";
-      testResult.textContent = `Error: ${e}`;
+      setResult(testResult, "error", `Error: ${e}`);
       currentTestStatus = null;
       renderFeatureList(featureList, null);
       showUpdateButton(null);
@@ -1006,8 +1010,7 @@ export function showSettings({
     currentTestStatus = null;
     lastTestedUrl = null;
     setStorageBool(KEY_RENDER_AVAILABLE, false);
-    testResult.className = "settings-test-result";
-    testResult.textContent = "";
+    setResult(testResult, null, "");
     renderFeatureList(featureList, null);
   });
 
@@ -1173,7 +1176,7 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
   const createBtn = container.querySelector("#settings-cowork-create") as HTMLButtonElement;
   const browseBtn = container.querySelector("#settings-cowork-browse") as HTMLButtonElement;
   const pathInput = container.querySelector("#settings-cowork-path") as HTMLInputElement;
-  const resultEl = container.querySelector("#settings-cowork-result")!;
+  const resultEl = container.querySelector<HTMLElement>("#settings-cowork-result")!;
 
   installBtn.addEventListener("click", async () => {
     installBtn.disabled = true;
@@ -1206,8 +1209,7 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
   createBtn.addEventListener("click", async () => {
     const folderPath = pathInput.value.trim();
     if (!folderPath) {
-      resultEl.className = "settings-test-result test-error";
-      resultEl.textContent = "Enter a folder path";
+      setResult(resultEl, "error", "Enter a folder path");
       return;
     }
     createBtn.disabled = true;
@@ -1216,11 +1218,9 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
       const created = await invoke<string>("create_cowork_workspace", {
         folderPath,
       });
-      resultEl.className = "settings-test-result test-ok";
-      resultEl.textContent = `Created at ${created}`;
+      setResult(resultEl, "ok", `Created at ${created}`);
     } catch (e) {
-      resultEl.className = "settings-test-result test-error";
-      resultEl.textContent = `Error: ${e}`;
+      setResult(resultEl, "error", `Error: ${e}`);
     } finally {
       createBtn.disabled = false;
       createBtn.textContent = "Create";

@@ -5,59 +5,72 @@ use crate::error::{AppError, Result};
 
 // --- Editor State Sync ---
 
+/// Full editor snapshot, sent when the document, file, or tabs change.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSync {
+    content: String,
+    file_path: Option<String>,
+    worker_url: Option<String>,
+    worker_key: Option<String>,
+    document_structure: String,
+    lint_diagnostics: String,
+    root_path: Option<String>,
+    tabs: Vec<TabInfo>,
+}
+
+#[derive(Deserialize)]
+pub struct CursorSync {
+    pos: usize,
+    line: usize,
+    column: usize,
+}
+
+fn update_window_state(
+    window: &tauri::Window,
+    state: &EditorStates,
+    f: impl FnOnce(&mut super::EditorStateInner),
+) {
+    let mut map = state.map.lock().unwrap_or_else(|e| e.into_inner());
+    f(map.entry(window.label().to_string()).or_default());
+}
+
+fn apply_cursor(s: &mut super::EditorStateInner, cursor: CursorSync) {
+    s.cursor_pos = cursor.pos;
+    s.cursor_line = cursor.line;
+    s.cursor_column = cursor.column;
+}
+
 // async: keeps the state-map lock contention off the main thread — bridge
 // handlers hold the same lock while cloning multi-MB editor content
 #[tauri::command]
 pub async fn sync_editor_state(
     window: tauri::Window,
-    content: Option<String>,
-    file_path: Option<String>,
-    cursor_pos: Option<usize>,
-    cursor_line: Option<usize>,
-    cursor_column: Option<usize>,
-    worker_url: Option<String>,
-    worker_key: Option<String>,
-    document_structure: Option<String>,
-    lint_diagnostics: Option<String>,
-    root_path: Option<String>,
-    tabs: Option<Vec<TabInfo>>,
+    sync: EditorSync,
+    cursor: CursorSync,
     state: tauri::State<'_, std::sync::Arc<EditorStates>>,
 ) -> Result<()> {
-    let label = window.label().to_string();
-    let mut map = state.map.lock().unwrap_or_else(|e| e.into_inner());
-    let s = map.entry(label).or_default();
-    if let Some(c) = content {
-        s.content = c;
-    }
-    s.file_path = file_path;
-    if let Some(pos) = cursor_pos {
-        s.cursor_pos = pos;
-    }
-    if let Some(line) = cursor_line {
-        s.cursor_line = line;
-    }
-    if let Some(col) = cursor_column {
-        s.cursor_column = col;
-    }
-    if let Some(wu) = worker_url {
-        s.worker_url = Some(wu);
-    }
-    // An empty string clears the key (the frontend only sends it with the URL).
-    if let Some(wk) = worker_key {
-        s.worker_key = (!wk.is_empty()).then_some(wk);
-    }
-    if let Some(ds) = document_structure {
-        s.document_structure = Some(ds);
-    }
-    if let Some(ld) = lint_diagnostics {
-        s.lint_diagnostics = Some(ld);
-    }
-    if let Some(rp) = root_path {
-        s.root_path = Some(rp);
-    }
-    if let Some(t) = tabs {
-        s.tabs = t;
-    }
+    update_window_state(&window, &state, |s| {
+        s.content = sync.content;
+        s.file_path = sync.file_path;
+        s.worker_url = sync.worker_url;
+        s.worker_key = sync.worker_key.filter(|k| !k.is_empty());
+        s.document_structure = Some(sync.document_structure);
+        s.lint_diagnostics = Some(sync.lint_diagnostics);
+        s.root_path = sync.root_path;
+        s.tabs = sync.tabs;
+        apply_cursor(s, cursor);
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_editor_cursor(
+    window: tauri::Window,
+    cursor: CursorSync,
+    state: tauri::State<'_, std::sync::Arc<EditorStates>>,
+) -> Result<()> {
+    update_window_state(&window, &state, |s| apply_cursor(s, cursor));
     Ok(())
 }
 

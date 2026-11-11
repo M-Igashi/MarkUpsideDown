@@ -97,15 +97,14 @@ export function findCodeBlockRanges(lines: string[]): [number, number][] {
   const ranges: [number, number][] = [];
   let i = 0;
   while (i < lines.length) {
-    if (lines[i].startsWith("```")) {
+    const fence = lines[i].trimStart().match(/^(`{3,}|~{3,})/)?.[1];
+    if (fence) {
       const start = i;
       i++;
-      while (i < lines.length && !lines[i].startsWith("```")) i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith(fence)) i++;
       ranges.push([start, i]);
-      i++;
-    } else {
-      i++;
     }
+    i++;
   }
   return ranges;
 }

@@ -1,4 +1,4 @@
-import { isValidYamlLine } from "./document-structure.ts";
+import { findCodeBlockRanges, isInCodeBlock, isValidYamlLine } from "./document-structure.ts";
 
 /**
  * Post-conversion Markdown normalization.
@@ -63,8 +63,10 @@ function stripMalformedFrontmatter(text: string): string {
 function fixHeadingHierarchy(text: string): string {
   const lines = text.split("\n");
   const headings: { idx: number; level: number; rest: string }[] = [];
+  const codeRanges = findCodeBlockRanges(lines);
 
   for (let i = 0; i < lines.length; i++) {
+    if (isInCodeBlock(i, codeRanges)) continue;
     const match = lines[i].match(/^(#{1,6})\s+(.*)/);
     if (match) {
       headings.push({ idx: i, level: match[1].length, rest: match[2] });

@@ -32,9 +32,7 @@ let syncTimeout: ReturnType<typeof setTimeout> | null = null;
 let lastSyncedContent: string | null = null;
 let lastSyncedFilePath: string | null = null;
 let lastSyncedCursorPos: number | null = null;
-let cachedStructureContent: string | null = null;
 let cachedStructureJson: string | null = null;
-let cachedLintContent: string | null = null;
 let cachedLintJson: string | null = null;
 
 let refreshTree: () => void;
@@ -69,23 +67,15 @@ export function syncEditorState(cachedContent?: string) {
     const cursorChanged = cursorPos !== lastSyncedCursorPos;
     if (!contentChanged && !cursorChanged) return;
     lastSyncedCursorPos = cursorPos;
+    const cursorLine = editor.state.doc.lineAt(cursorPos);
+    const cursor = { pos: cursorPos, line: cursorLine.number, column: cursorPos - cursorLine.from };
     if (!contentChanged) {
-      // Cursor-only change: send lightweight update without content/structure/tabs
-      const cursorLineObj = editor.state.doc.lineAt(cursorPos);
-      invoke("sync_editor_state", {
-        filePath: currentFilePath,
-        cursorPos,
-        cursorLine: cursorLineObj.number,
-        cursorColumn: cursorPos - cursorLineObj.from,
-      }).catch(() => {});
+      // Cursor-only change: skip the content/structure/tabs payload
+      invoke("sync_editor_cursor", { cursor }).catch(() => {});
       return;
     }
-    lastSyncedContent = content;
-    lastSyncedFilePath = currentFilePath;
-    const cursorLineObj = editor.state.doc.lineAt(cursorPos);
-    const cursorLine = cursorLineObj.number;
-    const cursorColumn = cursorPos - cursorLineObj.from;
-    if (content !== cachedStructureContent) {
+    // Structure and lint only depend on the text, not on a file path change.
+    if (content !== lastSyncedContent) {
       const structure = getDocumentStructure(content);
       cachedStructureJson = JSON.stringify({
         headings: structure.headings,
@@ -94,32 +84,28 @@ export function syncEditorState(cachedContent?: string) {
         frontmatter: structure.frontmatter,
         stats: structure.stats,
       });
-      cachedStructureContent = content;
-    }
-    if (content !== cachedLintContent) {
       const diagnostics = isLintEnabled() ? getLintDiagnostics(content) : [];
       cachedLintJson = JSON.stringify(diagnostics);
-      cachedLintContent = content;
     }
-    const tabInfos = getTabs().map((t) => ({
+    lastSyncedContent = content;
+    lastSyncedFilePath = currentFilePath;
+    const tabs = getTabs().map((t) => ({
       id: t.id,
       path: t.path,
       name: t.name,
       is_dirty: isTabDirty(t),
     }));
-    invoke("sync_editor_state", {
+    const sync = {
       content,
       filePath: currentFilePath,
-      cursorPos,
-      cursorLine,
-      cursorColumn,
       workerUrl: getWorkerUrl() || null,
       workerKey: getWorkerKey(),
       documentStructure: cachedStructureJson,
       lintDiagnostics: cachedLintJson,
       rootPath: getRootPath() || null,
-      tabs: tabInfos,
-    }).catch(() => {});
+      tabs,
+    };
+    invoke("sync_editor_state", { sync, cursor }).catch(() => {});
   }, 2000);
 }
 

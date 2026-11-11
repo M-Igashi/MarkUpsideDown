@@ -1,10 +1,11 @@
 // Slide presentation mode: split document at `---` boundaries
 // and display one slide at a time in fullscreen.
 
+import { markdownToSafeHtml } from "./preview-render.ts";
+
 let overlay: HTMLElement | null = null;
 let slides: string[] = [];
 let currentSlide = 0;
-let markedModule: typeof import("marked") | null = null;
 
 export function startPresentation(content: string) {
   // Split at horizontal rules (--- on its own line)
@@ -95,16 +96,13 @@ function navigate(dir: number) {
   }
 }
 
-async function showSlide(index: number) {
+function showSlide(index: number) {
   if (!overlay) return;
 
   const slideEl = overlay.querySelector(".presentation-slide")!;
   const counterEl = overlay.querySelector(".presentation-counter")!;
 
-  markedModule ??= await import("marked");
-  const { marked } = markedModule;
-  const html = await marked.parse(slides[index]);
-
+  const html = markdownToSafeHtml(slides[index]);
   slideEl.innerHTML = `<article class="preview-page presentation-content">${html}</article>`;
   counterEl.textContent = `${index + 1} / ${slides.length}`;
 }

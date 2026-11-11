@@ -127,17 +127,6 @@ pub async fn stat_file(path: String) -> Result<FileStat> {
     })
 }
 
-#[tauri::command]
-pub async fn read_file_bytes(path: String) -> Result<tauri::ipc::Response> {
-    let path = validate_path(&path)?;
-    let data = tokio::fs::read(&path)
-        .await
-        .map_err(|e| AppError::Io(format!("Failed to read file: {e}")))?;
-    // Raw IPC response — the frontend receives an ArrayBuffer instead of a
-    // JSON number array.
-    Ok(tauri::ipc::Response::new(data))
-}
-
 /// Extract the percent-encoded `path` header and raw binary body from a
 /// raw-IPC request (used by commands that receive file bytes from JS).
 fn raw_request_parts<'a>(request: &'a tauri::ipc::Request<'_>) -> Result<(String, &'a [u8])> {
@@ -388,11 +377,21 @@ pub async fn save_image(request: tauri::ipc::Request<'_>) -> Result<()> {
 
 #[tauri::command]
 pub async fn delete_entry(path: String, is_dir: bool) -> Result<()> {
-    let _ = is_dir; // trash::delete handles both files and directories
-    let validated = validate_path(&path)?;
-    let path_clone = validated.to_string_lossy().to_string();
+    let _ = is_dir; // trash handles both files and directories
+    delete_entries(vec![path]).await
+}
+
+/// Move several entries to the trash in one call. On macOS each trash call
+/// runs a Finder AppleScript, so batching avoids one round trip per item.
+#[tauri::command]
+pub async fn delete_entries(paths: Vec<String>) -> Result<()> {
+    let validated = paths
+        .iter()
+        .map(|p| validate_path(p))
+        .collect::<Result<Vec<_>>>()?;
     tokio::task::spawn_blocking(move || {
-        trash::delete(&path_clone).map_err(|e| AppError::Io(format!("Failed to move to trash: {e}")))
+        trash::delete_all(&validated)
+            .map_err(|e| AppError::Io(format!("Failed to move to trash: {e}")))
     })
     .await?
 }

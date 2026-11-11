@@ -2,7 +2,7 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock as Content, Implementation, ServerCapabilities, ServerInfo};
 use rmcp::schemars;
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::bridge::BridgeClient;
 
@@ -31,6 +31,46 @@ fn truncate_chars(s: &str, max: usize) -> &str {
         Some((i, _)) => &s[..i],
         None => s,
     }
+}
+
+/// Wrap a tool outcome: Ok text becomes a success result, Err an error result.
+fn text_result(r: Result<impl Into<String>, String>) -> Result<CallToolResult, rmcp::ErrorData> {
+    Ok(match r {
+        Ok(text) => CallToolResult::success(vec![Content::text(text)]),
+        Err(e) => CallToolResult::error(vec![Content::text(e)]),
+    })
+}
+
+/// Like `text_result`, rendering the Ok value as pretty-printed JSON.
+fn json_result(r: Result<impl Serialize, String>) -> Result<CallToolResult, rmcp::ErrorData> {
+    text_result(r.map(|v| pretty_json(&v)))
+}
+
+/// Like `text_result`, replacing empty command output with `default`.
+fn output_result(r: Result<String, String>, default: impl Into<String>) -> Result<CallToolResult, rmcp::ErrorData> {
+    text_result(r.map(|out| if out.is_empty() { default.into() } else { out }))
+}
+
+fn pretty_json(value: &impl Serialize) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_default()
+}
+
+/// Send a Worker request and surface the Worker's `error` field on
+/// non-success status. Tolerates empty or non-JSON bodies (e.g. DELETE
+/// responses) by returning Null.
+async fn worker_send(req: reqwest::RequestBuilder) -> Result<serde_json::Value, String> {
+    let response = req.send().await.map_err(|e| format!("Request failed: {e}"))?;
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+    let data: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+    if !status.is_success() {
+        let err = data["error"].as_str().unwrap_or("Unknown error");
+        return Err(format!("Worker returned {status}: {err}"));
+    }
+    Ok(data)
 }
 
 /// Worker base URL plus the API key it requires on non-public routes.
@@ -296,7 +336,7 @@ pub struct CrawlSaveParams {
     pub base_dir: String,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct CrawlSavePageParam {
     #[schemars(description = "URL of the page")]
     pub url: String,
@@ -354,7 +394,7 @@ pub struct IndexDocumentsParams {
     pub documents: Vec<IndexDocumentEntry>,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct IndexDocumentEntry {
     #[schemars(description = "Unique document identifier (e.g., file path or URL)")]
     pub id: String,
@@ -453,9 +493,7 @@ impl McpTools {
         Ok(target)
     }
 
-    /// Call a Worker endpoint: resolve the URL, send the request, and surface
-    /// the Worker's `error` field on non-success status. Tolerates empty or
-    /// non-JSON bodies (e.g. DELETE responses) by returning Null.
+    /// Call a Worker endpoint with an optional JSON body (see `worker_send`).
     async fn worker_call(
         &self,
         method: reqwest::Method,
@@ -471,18 +509,7 @@ impl McpTools {
         if let Some(body) = body {
             req = req.json(&body);
         }
-        let response = req.send().await.map_err(|e| format!("Request failed: {e}"))?;
-        let status = response.status();
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read response: {e}"))?;
-        let data: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
-        if !status.is_success() {
-            let err = data["error"].as_str().unwrap_or("Unknown error");
-            return Err(format!("Worker returned {status}: {err}"));
-        }
-        Ok(data)
+        worker_send(req).await
     }
 
     /// GET /render for a URL via the Worker and return the rendered Markdown.
@@ -495,9 +522,6 @@ impl McpTools {
                 60,
             )
             .await?;
-        if let Some(err) = data["error"].as_str() {
-            return Err(err.to_string());
-        }
         Ok(data["markdown"].as_str().unwrap_or_default().to_string())
     }
 
@@ -546,10 +570,7 @@ impl McpTools {
 
     #[tool(name = "get_editor_content", description = "Get current Markdown content from the editor", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_editor_content(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.get_editor_content().await {
-            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.get_editor_content().await)
     }
 
     #[tool(name = "set_editor_content", description = "Replace the editor content with the provided Markdown", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -557,10 +578,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<SetContentParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.set_editor_content(&params.markdown).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text("Editor content updated")])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.set_editor_content(&params.markdown).await.map(|()| "Editor content updated"))
     }
 
     #[tool(name = "insert_text", description = "Insert text at cursor position, start, or end of the editor", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -568,10 +586,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<InsertTextParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.insert_text(&params.text, params.position.as_deref()).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text("Text inserted")])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.insert_text(&params.text, params.position.as_deref()).await.map(|()| "Text inserted"))
     }
 
     // --- Conversion Tools (use Worker, no app needed) ---
@@ -598,10 +613,7 @@ impl McpTools {
         }
         .await;
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(result)
     }
 
     #[tool(name = "render_markdown", description = "Fetch a JavaScript-rendered page as Markdown via Browser Run (explicit). Use get_markdown instead for automatic SPA detection.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
@@ -609,12 +621,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<UrlParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = self.render_via_worker(&params.url).await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.render_via_worker(&params.url).await)
     }
 
     #[tool(name = "get_markdown", description = "Fetch a URL and return its content as Markdown. Automatically detects JavaScript-rendered pages and uses Browser Run when available. Recommended over fetch_markdown/render_markdown for most use cases.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
@@ -622,61 +629,46 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<UrlParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            // 1. Try Markdown for Agents (direct fetch)
-            let (content_type, _, body) = self.fetch_with_markdown_accept(&params.url).await?;
-
-            if content_type.contains("text/markdown") {
-                return Ok(format!("--- Markdown for Agents ---\n\n{body}"));
-            }
-
-            // 2. Try Worker /fetch with SPA detection
-            if let Ok(worker) = self.resolve_worker().await {
-                #[derive(Deserialize)]
-                struct FetchResp {
-                    markdown: Option<String>,
-                    spa_detected: Option<bool>,
-                    error: Option<String>,
-                }
-
-                let fetch_resp = worker
-                    .request(&self.http, reqwest::Method::POST, "/fetch")
-                    .json(&serde_json::json!({ "url": params.url }))
-                    .timeout(std::time::Duration::from_secs(30))
-                    .send()
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-                let data: FetchResp = fetch_resp.json().await.map_err(|e| e.to_string())?;
-                if let Some(err) = data.error {
-                    return Err(err);
-                }
-
-                let markdown = data.markdown.unwrap_or_default();
-                let spa_detected = data.spa_detected.unwrap_or(false);
-
-                // 2a. If SPA detected, try Browser Run
-                if spa_detected {
-                    if let Ok(rendered) = self.render_via_worker(&params.url).await {
-                        if !rendered.is_empty() {
-                            return Ok(format!("--- Browser Run (auto) ---\n\n{rendered}"));
+        // 1. Worker /fetch: passes Markdown for Agents through, otherwise
+        //    converts HTML with AI.toMarkdown and reports SPA detection.
+        let worker_err = match self.resolve_worker().await {
+            Err(_) => None,
+            Ok(_) => {
+                let body = serde_json::json!({ "url": params.url });
+                match self.worker_call(reqwest::Method::POST, "/fetch", Some(body), 30).await {
+                    Ok(data) => {
+                        let markdown = data["markdown"].as_str().unwrap_or_default();
+                        if data["source"] == "markdown-for-agents" {
+                            return text_result(Ok(format!("--- Markdown for Agents ---\n\n{markdown}")));
                         }
+                        // SPA detected: try Browser Run, falling back to the fetch result
+                        if data["spa_detected"] == true
+                            && let Ok(rendered) = self.render_via_worker(&params.url).await
+                            && !rendered.is_empty()
+                        {
+                            return text_result(Ok(format!("--- Browser Run (auto) ---\n\n{rendered}")));
+                        }
+                        return text_result(Ok(format!("--- AI.toMarkdown ---\n\n{markdown}")));
                     }
-                    // Render failed — return fetch result
+                    Err(e) => Some(e),
                 }
-
-                return Ok(format!("--- AI.toMarkdown ---\n\n{markdown}"));
             }
+        };
 
-            // 3. Fallback: raw HTML
-            Ok(format!("--- raw HTML (no Worker) ---\n\n{body}"))
-        }
-        .await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        // 2. No Worker, or the Worker failed (e.g. its SSRF check rejected an
+        //    intranet URL): fetch directly, still asking for Markdown for Agents.
+        let result = self.fetch_with_markdown_accept(&params.url).await.map(|(content_type, _, body)| {
+            let label = match &worker_err {
+                _ if content_type.contains("text/markdown") => "Markdown for Agents".to_string(),
+                None => "raw HTML (no Worker)".to_string(),
+                Some(e) => format!("raw HTML (Worker failed: {e})"),
+            };
+            format!("--- {label} ---\n\n{body}")
+        });
+        text_result(result.map_err(|e| match worker_err {
+            Some(w) => format!("{e} (Worker failed: {w})"),
+            None => e,
+        }))
     }
 
     #[tool(name = "convert_to_markdown", description = "Convert a local document (PDF, DOCX, XLSX, HTML, CSV, XML, images) to Markdown via Workers AI. The file is uploaded to the Cloudflare Worker for conversion.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
@@ -699,37 +691,22 @@ impl McpTools {
                 .await
                 .map_err(|e| format!("Failed to read file: {e}"))?;
 
-            let response = worker
+            let req = worker
                 .request(&self.http, reqwest::Method::POST, "/convert")
                 .header("Content-Type", mime)
                 .timeout(std::time::Duration::from_secs(60))
-                .body(bytes)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
+                .body(bytes);
+            let data = worker_send(req).await?;
 
-            #[derive(Deserialize)]
-            struct Resp {
-                markdown: Option<String>,
-                error: Option<String>,
-                warning: Option<String>,
-            }
-            let data: Resp = response.json().await.map_err(|e| e.to_string())?;
-            if let Some(err) = data.error {
-                return Err(err);
-            }
-            let md = data.markdown.unwrap_or_default();
-            match data.warning {
+            let md = data["markdown"].as_str().unwrap_or_default();
+            match data["warning"].as_str() {
                 Some(w) => Ok(format!("⚠ {w}\n\n{md}")),
-                None => Ok(md),
+                None => Ok(md.to_string()),
             }
         }
         .await;
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(result)
     }
 
     // --- File Tools (require running app) ---
@@ -739,10 +716,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<OpenFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.open_file(&params.path).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Opened: {}", params.path))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.open_file(&params.path).await.map(|()| format!("Opened: {}", params.path)))
     }
 
     #[tool(name = "save_file", description = "Save the current editor content to a file", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -750,61 +724,36 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<SaveFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.save_file(params.path.as_deref()).await {
-            Ok(()) => {
-                let msg = match &params.path {
-                    Some(p) => format!("Saved to: {p}"),
-                    None => "File saved".to_string(),
-                };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.save_file(params.path.as_deref()).await.map(|()| match &params.path {
+            Some(p) => format!("Saved to: {p}"),
+            None => "File saved".to_string(),
+        }))
     }
 
     #[tool(name = "normalize_document", description = "Normalize the current editor content: fix heading hierarchy, reformat tables, clean up whitespace, remove broken links, standardize list markers, and add CJK emphasis spacing", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn normalize_document(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.normalize_document().await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text("Document normalized")])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.normalize_document().await.map(|()| "Document normalized"))
     }
 
     #[tool(name = "lint_document", description = "Run structural lint checks on the current editor content. Returns diagnostics with line number, severity (error/warning/info), and message. Checks: headings, links, tables, frontmatter, lists, emphasis (CommonMark flanking), code blocks, footnotes, HTML comments, blank lines.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn lint_document(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.lint_document().await {
-            Ok(diagnostics) => {
-                let json = serde_json::to_string_pretty(&diagnostics).unwrap_or_default();
-                if diagnostics.as_array().map_or(true, |a| a.is_empty()) {
-                    Ok(CallToolResult::success(vec![Content::text("No lint issues found")]))
-                } else {
-                    Ok(CallToolResult::success(vec![Content::text(json)]))
-                }
+        text_result(self.bridge.lint_document().await.map(|diagnostics| {
+            if diagnostics.as_array().map_or(true, |a| a.is_empty()) {
+                "No lint issues found".to_string()
+            } else {
+                pretty_json(&diagnostics)
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        }))
     }
 
     #[tool(name = "get_document_structure", description = "Get the current document's structural information (heading tree, links, frontmatter, stats) as JSON. More efficient than parsing raw Markdown — reduces token usage for structure-aware operations.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_document_structure(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.get_document_structure().await {
-            Ok(structure) => {
-                let json = serde_json::to_string_pretty(&structure).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(json)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.get_document_structure().await)
     }
 
     #[tool(name = "get_editor_state", description = "Get the current editor state: file path, cursor position (byte offset, line, column), and Worker URL", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_editor_state(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.get_editor_state().await {
-            Ok(state) => {
-                let json = serde_json::to_string_pretty(&state).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(json)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.get_editor_state().await)
     }
 
     // --- Project Context Tools (require running app) ---
@@ -814,43 +763,29 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<ListDirectoryParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.list_files(params.path.as_deref(), params.recursive.unwrap_or(false)).await {
-            Ok(mut entries) => {
-                let max = params.max_entries.unwrap_or(1000);
-                let truncated = entries.len() > max;
-                if truncated {
-                    entries.truncate(max);
-                }
-                let json = serde_json::to_string_pretty(&entries).unwrap_or_default();
-                let header = if truncated {
-                    format!("{} entries (truncated, limit: {max})", entries.len())
-                } else {
-                    format!("{} entries", entries.len())
-                };
-                Ok(CallToolResult::success(vec![Content::text(format!("{header}\n\n{json}"))]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.list_files(params.path.as_deref(), params.recursive.unwrap_or(false)).await.map(|mut entries| {
+            let max = params.max_entries.unwrap_or(1000);
+            let truncated = entries.len() > max;
+            entries.truncate(max);
+            let header = if truncated {
+                format!("{} entries (truncated, limit: {max})", entries.len())
+            } else {
+                format!("{} entries", entries.len())
+            };
+            format!("{header}\n\n{}", pretty_json(&entries))
+        }))
     }
 
     #[tool(name = "get_open_tabs", description = "List all open editor tabs with their path, name, and dirty (unsaved) status", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_open_tabs(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.get_tabs().await {
-            Ok(tabs) => {
-                let json = serde_json::to_string_pretty(&tabs).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(json)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.get_tabs().await)
     }
 
     #[tool(name = "get_project_root", description = "Get the current project root directory path", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_project_root(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.get_project_root().await {
-            Ok(Some(path)) => Ok(CallToolResult::success(vec![Content::text(path)])),
-            Ok(None) => Ok(CallToolResult::error(vec![Content::text("No project root set (no folder opened in sidebar)")])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.get_project_root().await.and_then(|root| {
+            root.ok_or_else(|| "No project root set (no folder opened in sidebar)".to_string())
+        }))
     }
 
     #[tool(name = "read_file", description = "Read a text file from the project. Works for any file, not just the active editor tab.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
@@ -858,25 +793,18 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<ReadFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.read_file(&params.path).await {
-            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.read_file(&params.path).await)
     }
 
     #[tool(name = "get_dirty_files", description = "List files with unsaved changes (dirty tabs)", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn get_dirty_files(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.get_dirty_files().await {
-            Ok(files) => {
-                if files.is_empty() {
-                    Ok(CallToolResult::success(vec![Content::text("No unsaved changes")]))
-                } else {
-                    let json = serde_json::to_string_pretty(&files).unwrap_or_default();
-                    Ok(CallToolResult::success(vec![Content::text(format!("{} files with unsaved changes\n\n{json}", files.len()))]))
-                }
+        text_result(self.bridge.get_dirty_files().await.map(|files| {
+            if files.is_empty() {
+                "No unsaved changes".to_string()
+            } else {
+                format!("{} files with unsaved changes\n\n{}", files.len(), pretty_json(&files))
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        }))
     }
 
     #[tool(name = "switch_tab", description = "Switch the active editor tab by file path or tab ID", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -884,21 +812,12 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<SwitchTabParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.switch_tab(params.path.as_deref(), params.tab_id.as_deref()).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text("Tab switched")])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.switch_tab(params.path.as_deref(), params.tab_id.as_deref()).await.map(|()| "Tab switched"))
     }
 
     #[tool(name = "git_status", description = "Get git status of the project: branch, file changes (staged/unstaged), ahead/behind counts", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn git_status(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_status().await {
-            Ok(status) => {
-                let json = serde_json::to_string_pretty(&status).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(json)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.git_status().await)
     }
 
     #[tool(name = "search_files", description = "Search file names (not content) in the project by substring match. Does not search file contents. Returns matching file entries with path, name, and metadata.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
@@ -906,17 +825,13 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<SearchFilesParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.search_files(&params.query, params.path.as_deref()).await {
-            Ok(matches) => {
-                if matches.is_empty() {
-                    Ok(CallToolResult::success(vec![Content::text("No matching files found")]))
-                } else {
-                    let json = serde_json::to_string_pretty(&matches).unwrap_or_default();
-                    Ok(CallToolResult::success(vec![Content::text(format!("{} matches\n\n{json}", matches.len()))]))
-                }
+        text_result(self.bridge.search_files(&params.query, params.path.as_deref()).await.map(|matches| {
+            if matches.is_empty() {
+                "No matching files found".to_string()
+            } else {
+                format!("{} matches\n\n{}", matches.len(), pretty_json(&matches))
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        }))
     }
 
     #[tool(name = "create_file", description = "Create a new empty file. Fails if the file already exists.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -924,10 +839,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<CreateFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.create_file(&params.path).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Created: {}", params.path))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.create_file(&params.path).await.map(|()| format!("Created: {}", params.path)))
     }
 
     #[tool(name = "create_directory", description = "Create a new directory. Fails if it already exists.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -935,10 +847,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<CreateDirectoryParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.create_directory(&params.path).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Created directory: {}", params.path))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.create_directory(&params.path).await.map(|()| format!("Created directory: {}", params.path)))
     }
 
     #[tool(name = "rename_entry", description = "Rename or move a file or directory", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
@@ -946,10 +855,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<RenameEntryParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.rename_entry(&params.from, &params.to).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Renamed: {} -> {}", params.from, params.to))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.rename_entry(&params.from, &params.to).await.map(|()| format!("Renamed: {} -> {}", params.from, params.to)))
     }
 
     #[tool(name = "delete_entry", description = "Delete a file or directory (moved to system trash, recoverable)", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
@@ -957,10 +863,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<DeleteEntryParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.delete_entry(&params.path, params.is_dir.unwrap_or(false)).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Deleted (moved to trash): {}", params.path))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.delete_entry(&params.path, params.is_dir.unwrap_or(false)).await.map(|()| format!("Deleted (moved to trash): {}", params.path)))
     }
 
     // --- Crawl Tools (use Worker, no app needed) ---
@@ -990,14 +893,11 @@ impl McpTools {
                 .get("data")
                 .filter(|v| !v.is_null())
                 .ok_or_else(|| "No data in response".to_string())?;
-            Ok(serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string()))
+            Ok(pretty_json(result))
         }
         .await;
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(result)
     }
 
     #[tool(name = "crawl_website", description = "Start a website crawl job via Browser Run. Returns a job_id to poll with crawl_status, or stop it with crawl_cancel. Supports markdown and/or json output formats.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
@@ -1041,10 +941,7 @@ impl McpTools {
         }
         .await;
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(result)
     }
 
     #[tool(name = "crawl_status", description = "Poll a crawl job's status and retrieve completed pages. Returns status, progress, pages (with markdown and/or json depending on crawl formats), and a cursor for pagination.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
@@ -1053,25 +950,12 @@ impl McpTools {
         Parameters(params): Parameters<CrawlStatusParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let worker = self.resolve_worker().await?;
             let limit = params.limit.unwrap_or(10);
             let mut status_path = format!("/crawl/{}?limit={limit}&status=completed", params.job_id);
             if let Some(ref c) = params.cursor {
                 status_path.push_str(&format!("&cursor={}", urlencoding::encode(c)));
             }
-
-            let response = worker
-                .request(&self.http, reqwest::Method::GET, &status_path)
-                .timeout(std::time::Duration::from_secs(120))
-                .send()
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-
-            let status = response.status();
-            if !status.is_success() {
-                let body = response.text().await.unwrap_or_default();
-                return Err(format!("Worker returned {status}: {body}"));
-            }
+            let data = self.worker_call(reqwest::Method::GET, &status_path, None, 120).await?;
 
             #[derive(Deserialize)]
             struct Record {
@@ -1090,13 +974,8 @@ impl McpTools {
             #[derive(Deserialize)]
             struct Resp {
                 result: Option<ResultInner>,
-                error: Option<String>,
             }
-            let body = response.bytes().await.map_err(|e| format!("Failed to read response: {e}"))?;
-            let data: Resp = serde_json::from_slice(&body).map_err(|e| format!("Failed to parse response: {e}"))?;
-            if let Some(err) = data.error {
-                return Err(err);
-            }
+            let data: Resp = serde_json::from_value(data).map_err(|e| format!("Failed to parse response: {e}"))?;
             let inner = data.result.ok_or("No result in response")?;
 
             let crawl_status = inner.status.as_deref().unwrap_or("unknown");
@@ -1122,7 +1001,7 @@ impl McpTools {
                             }
                         }
                         if let Some(ref json) = r.json {
-                            let json_str = serde_json::to_string_pretty(json).unwrap_or_else(|_| json.to_string());
+                            let json_str = pretty_json(json);
                             let preview = truncate_chars(&json_str, 500);
                             output.push_str(&format!("\n```json\n{preview}"));
                             if preview.len() < json_str.len() {
@@ -1134,14 +1013,11 @@ impl McpTools {
                 }
             }
 
-            Ok(output)
+            Ok::<_, String>(output)
         }
         .await;
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(result)
     }
 
     #[tool(name = "crawl_cancel", description = "Cancel a running crawl job so it stops crawling and using browser time. Pages already crawled stay available through crawl_status.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
@@ -1149,17 +1025,9 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<CrawlCancelParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let path = format!("/crawl/{}", urlencoding::encode(&params.job_id));
-            self.worker_call(reqwest::Method::DELETE, &path, None, 30).await?;
-            Ok::<_, String>(format!("Cancelled crawl job: {}", params.job_id))
-        }
-        .await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        let path = format!("/crawl/{}", urlencoding::encode(&params.job_id));
+        let result = self.worker_call(reqwest::Method::DELETE, &path, None, 30).await;
+        text_result(result.map(|_| format!("Cancelled crawl job: {}", params.job_id)))
     }
 
     // --- Content & Asset Tools ---
@@ -1169,10 +1037,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<DownloadImageParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.download_image(&params.url, &params.dest_path).await {
-            Ok(path) => Ok(CallToolResult::success(vec![Content::text(format!("Downloaded to: {path}"))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.download_image(&params.url, &params.dest_path).await.map(|path| format!("Downloaded to: {path}")))
     }
 
     #[tool(name = "fetch_page_title", description = "Extract the <title> from a web page. Useful for generating [Title](url) Markdown links.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
@@ -1180,10 +1045,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<UrlParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.fetch_page_title(&params.url).await {
-            Ok(title) => Ok(CallToolResult::success(vec![Content::text(title)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.fetch_page_title(&params.url).await)
     }
 
     // --- File Copy/Duplicate ---
@@ -1193,10 +1055,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<CopyEntryParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.copy_entry(&params.from, &params.to_dir).await {
-            Ok(dest) => Ok(CallToolResult::success(vec![Content::text(format!("Copied to: {dest}"))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.copy_entry(&params.from, &params.to_dir).await.map(|dest| format!("Copied to: {dest}")))
     }
 
     #[tool(name = "duplicate_entry", description = "Duplicate a file or directory with auto-naming (e.g., 'file copy.md', 'file copy 2.md')", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -1204,10 +1063,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<DuplicateEntryParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.duplicate_entry(&params.path).await {
-            Ok(dest) => Ok(CallToolResult::success(vec![Content::text(format!("Duplicated to: {dest}"))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.duplicate_entry(&params.path).await.map(|dest| format!("Duplicated to: {dest}")))
     }
 
     // --- Crawl Save ---
@@ -1217,21 +1073,9 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<CrawlSaveParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let pages: Vec<crate::bridge::CrawlSavePage> = params
-            .pages
-            .into_iter()
-            .map(|p| crate::bridge::CrawlSavePage {
-                url: p.url,
-                markdown: p.markdown,
-            })
-            .collect();
-        match self.bridge.crawl_save(&pages, &params.base_dir).await {
-            Ok(result) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Saved {} files to {}",
-                result.saved_count, result.base_dir
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.crawl_save(&params.pages, &params.base_dir).await.map(|result| {
+            format!("Saved {} files to {}", result.saved_count, result.base_dir)
+        }))
     }
 
     // --- Git Write Operations ---
@@ -1241,10 +1085,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_stage(&params.path).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Staged: {}", params.path))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.git_stage(&params.path).await.map(|()| format!("Staged: {}", params.path)))
     }
 
     #[tool(name = "git_unstage", description = "Unstage a file (git reset HEAD)", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -1252,10 +1093,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_unstage(&params.path).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Unstaged: {}", params.path))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.git_unstage(&params.path).await.map(|()| format!("Unstaged: {}", params.path)))
     }
 
     #[tool(name = "git_commit", description = "Commit staged changes with a message", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -1263,43 +1101,22 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitCommitParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_commit(&params.message).await {
-            Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.git_commit(&params.message).await)
     }
 
     #[tool(name = "git_push", description = "Push commits to the remote repository", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
     async fn git_push(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_push().await {
-            Ok(output) => {
-                let msg = if output.is_empty() { "Push completed".to_string() } else { output };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        output_result(self.bridge.git_push().await, "Push completed")
     }
 
     #[tool(name = "git_pull", description = "Pull changes from the remote repository", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
     async fn git_pull(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_pull().await {
-            Ok(output) => {
-                let msg = if output.is_empty() { "Pull completed".to_string() } else { output };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        output_result(self.bridge.git_pull().await, "Pull completed")
     }
 
     #[tool(name = "git_fetch", description = "Fetch updates from the remote repository without merging", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn git_fetch(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_fetch().await {
-            Ok(output) => {
-                let msg = if output.is_empty() { "Fetch completed".to_string() } else { output };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        output_result(self.bridge.git_fetch().await, "Fetch completed")
     }
 
     #[tool(name = "git_diff", description = "Get the diff for a specific file (staged or unstaged)", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
@@ -1307,13 +1124,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitDiffParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_diff(&params.path, params.staged.unwrap_or(false)).await {
-            Ok(diff) => {
-                let msg = if diff.is_empty() { "No changes".to_string() } else { diff };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        output_result(self.bridge.git_diff(&params.path, params.staged.unwrap_or(false)).await, "No changes")
     }
 
     #[tool(name = "git_discard", description = "Discard changes for a specific file (checkout tracked, delete untracked)", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
@@ -1321,18 +1132,12 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_discard(&params.path).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!("Discarded: {}", params.path))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.git_discard(&params.path).await.map(|()| format!("Discarded: {}", params.path)))
     }
 
     #[tool(name = "git_discard_all", description = "Discard all uncommitted changes (restore tracked files and remove untracked files)", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
     async fn git_discard_all(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_discard_all().await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text("All changes discarded")])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.git_discard_all().await.map(|()| "All changes discarded"))
     }
 
     #[tool(name = "git_log", description = "Get recent commit history", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
@@ -1340,18 +1145,12 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitLogParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_log(params.limit).await {
-            Ok(entries) => {
-                if entries.is_empty() {
-                    return Ok(CallToolResult::success(vec![Content::text("No commits found")]));
-                }
-                let text = entries.iter().map(|e| {
-                    format!("{} {} ({}, {})", e.short_hash, e.message, e.author, e.relative_time)
-                }).collect::<Vec<_>>().join("\n");
-                Ok(CallToolResult::success(vec![Content::text(text)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        let result = self.bridge.git_log(params.limit).await.map(|entries| {
+            entries.iter().map(|e| {
+                format!("{} {} ({}, {})", e.short_hash, e.message, e.author, e.relative_time)
+            }).collect::<Vec<_>>().join("\n")
+        });
+        output_result(result, "No commits found")
     }
 
     #[tool(name = "git_revert", description = "Revert a commit by creating a new revert commit", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -1359,26 +1158,14 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitRevertParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_revert(&params.commit_hash).await {
-            Ok(output) => {
-                let msg = if output.is_empty() { "Revert completed".to_string() } else { output };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        output_result(self.bridge.git_revert(&params.commit_hash).await, "Revert completed")
     }
 
     // --- Tag Tools (require running app) ---
 
     #[tool(name = "list_tags", description = "List all tag definitions and file-tag assignments in the project", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn list_tags(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.get_tags().await {
-            Ok(data) => {
-                let text = serde_json::to_string_pretty(&data).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(text)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.get_tags().await)
     }
 
     #[tool(name = "get_file_tags", description = "Get the tags assigned to a specific file or directory", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
@@ -1386,19 +1173,15 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GetFileTagsParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.get_tags().await {
-            Ok(data) => {
-                let rel_path = self.resolve_rel_path(&params.path).await;
-                let tags = data.get("files")
-                    .and_then(|f| f.get(&rel_path))
-                    .cloned()
-                    .unwrap_or(serde_json::json!([]));
-                Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string(&tags).unwrap_or_default(),
-                )]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        let result = async {
+            let data = self.bridge.get_tags().await?;
+            let rel_path = self.resolve_rel_path(&params.path).await;
+            let tags = data.get("files").and_then(|f| f.get(&rel_path));
+            Ok::<_, String>(tags.map_or_else(|| "[]".to_string(), |t| t.to_string()))
         }
+        .await;
+
+        text_result(result)
     }
 
     #[tool(name = "set_file_tags", description = "Set the tags for a specific file or directory (replaces existing tags)", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -1406,39 +1189,33 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<SetFileTagsParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let tags_result = self.bridge.get_tags().await;
-        let mut data = match tags_result {
-            Ok(d) => d,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
-        };
+        let result = async {
+            let mut data = self.bridge.get_tags().await?;
+            let rel_path = self.resolve_rel_path(&params.path).await;
 
-        let rel_path = self.resolve_rel_path(&params.path).await;
-
-        // Validate that all tags exist
-        if let Some(tag_defs) = data.get("tags").and_then(|t| t.as_object()) {
-            for tag in &params.tags {
-                if !tag_defs.contains_key(tag) {
-                    return Ok(CallToolResult::error(vec![Content::text(
-                        format!("Tag '{}' does not exist. Create it first with create_tag.", tag),
-                    )]));
+            // Validate that all tags exist
+            if let Some(tag_defs) = data.get("tags").and_then(|t| t.as_object()) {
+                for tag in &params.tags {
+                    if !tag_defs.contains_key(tag) {
+                        return Err(format!("Tag '{}' does not exist. Create it first with create_tag.", tag));
+                    }
                 }
             }
-        }
 
-        if let Some(files) = data.get_mut("files").and_then(|f| f.as_object_mut()) {
-            if params.tags.is_empty() {
-                files.remove(&rel_path);
-            } else {
-                files.insert(rel_path.clone(), serde_json::json!(params.tags));
+            if let Some(files) = data.get_mut("files").and_then(|f| f.as_object_mut()) {
+                if params.tags.is_empty() {
+                    files.remove(&rel_path);
+                } else {
+                    files.insert(rel_path.clone(), serde_json::json!(params.tags));
+                }
             }
-        }
 
-        match self.bridge.set_tags(&data).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(
-                format!("Tags for '{}' updated to {:?}", rel_path, params.tags),
-            )])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+            self.bridge.set_tags(&data).await?;
+            Ok(format!("Tags for '{}' updated to {:?}", rel_path, params.tags))
         }
+        .await;
+
+        text_result(result)
     }
 
     #[tool(name = "create_tag", description = "Create a new tag definition with a color", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -1446,35 +1223,27 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<CreateTagParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        if params.name.is_empty() || params.name.len() > 24 {
-            return Ok(CallToolResult::error(vec![Content::text(
-                "Tag name must be 1-24 characters",
-            )]));
-        }
-
-        let tags_result = self.bridge.get_tags().await;
-        let mut data = match tags_result {
-            Ok(d) => d,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
-        };
-
-        let color = params.color.unwrap_or_else(|| "#d94545".to_string());
-
-        if let Some(tags) = data.get_mut("tags").and_then(|t| t.as_object_mut()) {
-            if tags.contains_key(&params.name) {
-                return Ok(CallToolResult::error(vec![Content::text(
-                    format!("Tag '{}' already exists", params.name),
-                )]));
+        let result = async {
+            if params.name.is_empty() || params.name.len() > 24 {
+                return Err("Tag name must be 1-24 characters".to_string());
             }
-            tags.insert(params.name.clone(), serde_json::json!({ "color": color }));
-        }
 
-        match self.bridge.set_tags(&data).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(
-                format!("Tag '{}' created with color {}", params.name, color),
-            )])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+            let mut data = self.bridge.get_tags().await?;
+            let color = params.color.unwrap_or_else(|| "#d94545".to_string());
+
+            if let Some(tags) = data.get_mut("tags").and_then(|t| t.as_object_mut()) {
+                if tags.contains_key(&params.name) {
+                    return Err(format!("Tag '{}' already exists", params.name));
+                }
+                tags.insert(params.name.clone(), serde_json::json!({ "color": color }));
+            }
+
+            self.bridge.set_tags(&data).await?;
+            Ok(format!("Tag '{}' created with color {}", params.name, color))
         }
+        .await;
+
+        text_result(result)
     }
 
     #[tool(name = "delete_tag", description = "Delete a tag definition and remove it from all files", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
@@ -1482,47 +1251,42 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<DeleteTagParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let tags_result = self.bridge.get_tags().await;
-        let mut data = match tags_result {
-            Ok(d) => d,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
-        };
+        let result = async {
+            let mut data = self.bridge.get_tags().await?;
 
-        // Remove tag definition
-        let removed = if let Some(tags) = data.get_mut("tags").and_then(|t| t.as_object_mut()) {
-            tags.remove(&params.name).is_some()
-        } else {
-            false
-        };
+            // Remove tag definition
+            let removed = if let Some(tags) = data.get_mut("tags").and_then(|t| t.as_object_mut()) {
+                tags.remove(&params.name).is_some()
+            } else {
+                false
+            };
 
-        if !removed {
-            return Ok(CallToolResult::error(vec![Content::text(
-                format!("Tag '{}' not found", params.name),
-            )]));
-        }
+            if !removed {
+                return Err(format!("Tag '{}' not found", params.name));
+            }
 
-        // Remove tag from all file assignments
-        if let Some(files) = data.get_mut("files").and_then(|f| f.as_object_mut()) {
-            let mut empty_paths = Vec::new();
-            for (path, tags) in files.iter_mut() {
-                if let Some(arr) = tags.as_array_mut() {
-                    arr.retain(|t| t.as_str() != Some(&params.name));
-                    if arr.is_empty() {
-                        empty_paths.push(path.clone());
+            // Remove tag from all file assignments
+            if let Some(files) = data.get_mut("files").and_then(|f| f.as_object_mut()) {
+                let mut empty_paths = Vec::new();
+                for (path, tags) in files.iter_mut() {
+                    if let Some(arr) = tags.as_array_mut() {
+                        arr.retain(|t| t.as_str() != Some(&params.name));
+                        if arr.is_empty() {
+                            empty_paths.push(path.clone());
+                        }
                     }
                 }
+                for path in empty_paths {
+                    files.remove(&path);
+                }
             }
-            for path in empty_paths {
-                files.remove(&path);
-            }
-        }
 
-        match self.bridge.set_tags(&data).await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(
-                format!("Tag '{}' deleted", params.name),
-            )])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+            self.bridge.set_tags(&data).await?;
+            Ok(format!("Tag '{}' deleted", params.name))
         }
+        .await;
+
+        text_result(result)
     }
 
     // --- Worker-direct Tools (publish, embed) ---
@@ -1533,12 +1297,8 @@ impl McpTools {
         Parameters(params): Parameters<IndexDocumentsParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let documents: Vec<serde_json::Value> = params.documents.iter().map(|d| {
-                serde_json::json!({ "id": d.id, "content": d.content })
-            }).collect();
-
             let data = self
-                .worker_call(reqwest::Method::POST, "/embed", Some(serde_json::json!({ "documents": documents })), 60)
+                .worker_call(reqwest::Method::POST, "/embed", Some(serde_json::json!({ "documents": params.documents })), 60)
                 .await?;
 
             let indexed = data["indexed"].as_u64().unwrap_or(0);
@@ -1552,10 +1312,7 @@ impl McpTools {
         }
         .await;
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(result)
     }
 
     #[tool(name = "remove_document", description = "Remove a document from the semantic search index. Deletes all chunks associated with the document ID.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
@@ -1563,17 +1320,9 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<RemoveDocumentParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let path = format!("/embed/{}", urlencoding::encode(&params.id));
-            self.worker_call(reqwest::Method::DELETE, &path, None, 30).await?;
-            Ok::<_, String>(format!("Removed document: {}", params.id))
-        }
-        .await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        let path = format!("/embed/{}", urlencoding::encode(&params.id));
+        let result = self.worker_call(reqwest::Method::DELETE, &path, None, 30).await;
+        text_result(result.map(|_| format!("Removed document: {}", params.id)))
     }
 
     #[tool(name = "publish_document", description = "Publish Markdown content to a public URL via R2 storage. Returns the public URL. Supports permanent or time-limited publishing.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
@@ -1604,10 +1353,7 @@ impl McpTools {
         }
         .await;
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(result)
     }
 
     #[tool(name = "unpublish_document", description = "Remove a published document from R2 storage", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
@@ -1615,49 +1361,25 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<UnpublishDocumentParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let path = format!("/publish/{}", urlencoding::encode(&params.key));
-            self.worker_call(reqwest::Method::DELETE, &path, None, 30).await?;
-            Ok::<_, String>(format!("Unpublished: {}", params.key))
-        }
-        .await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        let path = format!("/publish/{}", urlencoding::encode(&params.key));
+        let result = self.worker_call(reqwest::Method::DELETE, &path, None, 30).await;
+        text_result(result.map(|_| format!("Unpublished: {}", params.key)))
     }
 
     #[tool(name = "list_published", description = "List all published documents in R2 storage. Returns key, size, and upload timestamp for each.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn list_published(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        let result = async {
-            let data = self.worker_call(reqwest::Method::GET, "/published", None, 30).await?;
-
-            let files = data["files"].as_array();
-            match files {
-                Some(arr) if !arr.is_empty() => {
-                    let json = serde_json::to_string_pretty(&data["files"]).unwrap_or_default();
-                    Ok::<_, String>(format!("{} published documents\n\n{json}", arr.len()))
-                }
-                _ => Ok("No published documents.".to_string()),
-            }
-        }
-        .await;
-
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        let result = self.worker_call(reqwest::Method::GET, "/published", None, 30).await;
+        text_result(result.map(|data| match data["files"].as_array() {
+            Some(arr) if !arr.is_empty() => format!("{} published documents\n\n{}", arr.len(), pretty_json(arr)),
+            _ => "No published documents.".to_string(),
+        }))
     }
 
     // --- Git Extended Tools ---
 
     #[tool(name = "git_stage_all", description = "Stage all changes for commit (git add -A). Stages new, modified, and deleted files.", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
     async fn git_stage_all(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_stage_all().await {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text("All changes staged")])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(self.bridge.git_stage_all().await.map(|()| "All changes staged"))
     }
 
     #[tool(name = "git_show", description = "Show the patch (diff) for a specific commit", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
@@ -1665,13 +1387,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitShowParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_show(&params.commit_hash).await {
-            Ok(output) => {
-                let msg = if output.is_empty() { "No output".to_string() } else { output };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        output_result(self.bridge.git_show(&params.commit_hash).await, "No output")
     }
 
     #[tool(name = "git_clone", description = "Clone a git repository to a local directory", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = false))]
@@ -1679,13 +1395,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitCloneParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_clone(&params.url, &params.dest).await {
-            Ok(output) => {
-                let msg = if output.is_empty() { format!("Cloned to: {}", params.dest) } else { output };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        output_result(self.bridge.git_clone(&params.url, &params.dest).await, format!("Cloned to: {}", params.dest))
     }
 
     #[tool(name = "git_init", description = "Initialize a new git repository in the specified directory", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -1693,13 +1403,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<GitInitParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.git_init(&params.path).await {
-            Ok(output) => {
-                let msg = if output.is_empty() { format!("Initialized: {}", params.path) } else { output };
-                Ok(CallToolResult::success(vec![Content::text(msg)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        output_result(self.bridge.git_init(&params.path).await, format!("Initialized: {}", params.path))
     }
 
     // --- Semantic Search ---
@@ -1722,9 +1426,7 @@ impl McpTools {
                 Some(arr) if !arr.is_empty() => {
                     let mut output = format!("Found {} results:\n\n", arr.len());
                     for r in arr {
-                        let id = r["id"].as_str().unwrap_or("?");
-                        // Strip chunk suffix (e.g., "file.md#2" → "file.md")
-                        let doc_id = if let Some(pos) = id.rfind('#') { &id[..pos] } else { id };
+                        let doc_id = r["id"].as_str().unwrap_or("?");
                         let score = r["score"].as_f64().unwrap_or(0.0);
                         output.push_str(&format!("- **{}** (score: {:.2})\n", doc_id, score));
                         if let Some(text) = r["text"].as_str() {
@@ -1739,23 +1441,14 @@ impl McpTools {
         }
         .await;
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        text_result(result)
     }
 
     // --- GitHub Tools (issues / pull requests) ---
 
     #[tool(name = "github_status", description = "Check GitHub integration availability for the current project: whether the gh CLI is installed and authenticated, and which owner/name repository the project's origin remote points at.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn github_status(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.github_status().await {
-            Ok(status) => {
-                let text = serde_json::to_string_pretty(&status).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(text)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.github_status().await)
     }
 
     #[tool(name = "github_list", description = "List issues or pull requests for the current project's GitHub repository. Returns number, title, state, labels, author, and URL for each item. Use github_view to read a body.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
@@ -1765,17 +1458,7 @@ impl McpTools {
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let kind = params.kind.as_deref().unwrap_or("issue");
         let state = params.state.as_deref().unwrap_or("open");
-        match self
-            .bridge
-            .github_list(kind, state, params.limit, params.search.as_deref())
-            .await
-        {
-            Ok(items) => {
-                let text = serde_json::to_string_pretty(&items).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(text)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.github_list(kind, state, params.limit, params.search.as_deref()).await)
     }
 
     #[tool(name = "github_view", description = "Read a single issue or pull request including its Markdown body and all comments.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
@@ -1784,13 +1467,7 @@ impl McpTools {
         Parameters(params): Parameters<GitHubViewParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let kind = params.kind.as_deref().unwrap_or("issue");
-        match self.bridge.github_view(kind, params.number).await {
-            Ok(detail) => {
-                let text = serde_json::to_string_pretty(&detail).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(text)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.github_view(kind, params.number).await)
     }
 
     #[tool(name = "github_update", description = "Replace the title and Markdown body of an issue or pull request on GitHub. Comments are not affected. Pass expected_body to abort when the body changed on GitHub since it was read.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
@@ -1799,7 +1476,7 @@ impl McpTools {
         Parameters(params): Parameters<GitHubUpdateParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let kind = params.kind.as_deref().unwrap_or("issue");
-        match self
+        let result = self
             .bridge
             .github_update(
                 kind,
@@ -1808,31 +1485,18 @@ impl McpTools {
                 &params.body,
                 params.expected_body.as_deref(),
             )
-            .await
-        {
-            Ok(detail) => {
-                let url = detail.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Updated {kind} #{}: {url}",
-                    params.number
-                ))]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+            .await;
+        text_result(result.map(|detail| {
+            let url = detail.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            format!("Updated {kind} #{}: {url}", params.number)
+        }))
     }
 
     // --- Window Tools ---
 
     #[tool(name = "list_windows", description = "List all open MarkUpsideDown windows with their labels and project root paths. Shows which window is currently focused. Useful for multi-window workflows.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
     async fn list_windows(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        match self.bridge.list_windows().await {
-            Ok((windows, focused)) => {
-                let json = serde_json::json!({ "windows": windows, "focused": focused });
-                let text = serde_json::to_string_pretty(&json).unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(text)]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-        }
+        json_result(self.bridge.list_windows().await)
     }
 }
 

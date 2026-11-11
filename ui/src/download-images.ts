@@ -1,5 +1,11 @@
 import type { EditorView } from "@codemirror/view";
-import { basename, getAssetsDir, sanitizeFilename } from "./path-utils.ts";
+import {
+  IMAGE_EXTENSIONS,
+  basename,
+  getAssetsDir,
+  getExtension,
+  sanitizeFilename,
+} from "./path-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -24,7 +30,7 @@ function urlToFilename(url: string): string {
     // Sanitize filename
     const clean = sanitizeFilename(last);
     // Ensure it has an extension
-    if (!/\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff?)$/i.test(clean)) {
+    if (!clean.includes(".") || !IMAGE_EXTENSIONS.has(getExtension(clean))) {
       return `${clean}.png`;
     }
     return clean;

@@ -1,17 +1,19 @@
 // Context menu for external links in the preview pane.
-// Offers: Open in Browser, Fetch as Markdown, Render as Markdown, Crawl Site.
+// Offers: Open in Browser, Get/Fetch/Render as Markdown, Crawl Site.
 
 import { getWorkerUrl } from "./settings.ts";
-import { getUrlAsMarkdown, fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fetch-markdown.ts";
+import { closeContextMenu, showContextMenu } from "./context-menu.ts";
 
 const { invoke } = window.__TAURI__.core;
 
-let menu: HTMLElement | null = null;
+// URL bar actions from file-ops / crawl; the menu runs them on the clicked link.
+type UrlAction = (urlInput: HTMLInputElement, urlBar: HTMLElement) => unknown;
 
 interface LinkMenuDeps {
-  statusEl: HTMLElement;
-  loadContentAsTab: (content: string) => void;
-  crawlUrl: (urlInput: HTMLInputElement, urlBar: HTMLElement) => void;
+  getUrl: UrlAction;
+  fetchUrl: UrlAction;
+  renderUrl: UrlAction;
+  crawlUrl: UrlAction;
   urlInput: HTMLInputElement;
   urlBar: HTMLElement;
 }
@@ -31,115 +33,35 @@ export function initLinkContextMenu(previewPane: HTMLElement, d: LinkMenuDeps) {
     showMenu(e.clientX, e.clientY, href);
   });
 
-  document.addEventListener("click", dismiss);
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") dismiss();
+    if (e.key === "Escape") closeContextMenu();
   });
 }
 
-function dismiss() {
-  if (menu) {
-    menu.remove();
-    menu = null;
-  }
-}
-
 function showMenu(x: number, y: number, url: string) {
-  dismiss();
+  const needsWorker = !getWorkerUrl();
+  const workerHint = needsWorker ? "Configure Worker URL in Settings" : undefined;
+  const run = (action: UrlAction) => () => {
+    deps.urlInput.value = url;
+    action(deps.urlInput, deps.urlBar);
+  };
 
-  const workerUrl = getWorkerUrl();
-
-  menu = document.createElement("div");
-  menu.className = "link-context-menu";
-
-  const items: { label: string; disabled?: boolean; separator?: boolean; action: () => void }[] = [
-    {
-      label: "Open in Browser",
-      action: () => invoke("plugin:shell|open", { path: url }),
-    },
-    {
-      label: "Get as Markdown",
-      action: () => getAsMarkdown(url),
-    },
-    {
-      label: "Fetch as Markdown",
-      separator: true,
-      action: () => fetchAsMarkdown(url),
-    },
-    {
-      label: "Render as Markdown",
-      disabled: !workerUrl,
-      action: () => renderAsMarkdown(url, workerUrl),
-    },
-    {
-      label: "Crawl Site",
-      disabled: !workerUrl,
-      action: () => {
-        deps.urlInput.value = url;
-        deps.crawlUrl(deps.urlInput, deps.urlBar);
+  showContextMenu(
+    x,
+    y,
+    [
+      { label: "Open in Browser", action: () => invoke("plugin:shell|open", { path: url }) },
+      { label: "Get as Markdown", action: run(deps.getUrl) },
+      null,
+      { label: "Fetch as Markdown", action: run(deps.fetchUrl) },
+      {
+        label: "Render as Markdown",
+        action: run(deps.renderUrl),
+        disabled: needsWorker,
+        title: workerHint,
       },
-    },
-  ];
-
-  for (const item of items) {
-    if (item.separator) {
-      const sep = document.createElement("div");
-      sep.className = "link-context-separator";
-      menu.appendChild(sep);
-    }
-    const btn = document.createElement("button");
-    btn.className = "link-context-item";
-    btn.textContent = item.label;
-    if (item.disabled) {
-      btn.disabled = true;
-      btn.title = "Configure Worker URL in Settings";
-    }
-    btn.addEventListener("click", () => {
-      dismiss();
-      item.action();
-    });
-    menu.appendChild(btn);
-  }
-
-  // Position, keeping within viewport
-  menu.style.left = `${Math.min(x, window.innerWidth - 200)}px`;
-  menu.style.top = `${Math.min(y, window.innerHeight - 160)}px`;
-  document.body.appendChild(menu);
-}
-
-async function getAsMarkdown(url: string) {
-  deps.statusEl.textContent = "Fetching page…";
-  try {
-    const workerUrl = getWorkerUrl() || null;
-    const { content, method } = await getUrlAsMarkdown(url, workerUrl, (msg) => {
-      deps.statusEl.textContent = msg;
-    });
-    deps.loadContentAsTab(content);
-    deps.statusEl.textContent = `Fetched (${method}): ${url}`;
-  } catch (e) {
-    deps.statusEl.textContent = `Fetch error: ${e}`;
-  }
-}
-
-async function fetchAsMarkdown(url: string) {
-  deps.statusEl.textContent = "Fetching page…";
-  try {
-    const workerUrl = getWorkerUrl() || null;
-    const { content, method } = await fetchUrlAsMarkdown(url, workerUrl);
-    deps.loadContentAsTab(content);
-    deps.statusEl.textContent = `Fetched (${method}): ${url}`;
-  } catch (e) {
-    deps.statusEl.textContent = `Fetch error: ${e}`;
-  }
-}
-
-async function renderAsMarkdown(url: string, workerUrl: string) {
-  deps.statusEl.textContent = "Rendering page…";
-  try {
-    const markdown = await renderUrlAsMarkdown(url, workerUrl);
-    deps.loadContentAsTab(markdown);
-    deps.statusEl.textContent = `Rendered: ${url}`;
-  } catch (e) {
-    deps.statusEl.textContent = `Render error: ${e}`;
-  }
+      { label: "Crawl Site", action: run(deps.crawlUrl), disabled: needsWorker, title: workerHint },
+    ],
+    "link-context",
+  );
 }

@@ -146,8 +146,8 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
   const undoStack: TableData[] = [];
   const redoStack: TableData[] = [];
 
-  function snapshot() {
-    undoStack.push(structuredClone(table));
+  function snapshot(state: TableData = structuredClone(table)) {
+    undoStack.push(state);
     if (undoStack.length > MAX_UNDO) undoStack.shift();
     redoStack.length = 0;
   }
@@ -208,6 +208,7 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
   const alignSelect = overlay.querySelector('[data-action="align"]') as HTMLSelectElement;
   let activeCol = 0;
   let focusValueOnEntry = "";
+  let focusSnapshot: TableData | null = null;
 
   function renderGrid() {
     const colCount = table.headers.length;
@@ -248,6 +249,7 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
     activeCol = parseInt(input.dataset.col!);
     alignSelect.value = table.alignments[activeCol] || "left";
     focusValueOnEntry = input.value;
+    focusSnapshot = structuredClone(table);
     input.select();
   });
 
@@ -255,8 +257,8 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
     const target = e.target as HTMLElement;
     if (target.tagName !== "INPUT") return;
     const input = target as HTMLInputElement;
-    if (input.value !== focusValueOnEntry) {
-      snapshot();
+    if (input.value !== focusValueOnEntry && focusSnapshot) {
+      snapshot(focusSnapshot);
     }
   });
 
@@ -312,6 +314,13 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
     const action = (e.target as HTMLElement).dataset?.action;
     if (!action) return;
     const colCount = table.headers.length;
+    if (
+      action === "align" ||
+      (action === "del-row" && table.rows.length <= 1) ||
+      (action === "del-col" && colCount <= 1)
+    ) {
+      return;
+    }
 
     snapshot();
     if (action === "add-row") {
@@ -322,10 +331,10 @@ export function showTableEditor(editor: EditorView, existingTable: TableRange | 
       table.alignments.push("left");
       table.rows.forEach((r) => r.push(""));
       renderGrid();
-    } else if (action === "del-row" && table.rows.length > 1) {
+    } else if (action === "del-row") {
       table.rows.pop();
       renderGrid();
-    } else if (action === "del-col" && colCount > 1) {
+    } else if (action === "del-col") {
       table.headers.pop();
       table.alignments.pop();
       table.rows.forEach((r) => r.pop());

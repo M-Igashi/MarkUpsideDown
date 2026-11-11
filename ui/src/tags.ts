@@ -1,6 +1,6 @@
 // File tagging system — stores tags in .markupsidedown/tags.json per project.
 
-import { writeTextFile } from "./html-utils.ts";
+import { clampToViewport, writeTextFile } from "./html-utils.ts";
 import { relativeToRoot } from "./path-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
@@ -83,11 +83,6 @@ export function getTagDef(tagName: string): TagDef | undefined {
 
 export function getAllTagNames(): string[] {
   return Object.keys(data.tags);
-}
-
-async function createTag(name: string, color: string): Promise<void> {
-  data.tags[name] = { color };
-  await save();
 }
 
 async function deleteTag(name: string): Promise<void> {
@@ -240,7 +235,7 @@ export function showTagPopover(
     addBtn.addEventListener("click", async () => {
       const name = input.value.trim();
       if (!name || data.tags[name]) return;
-      await createTag(name, selectedColor);
+      data.tags[name] = { color: selectedColor };
       // Auto-assign to selected files
       for (const absPath of targetPaths) {
         const rel = toRelPath(absPath);
@@ -275,16 +270,7 @@ export function showTagPopover(
   renderContent();
   document.body.appendChild(popover);
 
-  // Adjust position if overflowing
-  requestAnimationFrame(() => {
-    const rect = popover.getBoundingClientRect();
-    if (rect.right > window.innerWidth) {
-      popover.style.left = `${window.innerWidth - rect.width - 4}px`;
-    }
-    if (rect.bottom > window.innerHeight) {
-      popover.style.top = `${window.innerHeight - rect.height - 4}px`;
-    }
-  });
+  requestAnimationFrame(() => clampToViewport(popover));
 
   // Close on outside click
   const closeHandler = (e: Event) => {

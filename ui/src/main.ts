@@ -366,9 +366,8 @@ let gitRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
 const GIT_REFRESH_DEBOUNCE = 2000;
 
 async function doGitRefresh() {
+  // Badges are updated by the git panel's onRefresh callback.
   await refreshGit();
-  setGitStatus(getStatusMap());
-  updateGitChangeCount(getChangeCount());
   updateStatus(editor.state);
 }
 
@@ -652,8 +651,9 @@ initNoteRefactor({ editor, statusEl, getCurrentFilePath, loadContentAsTab });
 // --- Link context menu in preview ---
 
 initLinkContextMenu(previewPane, {
-  statusEl,
-  loadContentAsTab,
+  getUrl,
+  fetchUrl,
+  renderUrl,
   crawlUrl,
   urlInput,
   urlBar,
@@ -761,8 +761,8 @@ initSidebar(sidebarEl, {
     for (const tab of getTabs()) {
       if (tab.path) startWatching(tab.path);
     }
-    setRepoPath(rootPath, true);
-    setGitHubRepoPath(rootPath, true);
+    setRepoPath(rootPath);
+    setGitHubRepoPath(rootPath);
     setPublishProjectRoot(rootPath);
     loadPublishState().catch(() => {});
     refreshGitAndSyncNow();
@@ -829,8 +829,8 @@ if (clonePanelEl) {
 
 const initialRoot = getRootPath();
 if (initialRoot) {
-  setRepoPath(initialRoot, true);
-  setGitHubRepoPath(initialRoot, true);
+  setRepoPath(initialRoot);
+  setGitHubRepoPath(initialRoot);
   if (getActivePanel() === "github") refreshGitHubPanel();
   setPublishProjectRoot(initialRoot);
   loadPublishState().catch(() => {});
@@ -997,7 +997,8 @@ function applyDiskContent(tab: Tab, content: string) {
 async function reloadTabFromDisk(path: string) {
   const content = await invoke<string>("read_text_file", { path });
   const tab = getTabByPath(path);
-  if (tab) applyDiskContent(tab, content);
+  if (!tab || (!isTabDirty(tab) && tab.content === content)) return;
+  applyDiskContent(tab, content);
 }
 
 initFileWatcher({

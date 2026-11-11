@@ -203,7 +203,7 @@ export async function autoSave() {
 
 export async function openFile() {
   const path = await open({
-    filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx"] }],
+    filters: [{ name: "Markdown", extensions: [...MD_EXTENSIONS] }],
   });
   if (!path) return;
   try {
@@ -233,16 +233,18 @@ async function withUrlLoading(
   }
 }
 
-export async function getUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) {
+type UrlConverter = (
+  url: string,
+  workerUrl: string | null,
+) => Promise<{ content: string; method: string }>;
+
+async function loadUrl(urlInput: HTMLInputElement, urlBar: HTMLElement, convert: UrlConverter) {
   await withUrlLoading(urlInput, urlBar, async (url) => {
     statusEl.textContent = "Fetching page…";
     try {
       const workerUrl = await ensureWorkerUrl();
-      const { content, method } = await getUrlAsMarkdown(url, workerUrl, (msg) => {
-        statusEl.textContent = msg;
-      });
-      const title = extractTitle(content);
-      loadContentAsTab(content, undefined, title);
+      const { content, method } = await convert(url, workerUrl);
+      loadContentAsTab(content, undefined, extractTitle(content));
       statusEl.textContent = `Fetched (${method}): ${url}`;
     } catch (e) {
       statusEl.textContent = `Fetch error: ${e}`;
@@ -250,19 +252,16 @@ export async function getUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) {
   });
 }
 
-export async function fetchUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) {
-  await withUrlLoading(urlInput, urlBar, async (url) => {
-    statusEl.textContent = "Fetching page…";
-    try {
-      const workerUrl = await ensureWorkerUrl();
-      const { content, method } = await fetchUrlAsMarkdown(url, workerUrl);
-      const title = extractTitle(content);
-      loadContentAsTab(content, undefined, title);
-      statusEl.textContent = `Fetched (${method}): ${url}`;
-    } catch (e) {
-      statusEl.textContent = `Fetch error: ${e}`;
-    }
-  });
+export function getUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) {
+  return loadUrl(urlInput, urlBar, (url, workerUrl) =>
+    getUrlAsMarkdown(url, workerUrl, (msg) => {
+      statusEl.textContent = msg;
+    }),
+  );
+}
+
+export function fetchUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) {
+  return loadUrl(urlInput, urlBar, fetchUrlAsMarkdown);
 }
 
 export async function renderUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) {
@@ -272,8 +271,7 @@ export async function renderUrl(urlInput: HTMLInputElement, urlBar: HTMLElement)
     statusEl.textContent = "Rendering page (this may take a moment)…";
     try {
       const markdown = await renderUrlAsMarkdown(url, workerUrl);
-      const title = extractTitle(markdown);
-      loadContentAsTab(markdown, undefined, title);
+      loadContentAsTab(markdown, undefined, extractTitle(markdown));
       statusEl.textContent = "Rendered: " + url;
     } catch (e) {
       statusEl.textContent = `Render error: ${e}`;

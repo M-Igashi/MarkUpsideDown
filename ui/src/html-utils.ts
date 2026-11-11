@@ -36,3 +36,14 @@ export function copySvgAsPng(svgEl: SVGElement, btn: HTMLButtonElement) {
     });
   };
 }
+
+/** Move an absolutely positioned popup back inside the viewport if it overflows. */
+export function clampToViewport(el: HTMLElement) {
+  const rect = el.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    el.style.left = `${window.innerWidth - rect.width - 4}px`;
+  }
+  if (rect.bottom > window.innerHeight) {
+    el.style.top = `${window.innerHeight - rect.height - 4}px`;
+  }
+}
