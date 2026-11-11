@@ -62,34 +62,28 @@ export async function downloadExternalImages() {
   }
 
   const doc = deps.editor.state.doc.toString();
-  const matches: { fullMatch: string; alt: string; url: string; from: number }[] = [];
-  let m: RegExpExecArray | null;
-  const regex = new RegExp(IMAGE_URL_REGEX.source, "g");
+  const urls = [...doc.matchAll(new RegExp(IMAGE_URL_REGEX.source, "g"))].map((m) => m[2]);
 
-  while ((m = regex.exec(doc)) !== null) {
-    matches.push({
-      fullMatch: m[0],
-      alt: m[1],
-      url: m[2],
-      from: m.index,
-    });
-  }
-
-  if (matches.length === 0) {
+  if (urls.length === 0) {
     deps.statusEl.textContent = "No external images found";
     return;
   }
 
   const assetsDir = getAssetsDir(filePath);
-  const usedNames = new Set<string>();
+  // download_image overwrites, so avoid names already in ./assets/ (which
+  // other documents may reference)
+  const existing = await invoke<{ name: string }[]>("list_directory", { path: assetsDir }).catch(
+    () => [],
+  );
+  const usedNames = new Set(existing.map((e) => e.name));
   const urlToLocal = new Map<string, string>();
   let downloaded = 0;
   let failed = 0;
 
-  deps.statusEl.textContent = `Downloading ${matches.length} image(s)…`;
+  deps.statusEl.textContent = `Downloading ${urls.length} image(s)…`;
 
   // Deduplicate by URL
-  const uniqueUrls = [...new Set(matches.map((m) => m.url))];
+  const uniqueUrls = [...new Set(urls)];
 
   // Pre-assign filenames (must be sequential for uniqueness)
   const urlFilenames = uniqueUrls.map((url) => ({
@@ -116,23 +110,28 @@ export async function downloadExternalImages() {
     }
   }
 
-  // Rewrite URLs in the document (process from end to start to preserve positions)
-  const sortedMatches = [...matches].sort((a, b) => b.from - a.from);
-  let newDoc = doc;
-  for (const match of sortedMatches) {
-    const localPath = urlToLocal.get(match.url);
-    if (!localPath) continue;
-    const replacement = `![${match.alt}](${localPath})`;
-    newDoc =
-      newDoc.slice(0, match.from) + replacement + newDoc.slice(match.from + match.fullMatch.length);
+  const failMsg = failed > 0 ? `, ${failed} failed` : "";
+
+  // The user may have switched documents during the download
+  if (deps.getCurrentFilePath() !== filePath) {
+    deps.statusEl.textContent = `Downloaded ${downloaded} image(s) to ./assets/${failMsg}; the document was switched, so links were not updated`;
+    return;
   }
 
-  if (newDoc !== doc) {
-    deps.editor.dispatch({
-      changes: { from: 0, to: doc.length, insert: newDoc },
+  // Rewrite links in the current document (it may have been edited meanwhile)
+  // with targeted changes instead of replacing the whole document
+  const current = deps.editor.state.doc.toString();
+  const changes: { from: number; to: number; insert: string }[] = [];
+  for (const match of current.matchAll(new RegExp(IMAGE_URL_REGEX.source, "g"))) {
+    const localPath = urlToLocal.get(match[2]);
+    if (!localPath) continue;
+    changes.push({
+      from: match.index,
+      to: match.index + match[0].length,
+      insert: `![${match[1]}](${localPath})`,
     });
   }
+  if (changes.length > 0) deps.editor.dispatch({ changes });
 
-  const failMsg = failed > 0 ? `, ${failed} failed` : "";
   deps.statusEl.textContent = `Downloaded ${downloaded} image(s) to ./assets/${failMsg}`;
 }

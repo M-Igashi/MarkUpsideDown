@@ -328,6 +328,18 @@ pub async fn create_directory(path: String) -> Result<()> {
 pub async fn rename_entry(from: String, to: String) -> Result<()> {
     let from = validate_path(&from)?;
     let to = validate_path(&to)?;
+    // rename(2) silently replaces the destination. Refuse unless the
+    // destination is the source itself (a case-only rename on APFS).
+    if let Ok(dest) = tokio::fs::symlink_metadata(&to).await {
+        use std::os::unix::fs::MetadataExt;
+        let src = tokio::fs::symlink_metadata(&from)
+            .await
+            .map_err(|e| AppError::Io(format!("Failed to rename: {e}")))?;
+        if (src.dev(), src.ino()) != (dest.dev(), dest.ino()) {
+            let name = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            return Err(AppError::Io(format!("'{name}' already exists")));
+        }
+    }
     tokio::fs::rename(&from, &to)
         .await
         .map_err(|e| AppError::Io(format!("Failed to rename: {e}")))
@@ -405,6 +417,9 @@ pub async fn copy_entry(from: String, to_dir: String) -> Result<String> {
         .ok_or(AppError::Validation("Invalid source path".into()))?
         .to_string_lossy()
         .to_string();
+    if to_dir.starts_with(&src) {
+        return Err(AppError::Validation("Cannot copy a folder into itself".into()));
+    }
     let dest = to_dir.join(&file_name);
     if dest.exists() {
         return Err(AppError::Io(format!(
