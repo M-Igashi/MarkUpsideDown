@@ -304,16 +304,17 @@ pub async fn gh_view(repo: String, kind: String, number: u64) -> Result<GhItemDe
     .await
 }
 
-/// Update the title and body, returning the refreshed item.
+/// Update the body, and the title when one is given, returning the refreshed item.
 ///
 /// `expected_body` is the body the editor was opened with. Comparing bodies
 /// rather than timestamps means a new comment never looks like a conflict.
+/// Both sides are trimmed because the editor document trims the body.
 #[tauri::command]
 pub async fn gh_update(
     repo: String,
     kind: String,
     number: u64,
-    title: String,
+    title: Option<String>,
     body: String,
     expected_body: Option<String>,
 ) -> Result<GhItemDetail> {
@@ -323,7 +324,7 @@ pub async fn gh_update(
 
         if let Some(expected) = expected_body {
             let current = fetch_detail(&repo, kind, number)?;
-            if current.body != expected {
+            if current.body.trim() != expected.trim() {
                 return Err(AppError::GitHub(
                     "This has been edited on GitHub since it was opened. Reload before saving."
                         .to_string(),
@@ -331,26 +332,19 @@ pub async fn gh_update(
             }
         }
 
-        let title = title.trim();
-        if title.is_empty() {
-            return Err(AppError::Validation("Title cannot be empty".to_string()));
-        }
+        let title_arg = match title.as_deref().map(str::trim) {
+            Some("") => return Err(AppError::Validation("Title cannot be empty".to_string())),
+            Some(t) => Some(format!("--title={t}")),
+            None => None,
+        };
 
         let number_arg = number.to_string();
-        let title_arg = format!("--title={title}");
-        run_gh_with_stdin(
-            &[
-                kind,
-                "edit",
-                number_arg.as_str(),
-                "--repo",
-                repo.as_str(),
-                title_arg.as_str(),
-                "--body-file",
-                "-",
-            ],
-            &body,
-        )?;
+        let mut args = vec![kind, "edit", number_arg.as_str(), "--repo", repo.as_str()];
+        if let Some(ref t) = title_arg {
+            args.push(t.as_str());
+        }
+        args.extend(["--body-file", "-"]);
+        run_gh_with_stdin(&args, &body)?;
 
         fetch_detail(&repo, kind, number)
     })

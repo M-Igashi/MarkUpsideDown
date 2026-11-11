@@ -787,7 +787,7 @@ async fn github_update(
         repo,
         kind,
         body.number,
-        body.title,
+        Some(body.title),
         body.body,
         body.expected_body,
     )
