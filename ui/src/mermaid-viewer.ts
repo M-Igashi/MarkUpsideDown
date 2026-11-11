@@ -177,7 +177,7 @@ export function open(mermaidContainer: HTMLElement) {
   fitBtn.classList.add("mermaid-viewer-text-btn");
 
   const copyBtn = document.createElement("button");
-  copyBtn.className = "mermaid-viewer-btn mermaid-viewer-text-btn";
+  copyBtn.className = "btn mermaid-viewer-btn mermaid-viewer-text-btn";
   copyBtn.textContent = "Copy as PNG";
   copyBtn.addEventListener("click", () => copySvgAsPng(cloned as unknown as SVGElement, copyBtn));
 
@@ -197,7 +197,7 @@ export function open(mermaidContainer: HTMLElement) {
 
 function makeBtn(label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement("button");
-  b.className = "mermaid-viewer-btn";
+  b.className = "btn mermaid-viewer-btn";
   b.textContent = label;
   b.addEventListener("click", onClick);
   return b;

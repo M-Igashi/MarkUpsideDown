@@ -61,7 +61,7 @@ function showRestartToast(version: string): void {
       <span>Updated to v${escapeHtml(version)} — restart to apply</span>
       <button class="update-toast-close" aria-label="Dismiss">&times;</button>
     </div>
-    <button class="update-toast-restart">Restart Now</button>
+    <button class="btn btn-sm btn-primary update-toast-restart">Restart Now</button>
   `;
   toast.querySelector(".update-toast-close")!.addEventListener("click", () => toast.remove());
   toast

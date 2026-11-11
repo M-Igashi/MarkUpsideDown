@@ -53,10 +53,10 @@ function promptInput(label: string, defaultValue = ""): Promise<string | null> {
   box.className = "prompt-box";
   box.innerHTML = `
     <label>${label}</label>
-    <input type="text" value="${escapeHtml(defaultValue)}" />
+    <input type="text" class="field" value="${escapeHtml(defaultValue)}" />
     <div class="prompt-buttons">
-      <button class="prompt-cancel">Cancel</button>
-      <button class="prompt-ok">OK</button>
+      <button class="btn prompt-cancel">Cancel</button>
+      <button class="btn btn-primary prompt-ok">OK</button>
     </div>`;
   overlay.appendChild(box);
   document.body.appendChild(overlay);
@@ -318,19 +318,21 @@ function populateHeaderActions(container: Element) {
   if (activePanel === "files") {
     const dotBtn = document.createElement("button");
     dotBtn.title = showDotfiles ? "Hide dotfiles" : "Show dotfiles";
-    dotBtn.className = showDotfiles ? "dotfile-toggle active" : "dotfile-toggle";
+    dotBtn.className = "icon-btn icon-btn-sm dotfile-toggle";
+    dotBtn.classList.toggle("active", showDotfiles);
     dotBtn.innerHTML =
       '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/></svg>';
     dotBtn.addEventListener("click", () => {
       showDotfiles = !showDotfiles;
       setStorageBool(KEY_SIDEBAR_SHOW_DOTFILES, showDotfiles);
       dotBtn.title = showDotfiles ? "Hide dotfiles" : "Show dotfiles";
-      dotBtn.className = showDotfiles ? "dotfile-toggle active" : "dotfile-toggle";
+      dotBtn.classList.toggle("active", showDotfiles);
       refreshTree();
     });
     container.appendChild(dotBtn);
 
     const openBtn = document.createElement("button");
+    openBtn.className = "icon-btn icon-btn-sm";
     openBtn.title = "Open Folder";
     openBtn.innerHTML =
       '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13V3a1 1 0 011-1h4l2 2h4a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1z"/></svg>';
@@ -455,7 +457,7 @@ function render() {
   populateHeaderActions(actions);
 
   const foldBtn = document.createElement("button");
-  foldBtn.className = "panel-fold-btn";
+  foldBtn.className = "icon-btn icon-btn-sm panel-fold-btn";
   foldBtn.title = "Collapse Sidebar (⌘1)";
   foldBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"/></svg>`;
   foldBtn.addEventListener("click", () => onSidebarFold?.());
@@ -472,7 +474,7 @@ function render() {
   const searchWrap = document.createElement("div");
   searchWrap.className = "sidebar-search";
   const searchInput = document.createElement("input");
-  searchInput.className = "sidebar-search-input";
+  searchInput.className = "field field-sm sidebar-search-input";
   searchInput.type = "text";
   searchInput.placeholder = "Filter files…";
   searchInput.value = filterQuery;
@@ -497,7 +499,7 @@ function render() {
   searchWrap.appendChild(searchInput);
 
   const sortSelect = document.createElement("select");
-  sortSelect.className = "sidebar-sort-select";
+  sortSelect.className = "field field-sm sidebar-sort-select";
   sortSelect.title = "Sort files by…";
   for (const [value, label] of [
     ["name", "Name"],

@@ -25,7 +25,7 @@ export function closeContextMenu() {
 
 /**
  * Show a menu at (x, y), kept inside the viewport, closed by an outside click.
- * `prefix` selects the CSS classes: `${prefix}-menu`, `-item`, and `-separator`.
+ * `prefix` names the menu (`${prefix}-menu`) for menu-specific styling.
  */
 export function showContextMenu(
   x: number,
@@ -36,19 +36,19 @@ export function showContextMenu(
   closeContextMenu();
 
   const menu = document.createElement("div");
-  menu.className = `${prefix}-menu`;
+  menu.className = `menu ${prefix}-menu`;
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
 
   for (const item of items) {
     if (!item) {
       const sep = document.createElement("div");
-      sep.className = `${prefix}-separator`;
+      sep.className = "menu-separator";
       menu.appendChild(sep);
       continue;
     }
     const btn = document.createElement("button");
-    btn.className = `${prefix}-item`;
+    btn.className = "menu-item";
     if (item.danger) btn.classList.add("danger");
     btn.textContent = item.label;
     btn.disabled = !!item.disabled;

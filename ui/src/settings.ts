@@ -466,11 +466,11 @@ function showR2PublicAccessTip(container: HTMLElement) {
     " &rarr; R2 Object Storage &rarr; <strong>markupsidedown-publish</strong><br>" +
     "2. Settings tab &rarr; <strong>Public Development URL</strong> &rarr; Enable<br>" +
     "3. Copy the R2 public URL (e.g. <code>https://pub-xxx.r2.dev</code>) and paste below" +
-    '<div class="setup-r2-url-row" style="display:flex;gap:6px;margin-top:6px">' +
-    '<input type="url" class="setup-r2-url-input" placeholder="https://pub-xxx.r2.dev" style="flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px" />' +
-    '<button class="setup-r2-url-save" style="font-size:12px;padding:4px 12px">Save</button>' +
+    '<div class="setup-r2-url-row">' +
+    '<input type="url" class="field field-sm setup-r2-url-input" placeholder="https://pub-xxx.r2.dev" />' +
+    '<button class="btn btn-sm setup-r2-url-save">Save</button>' +
     "</div>" +
-    '<div class="setup-r2-url-result" style="font-size:11px;margin-top:4px"></div>';
+    '<div class="setup-r2-url-result"></div>';
   container.appendChild(div);
 
   const input = div.querySelector<HTMLInputElement>(".setup-r2-url-input")!;
@@ -492,7 +492,7 @@ function showR2PublicAccessTip(container: HTMLElement) {
     try {
       await invoke("set_r2_public_url", { accountId, workerName, url });
       result.textContent = "Saved! Published links will now use this URL.";
-      result.style.color = "var(--success, green)";
+      result.style.color = "var(--success)";
     } catch (e) {
       result.textContent = `Failed: ${e}`;
       result.style.color = "var(--error)";
@@ -518,14 +518,14 @@ function showApiTokenInput(container: HTMLElement, accountId: string): Promise<s
         <li>Account &gt; Workers AI &gt; Read</li>
         <li>Account &gt; Browser Run &gt; Edit</li>
       </ul>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+      <div class="setup-token-note">
         Account ID: <code>${escapeHtml(accountId)}</code>
       </div>
     </div>
-    <input type="password" class="setup-token-field" placeholder="API Token" />
+    <input type="password" class="field setup-token-field" placeholder="API Token" />
     <div class="setup-token-actions">
-      <button class="setup-token-skip">Skip for now</button>
-      <button class="setup-token-confirm primary">Set Secrets</button>
+      <button class="btn setup-token-skip">Skip for now</button>
+      <button class="btn btn-primary setup-token-confirm">Set Secrets</button>
     </div>
   `;
   container.appendChild(div);
@@ -566,7 +566,7 @@ function showAccountPicker(
   label.textContent = "Select your Cloudflare account:";
 
   const select = document.createElement("select");
-  select.className = "setup-account-select";
+  select.className = "field setup-account-select";
   for (const a of accounts) {
     const opt = document.createElement("option");
     opt.value = a.id;
@@ -575,7 +575,7 @@ function showAccountPicker(
   }
 
   const btn = document.createElement("button");
-  btn.className = "setup-account-confirm";
+  btn.className = "btn btn-primary setup-account-confirm";
   btn.textContent = "Continue";
   btn.addEventListener("click", () => {
     pickerDiv.remove();
@@ -605,7 +605,7 @@ export function showSettings({
     <div class="settings-box">
       <div class="settings-header">
         <span class="settings-title">Settings</span>
-        <button id="settings-close" class="settings-close-btn" title="Close">&times;</button>
+        <button id="settings-close" class="icon-btn settings-close-btn" title="Close">&times;</button>
       </div>
 
       <div class="settings-section">
@@ -615,8 +615,8 @@ export function showSettings({
         </div>
 
         <div class="settings-auto-setup">
-          <button id="settings-auto-setup-btn" class="settings-setup-btn">Setup with Cloudflare</button>
-          <button id="settings-update-worker-btn" class="settings-update-btn" style="display:none">Update Worker</button>
+          <button id="settings-auto-setup-btn" class="btn btn-primary btn-block settings-setup-btn">Setup with Cloudflare</button>
+          <button id="settings-update-worker-btn" class="btn settings-update-btn" style="display:none">Update Worker</button>
           <div id="settings-update-result" class="settings-test-result" style="display:none"></div>
           <div id="settings-setup-progress" class="settings-setup-progress" style="display:none"></div>
         </div>
@@ -628,15 +628,17 @@ export function showSettings({
         <div class="settings-worker-input-row">
           <input
             type="url"
+            class="field"
             id="settings-worker-url"
             placeholder="https://markupsidedown-XXXXXX.YOUR_SUBDOMAIN.workers.dev"
             value=""
           />
-          <button id="settings-test-btn">Test</button>
+          <button id="settings-test-btn" class="btn">Test</button>
         </div>
         <div class="settings-worker-input-row">
           <input
             type="password"
+            class="field"
             id="settings-worker-key"
             placeholder="API key (set automatically by Setup and Update Worker)"
             autocomplete="off"
@@ -695,7 +697,7 @@ export function showSettings({
           </div>
         </div>
         <div class="settings-mcp-config">
-          <div class="settings-mcp-tabs">
+          <div class="segmented settings-mcp-tabs">
             <button class="settings-mcp-tab active" data-mcp-target="claude-desktop-chat">Chat</button>
             <button class="settings-mcp-tab" data-mcp-target="claude-desktop-code"><span class="mcp-tab-recommended">Recommended</span> Code</button>
             <button class="settings-mcp-tab" data-mcp-target="claude-code-terminal">Terminal</button>
@@ -776,10 +778,10 @@ export function showSettings({
       </div>
 
       <div class="settings-actions">
-        <button id="settings-clear" class="settings-clear-btn">Clear URL</button>
+        <button id="settings-clear" class="btn btn-ghost settings-clear-btn">Clear URL</button>
         <span class="spacer"></span>
-        <button id="settings-cancel">Cancel</button>
-        <button id="settings-save" class="primary">Save</button>
+        <button id="settings-cancel" class="btn">Cancel</button>
+        <button id="settings-save" class="btn btn-primary">Save</button>
       </div>
     </div>
   `;
@@ -1072,7 +1074,7 @@ function renderClaudeDesktopChatTab(container: HTMLElement, binaryPath: string, 
     </div>
     <div class="settings-mcp-config-label">Config file: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code></div>
     <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
-    <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
+    <button class="btn btn-sm settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     <div class="settings-mcp-note">
       MarkUpsideDown must be running for editor/file/git tools.
       Conversion/crawl tools work standalone if Worker URL is set.
@@ -1099,13 +1101,13 @@ function renderClaudeDesktopCodeTab(container: HTMLElement, binaryPath: string, 
       <summary>Option A — Global (all projects)</summary>
       <div class="settings-mcp-config-label">Add to <code>~/.claude/settings.json</code></div>
       <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
-      <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
+      <button class="btn btn-sm settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     </details>
     <details class="settings-mcp-config-option">
       <summary>Option B — Per-project</summary>
       <div class="settings-mcp-config-label">Create <code>.mcp.json</code> in your project root</div>
       <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
-      <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
+      <button class="btn btn-sm settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     </details>
     <div class="settings-mcp-note">
       Changes to files are auto-detected by MarkUpsideDown's file-watcher — no manual reload needed.
@@ -1136,7 +1138,7 @@ function renderClaudeCodeTerminalTab(
     </div>
     <div class="settings-mcp-config-label">Add to <code>.mcp.json</code> in your project root, or <code>~/.claude/settings.json</code> (global)</div>
     <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
-    <button class="settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
+    <button class="btn btn-sm settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     <div class="settings-mcp-note settings-mcp-warning">
       ⚠ The config contains your secret Worker URL and API key. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
     </div>
@@ -1162,7 +1164,7 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
     </div>
     <div class="settings-mcp-cowork-actions">
       <div class="settings-mcp-cowork-path-row">
-        <button id="settings-cowork-install" class="primary">Install</button>
+        <button id="settings-cowork-install" class="btn btn-primary">Install</button>
         <span id="settings-cowork-install-result" class="settings-mcp-cowork-install-status"></span>
       </div>
     </div>
@@ -1173,9 +1175,9 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
       </div>
       <div class="settings-mcp-cowork-actions">
         <div class="settings-mcp-cowork-path-row">
-          <input type="text" id="settings-cowork-path" class="settings-mcp-cowork-path" placeholder="~/Claude-Workspace" value="~/Claude-Workspace" />
-          <button id="settings-cowork-browse">Browse</button>
-          <button id="settings-cowork-create">Create</button>
+          <input type="text" id="settings-cowork-path" class="field field-sm settings-mcp-cowork-path" placeholder="~/Claude-Workspace" value="~/Claude-Workspace" />
+          <button id="settings-cowork-browse" class="btn btn-sm">Browse</button>
+          <button id="settings-cowork-create" class="btn btn-sm">Create</button>
         </div>
         <div id="settings-cowork-result" class="settings-test-result"></div>
       </div>

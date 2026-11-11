@@ -918,7 +918,7 @@ const SVG_CHEVRON_RIGHT = `<svg width="14" height="14" viewBox="0 0 14 14" fill=
 
 // Editor fold button (in tab-bar, right side)
 const editorFoldBtn = document.createElement("button");
-editorFoldBtn.className = "panel-fold-btn";
+editorFoldBtn.className = "icon-btn icon-btn-sm panel-fold-btn";
 editorFoldBtn.title = "Collapse Editor (⌘2)";
 editorFoldBtn.innerHTML = SVG_CHEVRON_LEFT;
 
@@ -926,7 +926,7 @@ editorFoldBtn.innerHTML = SVG_CHEVRON_LEFT;
 const previewHeader = document.createElement("div");
 previewHeader.className = "preview-header";
 const previewFoldBtn = document.createElement("button");
-previewFoldBtn.className = "panel-fold-btn";
+previewFoldBtn.className = "icon-btn icon-btn-sm panel-fold-btn";
 previewFoldBtn.title = "Collapse Preview (⌘3)";
 previewFoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 previewHeader.appendChild(previewFoldBtn);

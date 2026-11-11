@@ -26,7 +26,7 @@ function render() {
 
   const urlInput = document.createElement("input");
   urlInput.type = "text";
-  urlInput.className = "clone-input";
+  urlInput.className = "field field-sm clone-input";
   urlInput.placeholder = "https://github.com/owner/repo.git";
   urlRow.appendChild(urlInput);
 
@@ -38,13 +38,13 @@ function render() {
 
   const destInput = document.createElement("input");
   destInput.type = "text";
-  destInput.className = "clone-input clone-dest-input";
+  destInput.className = "field field-sm clone-input clone-dest-input";
   destInput.placeholder = "Destination folder…";
   destInput.readOnly = true;
   destRow.appendChild(destInput);
 
   const browseBtn = document.createElement("button");
-  browseBtn.className = "clone-btn";
+  browseBtn.className = "btn btn-sm clone-btn";
   browseBtn.textContent = "Browse";
   browseBtn.addEventListener("click", async () => {
     const path = await openDialog({ directory: true });
@@ -59,7 +59,7 @@ function render() {
   actionRow.className = "clone-input-row";
 
   const cloneBtn = document.createElement("button");
-  cloneBtn.className = "clone-btn clone-btn-primary";
+  cloneBtn.className = "btn btn-primary btn-block clone-btn";
   cloneBtn.textContent = "Clone";
   cloneBtn.addEventListener("click", () => doClone(urlInput, destInput, cloneBtn));
   actionRow.appendChild(cloneBtn);

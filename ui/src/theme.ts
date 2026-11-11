@@ -2,15 +2,16 @@ import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 
-const bg = "#f5f1eb";
-const surface = "#ece8e2";
-const border = "#d4cfc6";
-const text = "#2c2c2c";
-const textMuted = "#8a8578";
-const accent = "#4a7ab5";
-const green = "#2e7d32";
-const red = "#b33a3a";
-const yellow = "#b8860b";
+// Colors come from the CSS custom properties in styles.css
+const bg = "var(--surface)";
+const surface = "var(--chrome)";
+const border = "var(--rule)";
+const text = "var(--ink)";
+const textMuted = "var(--ink-2)";
+const accent = "var(--accent)";
+const green = "var(--success)";
+const red = "var(--error)";
+const yellow = "#9a6f00";
 const mauve = "#7b5ea7";
 
 const theme = EditorView.theme(
@@ -21,21 +22,21 @@ const theme = EditorView.theme(
     },
     ".cm-content": {
       caretColor: accent,
-      fontFamily: '"SF Mono", "Fira Code", "JetBrains Mono", monospace',
+      fontFamily: "var(--font-mono)",
       padding: "16px 0",
     },
     ".cm-cursor, .cm-dropCursor": {
       borderLeftColor: accent,
     },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
-      backgroundColor: "rgba(74, 122, 181, 0.18)",
+      backgroundColor: "var(--accent-soft)",
     },
     ".cm-activeLine": {
       backgroundColor: "rgba(0, 0, 0, 0.03)",
     },
     ".cm-gutters": {
       backgroundColor: bg,
-      color: "#b0a99e",
+      color: "var(--ink-3)",
       border: "none",
       paddingRight: "8px",
     },
@@ -45,7 +46,7 @@ const theme = EditorView.theme(
     },
     ".cm-lineNumbers .cm-gutterElement": {
       padding: "0 8px",
-      fontSize: "12px",
+      fontSize: "var(--fs-sm)",
     },
     ".cm-panels": {
       backgroundColor: surface,
@@ -61,13 +62,13 @@ const theme = EditorView.theme(
     },
     ".cm-search label": {
       color: textMuted,
-      fontSize: "12px",
+      fontSize: "var(--fs-sm)",
     },
     ".cm-search input, .cm-search select": {
-      backgroundColor: "#faf7f2",
+      backgroundColor: "var(--paper)",
       color: text,
       border: `1px solid ${border}`,
-      borderRadius: "4px",
+      borderRadius: "var(--r-sm)",
       padding: "2px 6px",
       outline: "none",
     },
@@ -78,19 +79,19 @@ const theme = EditorView.theme(
       backgroundColor: border,
       color: text,
       border: "none",
-      borderRadius: "4px",
+      borderRadius: "var(--r-sm)",
       padding: "2px 10px",
       cursor: "pointer",
     },
     ".cm-search button:hover": {
-      backgroundColor: "#c4bfb6",
+      backgroundColor: "var(--rule-strong)",
     },
     ".cm-searchMatch": {
-      backgroundColor: "rgba(74, 122, 181, 0.15)",
-      outline: `1px solid rgba(74, 122, 181, 0.3)`,
+      backgroundColor: "color-mix(in srgb, var(--accent) 15%, transparent)",
+      outline: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)",
     },
     ".cm-searchMatch-selected": {
-      backgroundColor: "rgba(74, 122, 181, 0.3)",
+      backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)",
     },
   },
   { dark: false },
