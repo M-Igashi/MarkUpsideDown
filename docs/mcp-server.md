@@ -78,7 +78,7 @@ Check Worker health and version: `curl https://your-worker-url/health`
 
 ### Bridge Port
 
-The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit.
+The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420). The port file `~/.markupsidedown-bridge-port` is created on startup and removed on exit. It holds the port on the first line and a random per-launch token on the second, and is readable only by your user. Every bridge request except `GET /health` must send `Authorization: Bearer <token>` and a `Host` of `127.0.0.1:<port>` or `localhost:<port>`; the MCP server does this automatically.
 
 ## Available Tools (65)
 
@@ -265,7 +265,7 @@ Published documents are accessible at `{worker_url}/p/{key}` as `text/markdown`.
 
 Editor tools require the app to be open. Start MarkUpsideDown and try again.
 
-If the app is running but the error persists, check `~/.markupsidedown-bridge-port` exists and contains a valid port number.
+If the app is running but the error persists, check `~/.markupsidedown-bridge-port` exists and contains a valid port number. If tools fail with "Missing or invalid bridge token", the app was updated or restarted with a token the running MCP server does not know; restart your IDE or agent session.
 
 ### "Worker URL not configured"
 

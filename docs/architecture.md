@@ -137,7 +137,7 @@ Security: SSRF prevention validates URLs and blocks private/reserved IP ranges v
 | `tools.rs` | 65 MCP tools (editor, project, files, content, conversion, crawl, git, github, tags, search, publish, and windows) |
 | `bridge.rs` | HTTP client to Tauri bridge (auto-discovers port) |
 
-Communication: MCP server (Rust sidecar binary) reads the bridge port from `~/.markupsidedown-bridge-port` and sends HTTP requests to the Tauri backend's axum server.
+Communication: MCP server (Rust sidecar binary) reads the bridge port and per-launch token from `~/.markupsidedown-bridge-port` (mode 0600) and sends HTTP requests with `Authorization: Bearer <token>` to the Tauri backend's axum server.
 
 See [ai-integration.md](ai-integration.md) for setup and [mcp-server.md](mcp-server.md) for the full tool list.
 
@@ -257,7 +257,7 @@ Backed by the `gh` CLI, scoped to the `owner/name` parsed from the project's `or
 
 ## MCP Bridge Endpoints
 
-The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416–31420).
+The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416–31420). All routes except `GET /health` require the bridge token, and every route rejects a `Host` header other than `127.0.0.1:<port>` or `localhost:<port>` (DNS rebinding protection).
 
 ### Editor
 
@@ -364,7 +364,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | File watcher | Tauri FS plugin → watch events → prompt reload |
 | Settings (Worker URL) | Browser localStorage |
 | Tab state | Browser localStorage (debounced writes) |
-| Bridge port discovery | `~/.markupsidedown-bridge-port` file |
+| Bridge port discovery | `~/.markupsidedown-bridge-port` file (port and token, mode 0600) |
 | Error handling | Structured `AppError` enum (`Io`, `Network`, `Git`, `Worker`, `Validation`) with typed JSON bridge responses | `src-tauri/src/error.rs` |
 
 ## Key Dependencies

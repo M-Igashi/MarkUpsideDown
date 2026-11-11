@@ -2,8 +2,9 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::{DefaultBodyLimit, Query, State};
-use axum::http::StatusCode;
+use axum::extract::{DefaultBodyLimit, Query, Request, State};
+use axum::http::{header, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -34,9 +35,69 @@ fn port_file_path() -> PathBuf {
         .join(".markupsidedown-bridge-port")
 }
 
+/// Random per-launch secret that clients must send as a Bearer token.
+fn generate_token() -> String {
+    use std::io::Read;
+    let mut bytes = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .expect("Failed to read /dev/urandom");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Write "<port>\n<token>\n" readable only by the current user.
+fn write_port_file(port: u16, token: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let path = port_file_path();
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)?;
+    // mode() only applies on creation; fix files left by older versions
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    write!(file, "{port}\n{token}\n")
+}
+
+/// Only the MCP server (which can read the 0600 port file) may use the
+/// bridge. The Host check also stops DNS-rebinding pages, which send their
+/// own hostname. /health stays open so clients can probe for the app.
+async fn require_local_client(
+    State((port, token)): State<(u16, Arc<str>)>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let host = request.headers().get(header::HOST).and_then(|h| h.to_str().ok());
+    let host_ok = host.is_some_and(|h| h == format!("127.0.0.1:{port}") || h == format!("localhost:{port}"));
+    if !host_ok {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Forbidden host" }))).into_response();
+    }
+    if request.uri().path() != "/health" {
+        let expected = format!("Bearer {token}");
+        let auth = request.headers().get(header::AUTHORIZATION).map(|h| h.as_bytes());
+        if !auth.is_some_and(|a| constant_time_eq(a, expected.as_bytes())) {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Missing or invalid bridge token (restart the MCP server after updating the app)" })),
+            )
+                .into_response();
+        }
+    }
+    next.run(request).await
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
     let port = find_available_port().expect("No available port for MCP bridge");
-    std::fs::write(port_file_path(), port.to_string()).ok();
+    let token: Arc<str> = generate_token().into();
+    if let Err(e) = write_port_file(port, &token) {
+        log::error!("Failed to write the MCP bridge port file: {e}");
+    }
 
     let http: reqwest::Client = app.state::<reqwest::Client>().inner().clone();
     let state = Arc::new(BridgeState {
@@ -96,6 +157,7 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/github/update", post(github_update))
         // crawl_save and set_editor_content can exceed axum's 2 MB default
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
+        .layer(middleware::from_fn_with_state((port, token), require_local_client))
         .with_state(state);
 
     tauri::async_runtime::spawn(async move {
@@ -895,3 +957,43 @@ async fn git_init(Json(body): Json<GitInitRequest>) -> BridgeResult {
     output_json(commands::git_init(body.path)).await
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bridge_requires_local_host_and_token() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let token: Arc<str> = "secret".into();
+        let router = Router::new()
+            .route("/health", get(|| async { "ok" }))
+            .route("/worker", get(|| async { "key" }))
+            .layer(middleware::from_fn_with_state((port, token), require_local_client));
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+
+        let client = reqwest::Client::new();
+        let status = |req: reqwest::RequestBuilder| async move { req.send().await.unwrap().status().as_u16() };
+        let url = |p: &str| format!("http://127.0.0.1:{port}{p}");
+
+        assert_eq!(status(client.get(url("/worker")).bearer_auth("secret")).await, 200);
+        assert_eq!(status(client.get(url("/worker"))).await, 401);
+        assert_eq!(status(client.get(url("/worker")).bearer_auth("wrong")).await, 401);
+        assert_eq!(status(client.get(url("/health"))).await, 200);
+        // A DNS-rebinding page sends its own hostname, even with a valid path
+        let rebound = client
+            .get(url("/worker"))
+            .header("Host", format!("evil.example:{port}"))
+            .bearer_auth("secret");
+        assert_eq!(status(rebound).await, 403);
+        assert_eq!(status(client.get(url("/health")).header("Host", "evil.example")).await, 403);
+    }
+
+    #[test]
+    fn generates_distinct_tokens() {
+        let a = generate_token();
+        assert_eq!(a.len(), 64);
+        assert_ne!(a, generate_token());
+    }
+}
