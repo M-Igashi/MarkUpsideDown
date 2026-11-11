@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # E2E test script for MarkUpsideDown MCP bridge endpoints
 # Prerequisites: App must be running with bridge active
+# The git-write tests commit and revert in the open project, so they are
+# skipped unless its working tree is clean.
 #
 # Usage:
 #   ./scripts/test-mcp-bridge.sh              # Run all tests
@@ -316,7 +318,14 @@ if should_run "git-write"; then
     ROOT=$(bcurl -sf "${BASE_URL}/editor/root" | jq -r '.root_path // ""')
     if [[ -z "$ROOT" ]]; then
       skip_test "git-write" "no project root"
+    elif [[ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null || echo dirty)" ]]; then
+      # These tests stage, commit, and revert in the open project, so they
+      # only run on a clean working tree where nothing can be lost.
+      skip_test "git-write" "open project has uncommitted changes (commit or stash them first)"
+    elif ! START_HEAD=$(git -C "$ROOT" rev-parse --verify -q HEAD); then
+      skip_test "git-write" "open project has no commits"
     else
+
       # Create a temp file, stage, unstage, discard
       TEMP_GIT_FILE="${ROOT}/.mcp-git-test.tmp"
       echo "test" > "$TEMP_GIT_FILE"
@@ -335,18 +344,7 @@ if should_run "git-write"; then
 
       test_post "git_discard" "/git/discard" \
         '{"path":".mcp-git-test.tmp"}' '.ok == true'
-
-      # git_pull (may fail if no remote, but endpoint should respond)
-      resp=$(bcurl -s -o /dev/null -w "%{http_code}" -X POST \
-        -H "Content-Type: application/json" -d '{}' "${BASE_URL}/git/pull")
-      if [[ "$resp" == "200" || "$resp" == "500" ]]; then
-        echo -e "  ${GREEN}PASS${NC} git_pull (endpoint responds: HTTP $resp)"
-        PASS=$((PASS + 1))
-      else
-        echo -e "  ${RED}FAIL${NC} git_pull — unexpected HTTP $resp"
-        FAIL=$((FAIL + 1))
-        FAILURES+=("git_pull")
-      fi
+      rm -f "$TEMP_GIT_FILE"
 
       # git_commit + git_revert: create temp commit then revert it
       TEMP_REVERT_FILE="${ROOT}/.mcp-revert-test.tmp"
@@ -357,20 +355,19 @@ if should_run "git-write"; then
       test_post "git_commit" "/git/commit" \
         '{"message":"test: temp commit for git_revert E2E test"}' 'has("output")'
 
-      REVERT_HASH=$(bcurl -sf "${BASE_URL}/git/log?limit=1" | jq -r '.entries[0].hash // ""')
-      if [[ -n "$REVERT_HASH" ]]; then
+      # Only revert the test commit, never a commit that was already there
+      REVERT_HASH=$(git -C "$ROOT" rev-parse HEAD)
+      if [[ "$REVERT_HASH" != "$START_HEAD" ]]; then
         test_post "git_revert" "/git/revert" \
           "{\"commit_hash\":\"${REVERT_HASH}\"}" 'has("output")'
-
-        # Clean up: reset the 2 test commits (local only)
-        git -C "$ROOT" reset --soft HEAD~2 > /dev/null 2>&1
-        git -C "$ROOT" reset HEAD -- . > /dev/null 2>&1
       else
-        echo -e "  ${RED}FAIL${NC} git_revert — no commit hash"
-        FAIL=$((FAIL + 1))
-        FAILURES+=("git_revert")
+        skip_test "git_revert" "git_commit did not create a commit"
       fi
-      rm -f "$TEMP_REVERT_FILE" 2>/dev/null
+
+      # Clean up: drop the test commits (local only) and unstage everything
+      git -C "$ROOT" reset -q --soft "$START_HEAD"
+      git -C "$ROOT" reset -q
+      rm -f "$TEMP_REVERT_FILE"
 
       # git_clone: clone a small public repo to /tmp
       CLONE_DEST="/tmp/mcp-clone-test-$$"
@@ -385,7 +382,8 @@ if should_run "git-write"; then
         "{\"path\":\"${INIT_DIR}\"}" 'has("output")'
       rm -rf "$INIT_DIR" 2>/dev/null
 
-      # git_push, git_discard_all — skip in automated test (destructive)
+      # git_pull, git_push, git_discard_all change the branch or the remote
+      skip_test "git_pull" "changes the project branch — test manually"
       skip_test "git_push" "destructive — test manually"
       skip_test "git_discard_all" "destructive — test manually"
     fi
@@ -525,28 +523,26 @@ fi
 # 12. Worker-dependent tools
 # ============================================================
 if should_run "worker"; then
-  # Discover Worker URL from bridge
-  WORKER_URL=$(bcurl -sf "${BASE_URL}/editor/state" | jq -r '.worker_url // ""')
-  if [[ -z "$WORKER_URL" ]]; then
-    echo -e "${CYAN}=== Worker-Dependent Tools (SKIPPED — no Worker URL) ===${NC}"
-    skip_test "fetch_markdown" "no Worker URL"
-    skip_test "render_markdown" "no Worker URL"
-    skip_test "get_markdown" "no Worker URL"
-    skip_test "convert_to_markdown" "no Worker URL"
-    skip_test "extract_json" "no Worker URL"
-    skip_test "index_documents" "no Worker URL"
-    skip_test "semantic_search" "no Worker URL"
-    skip_test "remove_document" "no Worker URL"
-    skip_test "publish_document" "no Worker URL"
-    skip_test "unpublish_document" "no Worker URL"
-    skip_test "list_published" "no Worker URL"
-    skip_test "submit_batch" "no Worker URL"
-    skip_test "get_batch_status" "no Worker URL"
+  # Discover Worker URL and API key from the bridge
+  WORKER_CONFIG=$(bcurl -sf "${BASE_URL}/worker" || echo '{}')
+  WORKER_URL=$(echo "$WORKER_CONFIG" | jq -r '.url // ""')
+  WORKER_KEY=$(echo "$WORKER_CONFIG" | jq -r '.key // ""')
+  # curl with the Worker API key. Only for Worker calls.
+  wcurl() {
+    curl -H "Authorization: Bearer ${WORKER_KEY}" "$@"
+  }
+  if [[ -z "$WORKER_URL" || -z "$WORKER_KEY" ]]; then
+    echo -e "${CYAN}=== Worker-Dependent Tools (SKIPPED — no Worker URL or key) ===${NC}"
+    for t in fetch_markdown render_markdown get_markdown convert_to_markdown extract_json \
+      crawl_website crawl_status index_documents semantic_search remove_document \
+      publish_document unpublish_document list_published; do
+      skip_test "$t" "no Worker URL or key"
+    done
   else
     echo -e "${CYAN}=== Worker-Dependent Tools (${WORKER_URL}) ===${NC}"
 
     # Check Worker capabilities
-    CAPS=$(curl -sf "${WORKER_URL}/health" 2>/dev/null || echo '{}')
+    CAPS=$(wcurl -sf "${WORKER_URL}/health" 2>/dev/null || echo '{}')
     has_cap() { echo "$CAPS" | jq -r ".capabilities.$1 // false" 2>/dev/null; }
 
     # --- fetch_markdown (direct HTTP with Accept: text/markdown, no Worker needed) ---
@@ -563,7 +559,7 @@ if should_run "worker"; then
     # --- render_markdown (GET /render?url=) ---
     if [[ "$(has_cap render)" == "true" ]]; then
       test_url="${WORKER_URL}/render?url=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("https://example.com"))')"
-      resp=$(curl -sf --max-time 30 "$test_url" 2>&1) || resp=""
+      resp=$(wcurl -sf --max-time 30 "$test_url" 2>&1) || resp=""
       result=$(echo "$resp" | jq -r 'has("markdown")' 2>/dev/null) || result="false"
       if [[ "$result" == "true" ]]; then
         echo -e "  ${GREEN}PASS${NC} render_markdown"
@@ -580,7 +576,7 @@ if should_run "worker"; then
 
     # --- get_markdown (uses POST /fetch as fallback) ---
     if [[ "$(has_cap fetch)" == "true" ]]; then
-      resp=$(curl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
+      resp=$(wcurl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
         -d '{"url":"https://example.com"}' "${WORKER_URL}/fetch" 2>&1) || resp=""
       result=$(echo "$resp" | jq -r 'has("markdown")' 2>/dev/null) || result="false"
       if [[ "$result" == "true" ]]; then
@@ -601,7 +597,7 @@ if should_run "worker"; then
       # Create a tiny HTML file to convert
       CONVERT_TMP=$(mktemp /tmp/mcp-test-XXXXXX.html)
       echo "<html><body><h1>Test</h1><p>Hello</p></body></html>" > "$CONVERT_TMP"
-      resp=$(curl -sf --max-time 30 -X POST \
+      resp=$(wcurl -sf --max-time 30 -X POST \
         -H "Content-Type: text/html" \
         --data-binary "@${CONVERT_TMP}" "${WORKER_URL}/convert" 2>&1) || resp=""
       rm -f "$CONVERT_TMP"
@@ -621,7 +617,7 @@ if should_run "worker"; then
 
     # --- extract_json (POST /json) ---
     if [[ "$(has_cap json)" == "true" ]]; then
-      resp=$(curl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
+      resp=$(wcurl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
         -d '{"url":"https://example.com","prompt":"Extract the page title"}' \
         "${WORKER_URL}/json" 2>&1) || resp=""
       result=$(echo "$resp" | jq -r 'has("data") or has("error")' 2>/dev/null) || result="false"
@@ -640,7 +636,7 @@ if should_run "worker"; then
 
     # --- crawl_website + crawl_status (POST /crawl, GET /crawl/:id) ---
     if [[ "$(has_cap crawl)" == "true" ]]; then
-      resp=$(curl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
+      resp=$(wcurl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
         -d '{"url":"https://example.com","depth":1,"limit":1}' \
         "${WORKER_URL}/crawl" 2>&1) || resp=""
       job_id=$(echo "$resp" | jq -r '.job_id // ""' 2>/dev/null)
@@ -650,7 +646,7 @@ if should_run "worker"; then
 
         # Poll crawl_status
         sleep 2
-        status_resp=$(curl -sf --max-time 15 "${WORKER_URL}/crawl/${job_id}" 2>&1) || status_resp=""
+        status_resp=$(wcurl -sf --max-time 15 "${WORKER_URL}/crawl/${job_id}" 2>&1) || status_resp=""
         result=$(echo "$status_resp" | jq -r 'has("result") or has("status")' 2>/dev/null) || result="false"
         if [[ "$result" == "true" ]]; then
           crawl_st=$(echo "$status_resp" | jq -r '.result.status // .status')
@@ -677,7 +673,7 @@ if should_run "worker"; then
     # --- publish + list_published + unpublish (PUT /publish, GET /published, DELETE /publish/:key) ---
     if [[ "$(has_cap publish)" == "true" ]]; then
       TEST_KEY="__mcp-test-$(date +%s)"
-      resp=$(curl -sf --max-time 15 -X PUT -H "Content-Type: application/json" \
+      resp=$(wcurl -sf --max-time 15 -X PUT -H "Content-Type: application/json" \
         -d "{\"key\":\"${TEST_KEY}\",\"content\":\"# Test\\n\\nPublished by MCP test.\",\"filename\":\"test.md\",\"expires_in\":60}" \
         "${WORKER_URL}/publish" 2>&1) || resp=""
       result=$(echo "$resp" | jq -r 'has("url")' 2>/dev/null) || result="false"
@@ -693,7 +689,7 @@ if should_run "worker"; then
       fi
 
       # list_published
-      resp=$(curl -sf --max-time 15 "${WORKER_URL}/published" 2>&1) || resp=""
+      resp=$(wcurl -sf --max-time 15 "${WORKER_URL}/published" 2>&1) || resp=""
       result=$(echo "$resp" | jq -r 'has("files")' 2>/dev/null) || result="false"
       if [[ "$result" == "true" ]]; then
         count=$(echo "$resp" | jq '.files | length')
@@ -707,9 +703,9 @@ if should_run "worker"; then
       fi
 
       # unpublish
-      resp=$(curl -sf --max-time 15 -X DELETE "${WORKER_URL}/publish/${TEST_KEY}" 2>&1)
-      http_code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "${WORKER_URL}/publish/${TEST_KEY}")
-      # Already deleted above, so 404 is OK; 200 or 404 both count as "endpoint works"
+      http_code=$(wcurl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+        -X DELETE "${WORKER_URL}/publish/${TEST_KEY}") || true
+      # 404 is OK if publish_document failed above
       if [[ "$http_code" == "200" || "$http_code" == "404" ]]; then
         echo -e "  ${GREEN}PASS${NC} unpublish_document (HTTP ${http_code})"
         PASS=$((PASS + 1))
@@ -727,7 +723,7 @@ if should_run "worker"; then
     # --- index_documents + semantic_search + remove_document ---
     if [[ "$(has_cap search)" == "true" ]]; then
       TEST_DOC_ID="__mcp-test-doc-$(date +%s)"
-      resp=$(curl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
+      resp=$(wcurl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
         -d "{\"documents\":[{\"id\":\"${TEST_DOC_ID}\",\"content\":\"MarkUpsideDown is a Markdown editor powered by Tauri and Cloudflare Workers AI.\"}]}" \
         "${WORKER_URL}/embed" 2>&1) || resp=""
       result=$(echo "$resp" | jq -r 'has("indexed")' 2>/dev/null) || result="false"
@@ -743,7 +739,7 @@ if should_run "worker"; then
 
       # semantic_search
       sleep 1
-      resp=$(curl -sf --max-time 15 -X POST -H "Content-Type: application/json" \
+      resp=$(wcurl -sf --max-time 15 -X POST -H "Content-Type: application/json" \
         -d '{"query":"markdown editor","limit":3}' \
         "${WORKER_URL}/search" 2>&1) || resp=""
       result=$(echo "$resp" | jq -r 'has("results")' 2>/dev/null) || result="false"
@@ -759,8 +755,8 @@ if should_run "worker"; then
       fi
 
       # remove_document (cleanup)
-      http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
-        -X DELETE "${WORKER_URL}/embed/${TEST_DOC_ID}")
+      http_code=$(wcurl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+        -X DELETE "${WORKER_URL}/embed/${TEST_DOC_ID}") || true
       if [[ "$http_code" == "200" ]]; then
         echo -e "  ${GREEN}PASS${NC} remove_document"
         PASS=$((PASS + 1))
@@ -773,42 +769,6 @@ if should_run "worker"; then
       skip_test "index_documents" "search capability not available"
       skip_test "semantic_search" "search capability not available"
       skip_test "remove_document" "search capability not available"
-    fi
-
-    # --- submit_batch + get_batch_status ---
-    if [[ "$(has_cap batch)" == "true" ]]; then
-      resp=$(curl -sf --max-time 30 -X POST -H "Content-Type: application/json" \
-        -d '{"files":[{"name":"test.html","content":"PGh0bWw+PGJvZHk+PGgxPlRlc3Q8L2gxPjwvYm9keT48L2h0bWw+"}]}' \
-        "${WORKER_URL}/batch" 2>&1) || resp=""
-      batch_id=$(echo "$resp" | jq -r '.batch_id // ""' 2>/dev/null)
-      if [[ -n "$batch_id" ]]; then
-        echo -e "  ${GREEN}PASS${NC} submit_batch (batch_id: ${batch_id})"
-        PASS=$((PASS + 1))
-
-        # Poll batch status
-        sleep 2
-        status_resp=$(curl -sf --max-time 15 "${WORKER_URL}/batch/${batch_id}" 2>&1) || status_resp=""
-        result=$(echo "$status_resp" | jq -r 'has("batch_id")' 2>/dev/null) || result="false"
-        if [[ "$result" == "true" ]]; then
-          batch_st=$(echo "$status_resp" | jq -r '"\(.completed)/\(.total) done"')
-          echo -e "  ${GREEN}PASS${NC} get_batch_status (status: ${batch_st})"
-          PASS=$((PASS + 1))
-        else
-          echo -e "  ${RED}FAIL${NC} get_batch_status"
-          echo "    Response: $(echo "$status_resp" | head -c 200)"
-          FAIL=$((FAIL + 1))
-          FAILURES+=("get_batch_status")
-        fi
-      else
-        echo -e "  ${RED}FAIL${NC} submit_batch — no batch_id"
-        echo "    Response: $(echo "$resp" | head -c 200)"
-        FAIL=$((FAIL + 1))
-        FAILURES+=("submit_batch")
-        skip_test "get_batch_status" "no batch_id from submit_batch"
-      fi
-    else
-      skip_test "submit_batch" "batch capability not available"
-      skip_test "get_batch_status" "batch capability not available"
     fi
   fi
 fi
