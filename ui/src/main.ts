@@ -1526,7 +1526,21 @@ setSemanticSearchHandler(openSearchResult);
 registerCommands([
   { id: "file.open", label: "Open File", shortcut: "⌘O", category: "File", run: openFile },
   { id: "file.save", label: "Save File", shortcut: "⌘S", category: "File", run: saveFile },
-  { id: "file.import", label: "Import Document", category: "File", run: importFile },
+  {
+    id: "file.import",
+    label: "Import Document",
+    shortcut: "⇧⌘I",
+    category: "File",
+    run: importFile,
+  },
+  {
+    id: "file.openFolder",
+    label: "Open Folder",
+    shortcut: "⇧⌘O",
+    category: "File",
+    run: openFolder,
+  },
+  { id: "git.clone", label: "Clone Repository", category: "Git", run: showClonePanel },
   {
     id: "github.issues",
     label: "Show GitHub Issues",

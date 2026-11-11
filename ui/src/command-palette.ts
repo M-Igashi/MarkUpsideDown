@@ -2,6 +2,7 @@
 
 import { escapeHtml } from "./html-utils.ts";
 import { semanticSearch, type SearchResult } from "./semantic-search.ts";
+import { icon } from "./icons.ts";
 
 export interface Command {
   id: string;
@@ -107,13 +108,23 @@ export function open(initialQuery = "") {
   const input = document.createElement("input");
   input.className = "command-palette-input";
   input.type = "text";
-  input.placeholder = "Type a command… (? for semantic search)";
+  input.placeholder = "Search commands…";
 
   const list = document.createElement("div");
   list.className = "command-palette-list";
 
-  box.appendChild(input);
-  box.appendChild(list);
+  const searchRow = document.createElement("div");
+  searchRow.className = "command-palette-search";
+  searchRow.innerHTML = icon("search", 18);
+  searchRow.appendChild(input);
+
+  const footer = document.createElement("div");
+  footer.className = "command-palette-footer";
+  footer.innerHTML =
+    "<span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↩</kbd> run</span>" +
+    "<span><kbd>?</kbd> semantic search</span><span><kbd>esc</kbd> close</span>";
+
+  box.append(searchRow, list, footer);
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 

@@ -4,17 +4,19 @@ MarkUpsideDown includes a built-in file browser in the sidebar. You can browse, 
 
 ## Sidebar
 
-Toggle the sidebar with **Cmd+1**. The sidebar has three panels, selectable from the navigation bar at the bottom:
+Toggle the sidebar with **Cmd+1** or the sidebar button at the left of the toolbar. Switch panels with the control at the top of the sidebar:
 
 - **Files** — File tree browser
-- **Git** — Git panel (see [Git Integration](git-integration.md))
-- **Clone** — Clone a repository (see [Git Integration](git-integration.md))
+- **Changes** — Git panel (see [Git Integration](git-integration.md))
+- **GitHub** — Issues and pull requests (see [Git Integration](git-integration.md))
+
+When no folder is open, the Files panel offers **Open Folder…** and **Clone Repository…** buttons.
 
 ![Sidebar file browser](images/file-management/sidebar-files.png)
 
 ### Opening a Folder
 
-Click the **Open** button in the toolbar or use the folder icon in the sidebar header to open a folder. The file tree will populate with the folder's contents.
+Choose **Import → Open Folder…** in the toolbar, **File → Open Folder…** (Cmd+Shift+O), or the folder icon in the sidebar header to open a folder. The file tree will populate with the folder's contents.
 
 ### File Tree
 
@@ -80,7 +82,7 @@ Tab state — which files are open and their scroll positions — is persisted a
 
 ### Collapsing the Sidebar
 
-When collapsed, the sidebar becomes a narrow strip. Click the collapse button (chevron) in the sidebar header, or use **Cmd+1** to toggle.
+Click the sidebar button at the left of the toolbar, or use **Cmd+1**, to hide or show the sidebar.
 
 
 ## Auto-Save

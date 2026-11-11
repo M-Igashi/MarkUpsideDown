@@ -314,10 +314,16 @@ async function showCrawlDialog(url: string): Promise<CrawlOptions | null> {
     if (dir) dirInput.value = dir;
   });
 
-  dialog.querySelector("#crawl-cancel")!.addEventListener("click", () => {
+  const cancel = () => {
     overlay.remove();
     resolve(null);
-  });
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") cancel();
+  };
+  document.addEventListener("keydown", onKey);
+  promise.finally(() => document.removeEventListener("keydown", onKey));
+  dialog.querySelector("#crawl-cancel")!.addEventListener("click", cancel);
 
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) {

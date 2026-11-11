@@ -15,7 +15,10 @@ All commands are also accessible via the **Command Palette** (<kbd>Cmd</kbd>+<kb
 
 | Shortcut | Action |
 |----------|--------|
+| <kbd>Cmd</kbd>+<kbd>O</kbd> | Open file |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> | Open folder |
 | <kbd>Cmd</kbd>+<kbd>S</kbd> | Save file |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> | Import document |
 | <kbd>Cmd</kbd>+<kbd>W</kbd> | Close tab |
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> | Previous tab |
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> | Next tab |
