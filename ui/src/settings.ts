@@ -13,6 +13,7 @@ import {
 } from "./storage-keys.ts";
 import { escapeHtml } from "./html-utils.ts";
 import { icon } from "./icons.ts";
+import { getAppearance, setAppearance, type ReadingFont, type ReadingSize } from "./appearance.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -155,6 +156,34 @@ export function getWorkerHealth(): WorkerHealth {
   if (!status.reachable || status.auth === "missing" || status.auth === "invalid") return "error";
   if (status.update_available || status.auth === "unconfigured") return "warn";
   return "ok";
+}
+
+/** Appearance changes apply immediately in every window (no Save needed). */
+function initAppearanceControls() {
+  const current = getAppearance();
+  const bindSegmented = (id: string, value: string, apply: (value: string) => void) => {
+    const group = document.getElementById(id)!;
+    const buttons = [...group.querySelectorAll<HTMLButtonElement>("button")];
+    const select = (v: string) => {
+      for (const b of buttons) b.classList.toggle("active", b.dataset.value === v);
+    };
+    select(value);
+    for (const b of buttons) {
+      b.addEventListener("click", () => {
+        select(b.dataset.value!);
+        apply(b.dataset.value!);
+      });
+    }
+  };
+  bindSegmented("settings-reading-font", current.font, (v) =>
+    setAppearance({ font: v as ReadingFont }),
+  );
+  bindSegmented("settings-reading-size", current.size, (v) =>
+    setAppearance({ size: v as ReadingSize }),
+  );
+  const lineNumbers = document.getElementById("settings-line-numbers") as HTMLInputElement;
+  lineNumbers.checked = current.lineNumbers;
+  lineNumbers.addEventListener("change", () => setAppearance({ lineNumbers: lineNumbers.checked }));
 }
 
 /** Check the configured Worker's health once (used at startup). */
@@ -644,6 +673,29 @@ export function showSettings({
       </div>
 
       <div class="settings-section">
+        <div class="settings-section-title">Appearance</div>
+        <div class="settings-field-row">
+          <span class="settings-field-label">Reading font</span>
+          <div class="segmented" id="settings-reading-font">
+            <button data-value="sans">Sans</button>
+            <button data-value="serif" class="serif-sample">Serif</button>
+          </div>
+        </div>
+        <div class="settings-field-row">
+          <span class="settings-field-label">Reading size</span>
+          <div class="segmented" id="settings-reading-size">
+            <button data-value="small">Small</button>
+            <button data-value="medium">Medium</button>
+            <button data-value="large">Large</button>
+          </div>
+        </div>
+        <label class="settings-toggle-row">
+          <input type="checkbox" id="settings-line-numbers" />
+          <span class="settings-toggle-label">Show line numbers in the editor</span>
+        </label>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-section-title">Cloudflare Worker</div>
         <div class="settings-description">
           Powers document import and JS-rendered page fetching — the core of MarkUpsideDown.
@@ -850,6 +902,8 @@ export function showSettings({
 
   const allowImageCheckbox = document.getElementById("settings-allow-image") as HTMLInputElement;
   allowImageCheckbox.checked = isImageConversionAllowed();
+
+  initAppearanceControls();
 
   const autosaveCheckbox = document.getElementById("settings-autosave") as HTMLInputElement;
   autosaveCheckbox.checked = isAutoSaveEnabled();

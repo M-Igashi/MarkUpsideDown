@@ -4,8 +4,9 @@ import {
   lineNumbers,
   highlightActiveLine,
   drawSelection,
+  placeholder,
 } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { defaultKeymap, indentWithTab, history, historyKeymap } from "@codemirror/commands";
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from "@codemirror/language";
@@ -195,6 +196,7 @@ import {
 import { showDropdown, type MenuItem } from "./context-menu.ts";
 import { hydrateIcons, icon } from "./icons.ts";
 import { escapeHtml } from "./html-utils.ts";
+import { getAppearance, watchAppearance } from "./appearance.ts";
 // --- Window label (must run before any state restoration) ---
 initWindowLabel();
 const isFreshWindow = new URLSearchParams(window.location.search).has("fresh");
@@ -277,11 +279,14 @@ const updatePreviewListener = EditorView.updateListener.of((update) => {
   }
 });
 
+const lineNumbersCompartment = new Compartment();
+
 const editor = new EditorView({
   state: EditorState.create({
-    doc: "# Welcome to MarkUpsideDown\n\nStart typing your Markdown here…\n",
+    doc: "",
     extensions: [
-      lineNumbers(),
+      lineNumbersCompartment.of(getAppearance().lineNumbers ? lineNumbers() : []),
+      placeholder("Start writing, or paste a URL above…"),
       highlightActiveLine(),
       drawSelection(),
       bracketMatching(),
@@ -327,6 +332,9 @@ const previewPane = document.getElementById("preview-pane")!;
 const editorPane = document.getElementById("editor-pane")!;
 const cmScroller = editor.dom.querySelector(".cm-scroller")! as HTMLElement;
 hydrateIcons();
+watchAppearance(({ lineNumbers: show }) => {
+  editor.dispatch({ effects: lineNumbersCompartment.reconfigure(show ? lineNumbers() : []) });
+});
 const statusEl = document.getElementById("status")!;
 
 // --- Initialize modules ---
@@ -419,6 +427,9 @@ function updateStatus(state: EditorState) {
       (behind ? `<span class="status-sync">${icon("arrow-down", 11)}${behind}</span>` : "");
     branchEl.innerHTML = `${icon("git-branch", 12)}<span>${escapeHtml(branch)}</span>${sync}`;
   }
+
+  const isBlank = !getCurrentFilePath() && state.doc.length === 0;
+  document.getElementById("preview-wrapper")!.classList.toggle("is-empty", isBlank);
 
   const publishedEl = document.getElementById("status-published")!;
   const target = publishTarget();
@@ -1152,6 +1163,34 @@ previewHeader.appendChild(previewFoldBtn);
 previewWrapper.prepend(previewHeader);
 initPreviewSearch(previewPane, previewWrapper, editorContainer, { onClose: () => editor.focus() });
 
+// Start sheet: covers the blank preview while an untitled document is empty.
+// It is chrome, not content, so it never reaches the document, print, or MCP.
+const startSheet = document.createElement("div");
+startSheet.className = "start-sheet";
+startSheet.innerHTML = `
+  <svg class="start-mark" viewBox="240 260 544 580" aria-hidden="true">
+    <g fill="none" stroke-width="80" stroke-linejoin="miter" stroke-miterlimit="6">
+      <path d="M290,566 V306 L512,540 L734,306 V566" stroke="var(--ink)"/>
+      <path d="M512,540 V762" stroke="var(--accent)"/>
+      <path d="M394,674 L512,792 L630,674" stroke="var(--accent)"/>
+    </g>
+  </svg>
+  <h2>Start with anything</h2>
+  <p>Write on the left, or bring in a web page, a PDF, an Office file, or a whole site.</p>
+  <div class="start-actions">
+    <button class="btn" data-start="url">${icon("link")}Paste a URL</button>
+    <button class="btn" data-start="import">${icon("file-down")}Import a Document</button>
+    <button class="btn" data-start="folder">${icon("folder-open")}Open a Folder</button>
+  </div>
+  <p class="start-hint"><kbd>⌘K</kbd> for everything else</p>`;
+startSheet.addEventListener("click", (e) => {
+  const action = (e.target as HTMLElement).closest<HTMLElement>("[data-start]")?.dataset.start;
+  if (action === "url") document.getElementById("url-input")!.focus();
+  else if (action === "import") importFile();
+  else if (action === "folder") openFolder();
+});
+previewWrapper.appendChild(startSheet);
+
 // Unfold buttons live in the other pane's header while a pane is collapsed
 
 const editorUnfoldBtn = document.createElement("button");
@@ -1378,7 +1417,7 @@ initTabs(tabBarEl, {
     }
   },
   onEmpty: () => {
-    loadContent("# Welcome to MarkUpsideDown\n\nStart typing your Markdown here…\n");
+    loadContent("");
   },
   onReload: reloadTab,
   onOpen: (tab) => {

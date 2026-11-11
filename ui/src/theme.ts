@@ -2,89 +2,114 @@ import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 
-// Colors come from the CSS custom properties in styles.css
-const bg = "var(--surface)";
-const surface = "var(--chrome)";
-const border = "var(--rule)";
-const text = "var(--ink)";
-const textMuted = "var(--ink-2)";
-const accent = "var(--accent)";
-const green = "var(--success)";
-const red = "var(--error)";
-const yellow = "#9a6f00";
-const mauve = "#7b5ea7";
+// The editor is the manuscript sheet next to the preview's printed page.
+// Colors come from the CSS custom properties in styles.css.
 
 const theme = EditorView.theme(
   {
     "&": {
-      color: text,
-      backgroundColor: bg,
+      color: "var(--ink)",
+      backgroundColor: "var(--paper)",
+    },
+    ".cm-scroller": {
+      fontFamily: "var(--font-mono)",
+      lineHeight: "1.7",
     },
     ".cm-content": {
-      caretColor: accent,
-      fontFamily: "var(--font-mono)",
-      padding: "16px 0",
+      caretColor: "var(--accent)",
+      boxSizing: "border-box",
+      maxWidth: "calc(46rem + 64px)",
+      margin: "0 auto",
+      padding: "28px 32px 64px",
     },
     ".cm-cursor, .cm-dropCursor": {
-      borderLeftColor: accent,
+      borderLeftColor: "var(--accent)",
+      borderLeftWidth: "2px",
     },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
-      backgroundColor: "var(--accent-soft)",
+      backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)",
     },
     ".cm-activeLine": {
-      backgroundColor: "rgba(0, 0, 0, 0.03)",
+      backgroundColor: "rgba(60, 50, 30, 0.025)",
     },
     ".cm-gutters": {
-      backgroundColor: bg,
+      backgroundColor: "var(--paper)",
       color: "var(--ink-3)",
       border: "none",
-      paddingRight: "8px",
     },
     ".cm-activeLineGutter": {
-      backgroundColor: "rgba(0, 0, 0, 0.03)",
-      color: textMuted,
+      backgroundColor: "transparent",
+      color: "var(--ink-2)",
     },
     ".cm-lineNumbers .cm-gutterElement": {
-      padding: "0 8px",
+      padding: "0 8px 0 12px",
       fontSize: "var(--fs-sm)",
     },
     ".cm-panels": {
-      backgroundColor: surface,
-      color: text,
-      borderBottom: `1px solid ${border}`,
+      backgroundColor: "var(--surface)",
+      color: "var(--ink)",
+      fontFamily: "var(--font-sans)",
     },
     ".cm-panels.cm-panels-top": {
-      borderBottom: `1px solid ${border}`,
+      borderBottom: "1px solid var(--rule)",
+    },
+    ".cm-panels.cm-panels-bottom": {
+      borderTop: "1px solid var(--rule)",
     },
     ".cm-search": {
-      padding: "8px 12px",
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      padding: "6px 12px",
       gap: "6px",
-    },
-    ".cm-search label": {
-      color: textMuted,
       fontSize: "var(--fs-sm)",
     },
-    ".cm-search input, .cm-search select": {
+    ".cm-search br": {
+      display: "none",
+    },
+    ".cm-search label": {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "4px",
+      color: "var(--ink-2)",
+      fontSize: "var(--fs-sm)",
+    },
+    ".cm-search input[type=checkbox]": {
+      accentColor: "var(--accent)",
+    },
+    ".cm-textfield": {
+      height: "24px",
+      padding: "0 6px",
+      fontSize: "var(--fs-sm)",
       backgroundColor: "var(--paper)",
-      color: text,
-      border: `1px solid ${border}`,
+      color: "var(--ink)",
+      border: "1px solid var(--rule)",
       borderRadius: "var(--r-sm)",
-      padding: "2px 6px",
       outline: "none",
     },
-    ".cm-search input:focus": {
-      borderColor: accent,
+    ".cm-textfield:focus": {
+      borderColor: "var(--accent)",
+      boxShadow: "0 0 0 3px var(--accent-ring)",
     },
-    ".cm-search button": {
-      backgroundColor: border,
-      color: text,
-      border: "none",
+    ".cm-button": {
+      height: "24px",
+      padding: "0 8px",
+      fontSize: "var(--fs-sm)",
+      backgroundImage: "none",
+      backgroundColor: "var(--paper)",
+      color: "var(--ink)",
+      border: "1px solid var(--rule)",
       borderRadius: "var(--r-sm)",
-      padding: "2px 10px",
       cursor: "pointer",
     },
-    ".cm-search button:hover": {
-      backgroundColor: "var(--rule-strong)",
+    ".cm-button:hover": {
+      borderColor: "var(--rule-strong)",
+    },
+    ".cm-search [name=close]": {
+      marginLeft: "auto",
+      fontSize: "16px",
+      color: "var(--ink-2)",
+      cursor: "pointer",
     },
     ".cm-searchMatch": {
       backgroundColor: "color-mix(in srgb, var(--accent) 15%, transparent)",
@@ -93,26 +118,35 @@ const theme = EditorView.theme(
     ".cm-searchMatch-selected": {
       backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)",
     },
+    ".cm-placeholder": {
+      color: "var(--ink-3)",
+      fontFamily: "var(--font-sans)",
+    },
   },
   { dark: false },
 );
 
+// Ink on paper: structure through weight and size, Markdown syntax marks
+// recede, color is kept for links and code.
+const codeInk = "#3d6b47";
 const highlighting = HighlightStyle.define([
-  { tag: tags.heading, color: accent, fontWeight: "bold" },
+  { tag: tags.heading, color: "var(--ink)", fontWeight: "bold" },
   { tag: tags.heading1, fontSize: "1.4em" },
   { tag: tags.heading2, fontSize: "1.2em" },
-  { tag: tags.emphasis, fontStyle: "italic", color: yellow },
-  { tag: tags.strong, fontWeight: "bold", color: "#5a4a2c" },
-  { tag: tags.link, color: accent, textDecoration: "underline" },
-  { tag: tags.url, color: accent },
-  { tag: tags.monospace, color: green },
-  { tag: tags.quote, color: textMuted, fontStyle: "italic" },
-  { tag: tags.keyword, color: mauve },
-  { tag: tags.string, color: green },
-  { tag: tags.number, color: yellow },
-  { tag: tags.comment, color: textMuted },
-  { tag: tags.meta, color: red },
-  { tag: tags.processingInstruction, color: textMuted },
+  { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.strong, fontWeight: "bold" },
+  { tag: tags.strikethrough, textDecoration: "line-through", color: "var(--ink-2)" },
+  { tag: tags.link, color: "var(--accent)" },
+  { tag: tags.url, color: "var(--ink-3)" },
+  { tag: tags.monospace, color: codeInk },
+  { tag: tags.quote, color: "var(--ink-2)" },
+  { tag: tags.processingInstruction, color: "var(--ink-3)" },
+  { tag: tags.labelName, color: "var(--ink-3)" },
+  { tag: tags.keyword, color: "#6b4f9a" },
+  { tag: tags.string, color: codeInk },
+  { tag: tags.number, color: "#9a5a12" },
+  { tag: tags.comment, color: "var(--ink-3)", fontStyle: "italic" },
+  { tag: tags.meta, color: "var(--ink-3)" },
 ]);
 
 export const editorTheme = [theme, syntaxHighlighting(highlighting)];
