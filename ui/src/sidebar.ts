@@ -1617,7 +1617,7 @@ function showMultiContextMenu(event: MouseEvent) {
               title: "Batch Import",
               kind: "info",
             });
-            const result = await convertFiles(convertiblePaths, rootPath!);
+            const result = await convertFiles(convertiblePaths);
             if (!result) return;
             refreshTree();
             const errors = result.failed.map((f) => `${f.name}: ${f.error}`).join("\n");
@@ -2030,7 +2030,14 @@ async function pasteEntry() {
 
   try {
     for (const sourcePath of clipboardPaths) {
-      await invoke("copy_entry", { from: sourcePath, toDir: targetDir });
+      // Pasting into the copied folder itself, or next to the original,
+      // makes a numbered duplicate instead
+      const intoItself = targetDir === sourcePath || targetDir.startsWith(sourcePath + "/");
+      if (intoItself || dirname(sourcePath) === targetDir) {
+        await invoke("duplicate_entry", { path: sourcePath });
+      } else {
+        await invoke("copy_entry", { from: sourcePath, toDir: targetDir });
+      }
     }
     clipboardPaths.clear();
     clipboardMode = null;
