@@ -1,5 +1,5 @@
 // Bump this when adding/changing endpoints so the app can detect outdated Workers.
-export const WORKER_VERSION = 14;
+export const WORKER_VERSION = 15;
 
 // --- Browser Run ---
 // Quick Actions cache their results on Cloudflare's side (max 86,400 seconds).
