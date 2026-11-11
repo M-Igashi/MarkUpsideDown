@@ -178,7 +178,7 @@ pub async fn crawl_save(
     let base = super::validate_path(&base_dir)?;
     let base = base.to_string_lossy();
     let mut saved_count = 0u32;
-    let mut paths = Vec::with_capacity(pages.len());
+    let mut paths = Vec::new();
 
     for page in &pages {
         let file_path = url_to_filepath(&page.url, &base);

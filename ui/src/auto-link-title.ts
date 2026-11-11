@@ -47,7 +47,7 @@ export const autoLinkTitle = ViewPlugin.fromClass(
         if (current.trim() !== url) return;
 
         const text = escapeLinkText(title.replace(/\s+/g, " "));
-        const link = `[${text}](${url.replace(/[()]/g, "\\$&")})`;
+        const link = `[${text}](${url.replace(/[()\\]/g, "\\$&")})`;
         view.dispatch({
           changes: { from, to, insert: link },
           // Put cursor after the link
