@@ -1,5 +1,6 @@
 import { KEY_TABS, windowKey } from "./storage-keys.ts";
 import { basename, buildRelativePath } from "./path-utils.ts";
+import { icon } from "./icons.ts";
 
 // --- Types ---
 
@@ -553,8 +554,9 @@ function renderTabs(): void {
 
     const closeBtn = document.createElement("button");
     closeBtn.className = "tab-close";
-    closeBtn.textContent = "×";
+    closeBtn.innerHTML = icon("x", 13);
     closeBtn.title = "Close tab";
+    closeBtn.setAttribute("aria-label", closeBtn.title);
     closeBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       requestCloseTab(tab.id);

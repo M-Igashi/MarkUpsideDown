@@ -12,6 +12,7 @@ import {
   KEY_RENDER_AVAILABLE,
 } from "./storage-keys.ts";
 import { escapeHtml } from "./html-utils.ts";
+import { icon } from "./icons.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -206,7 +207,7 @@ function renderFeatureList(container: HTMLElement | null, status: WorkerStatus |
     .map(
       (r) => `
     <div class="feature-row ${r.ok ? "feature-ok" : "feature-needs"}">
-      <span class="feature-icon">${r.ok ? "\u2713" : "\u25CF"}</span>
+      <span class="feature-icon">${icon(r.ok ? "circle-check" : "circle-alert", 14)}</span>
       <span class="feature-name">${r.name}</span>
       <span class="feature-hint">${r.hint}</span>
     </div>`,
@@ -245,24 +246,24 @@ function renderSetupProgress(container: HTMLElement, stepStates: Record<string, 
   }
   stepsDiv.innerHTML = SETUP_STEPS.map((step) => {
     const state = stepStates[step.id] || "pending";
-    let icon, cls;
+    let stepIcon, cls;
     if (state === "done") {
-      icon = "\u2713";
+      stepIcon = icon("check", 14);
       cls = "setup-step-done";
     } else if (state === "running") {
-      icon = "\u25CF";
+      stepIcon = icon("loader-circle", 14);
       cls = "setup-step-running";
     } else if (state === "error") {
-      icon = "\u2717";
+      stepIcon = icon("x", 14);
       cls = "setup-step-error";
     } else if (state === "skipped") {
-      icon = "\u2014";
+      stepIcon = icon("minus", 14);
       cls = "setup-step-skipped";
     } else {
-      icon = "\u25CB";
+      stepIcon = icon("circle", 14);
       cls = "setup-step-pending";
     }
-    return `<div class="setup-step ${cls}"><span class="setup-step-icon">${icon}</span> ${step.label}</div>`;
+    return `<div class="setup-step ${cls}"><span class="setup-step-icon">${stepIcon}</span> ${step.label}</div>`;
   }).join("");
 }
 
@@ -605,7 +606,7 @@ export function showSettings({
     <div class="settings-box">
       <div class="settings-header">
         <span class="settings-title">Settings</span>
-        <button id="settings-close" class="icon-btn settings-close-btn" title="Close">&times;</button>
+        <button id="settings-close" class="icon-btn settings-close-btn" title="Close" aria-label="Close">${icon("x", 18)}</button>
       </div>
 
       <div class="settings-section">
@@ -1113,7 +1114,7 @@ function renderClaudeDesktopCodeTab(container: HTMLElement, binaryPath: string, 
       Changes to files are auto-detected by MarkUpsideDown's file-watcher — no manual reload needed.
     </div>
     <div class="settings-mcp-note settings-mcp-warning">
-      ⚠ The config contains your secret Worker URL and API key. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
+      ${icon("triangle-alert", 13)} The config contains your secret Worker URL and API key. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
     </div>
   `;
   attachCopyHandler(container);
@@ -1140,7 +1141,7 @@ function renderClaudeCodeTerminalTab(
     <pre class="settings-code settings-mcp-json">${escapeHtml(maskWorkerKey(json))}</pre>
     <button class="btn btn-sm settings-mcp-copy-btn" data-copy-text="${escapeHtml(json)}">Copy to clipboard</button>
     <div class="settings-mcp-note settings-mcp-warning">
-      ⚠ The config contains your secret Worker URL and API key. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
+      ${icon("triangle-alert", 13)} The config contains your secret Worker URL and API key. Do not commit <code>.mcp.json</code> to public repositories — add it to <code>.gitignore</code>.
     </div>
   `;
   attachCopyHandler(container);

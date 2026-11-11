@@ -1,4 +1,5 @@
 import { copySvgAsPng } from "./html-utils.ts";
+import { icon } from "./icons.ts";
 
 let overlay: HTMLDivElement | null = null;
 let scale = 1;
@@ -169,10 +170,14 @@ export function open(mermaidContainer: HTMLElement) {
   const closeBtn = makeBtn("Close", close);
   closeBtn.classList.add("mermaid-viewer-text-btn", "mermaid-viewer-close-btn");
 
-  const zoomOut = makeBtn("\u2212", () => zoom(-ZOOM_STEP * scale));
+  const zoomOut = makeBtn("", () => zoom(-ZOOM_STEP * scale));
+  zoomOut.innerHTML = icon("zoom-out");
+  zoomOut.title = "Zoom out (−)";
   const zoomLabel = document.createElement("span");
   zoomLabel.className = "mermaid-viewer-zoom-label";
-  const zoomIn = makeBtn("+", () => zoom(ZOOM_STEP * scale));
+  const zoomIn = makeBtn("", () => zoom(ZOOM_STEP * scale));
+  zoomIn.innerHTML = icon("zoom-in");
+  zoomIn.title = "Zoom in (+)";
   const fitBtn = makeBtn("Fit", fitToView);
   fitBtn.classList.add("mermaid-viewer-text-btn");
 

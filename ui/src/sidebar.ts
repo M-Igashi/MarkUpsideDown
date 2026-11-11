@@ -41,6 +41,7 @@ import {
   unpublishFile,
   type ExpiryOption,
 } from "./publish.ts";
+import { icon, type IconName } from "./icons.ts";
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { open: openDialog, confirm, message } = window.__TAURI__.dialog;
@@ -318,15 +319,17 @@ function populateHeaderActions(container: Element) {
   if (activePanel === "files") {
     const dotBtn = document.createElement("button");
     dotBtn.title = showDotfiles ? "Hide dotfiles" : "Show dotfiles";
+    dotBtn.setAttribute("aria-label", dotBtn.title);
     dotBtn.className = "icon-btn icon-btn-sm dotfile-toggle";
     dotBtn.classList.toggle("active", showDotfiles);
-    dotBtn.innerHTML =
-      '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/></svg>';
+    dotBtn.innerHTML = icon(showDotfiles ? "eye" : "eye-off", 14);
     dotBtn.addEventListener("click", () => {
       showDotfiles = !showDotfiles;
       setStorageBool(KEY_SIDEBAR_SHOW_DOTFILES, showDotfiles);
       dotBtn.title = showDotfiles ? "Hide dotfiles" : "Show dotfiles";
+      dotBtn.setAttribute("aria-label", dotBtn.title);
       dotBtn.classList.toggle("active", showDotfiles);
+      dotBtn.innerHTML = icon(showDotfiles ? "eye" : "eye-off", 14);
       refreshTree();
     });
     container.appendChild(dotBtn);
@@ -334,8 +337,8 @@ function populateHeaderActions(container: Element) {
     const openBtn = document.createElement("button");
     openBtn.className = "icon-btn icon-btn-sm";
     openBtn.title = "Open Folder";
-    openBtn.innerHTML =
-      '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13V3a1 1 0 011-1h4l2 2h4a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1z"/></svg>';
+    openBtn.setAttribute("aria-label", openBtn.title);
+    openBtn.innerHTML = icon("folder-open", 14);
     openBtn.addEventListener("click", openFolder);
     container.appendChild(openBtn);
   }
@@ -357,8 +360,9 @@ function updateFilterScopeBadge() {
   badge.appendChild(label);
   const clearBtn = document.createElement("button");
   clearBtn.className = "sidebar-filter-scope-clear";
-  clearBtn.textContent = "✕";
+  clearBtn.innerHTML = icon("x", 12);
   clearBtn.title = "Clear scope";
+  clearBtn.setAttribute("aria-label", clearBtn.title);
   clearBtn.addEventListener("click", () => {
     filterScope = null;
     updateFilterScopeBadge();
@@ -387,8 +391,9 @@ function updateTagFilterBadge() {
   badge.appendChild(label);
   const clearBtn = document.createElement("button");
   clearBtn.className = "sidebar-filter-scope-clear";
-  clearBtn.textContent = "✕";
+  clearBtn.innerHTML = icon("x", 12);
   clearBtn.title = "Clear tag filter";
+  clearBtn.setAttribute("aria-label", clearBtn.title);
   clearBtn.addEventListener("click", () => {
     tagFilter = null;
     updateTagFilterBadge();
@@ -459,7 +464,8 @@ function render() {
   const foldBtn = document.createElement("button");
   foldBtn.className = "icon-btn icon-btn-sm panel-fold-btn";
   foldBtn.title = "Collapse Sidebar (⌘1)";
-  foldBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"/></svg>`;
+  foldBtn.setAttribute("aria-label", foldBtn.title);
+  foldBtn.innerHTML = icon("chevron-left", 14);
   foldBtn.addEventListener("click", () => onSidebarFold?.());
   actions.appendChild(foldBtn);
 
@@ -606,11 +612,10 @@ function panelTitle(): string {
   }
 }
 
-// SVG icons (16x16, stroke-based for consistency)
-const SVG_FILES = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2h4l2 2h6v9H2V2z"/><path d="M2 5h12"/></svg>`;
-const SVG_GIT = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="3.5" r="1.5"/><circle cx="8" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M8 5v6"/><path d="M9.4 4.2 11 6.5"/></svg>`;
-const SVG_CLONE = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg>`;
-const SVG_GITHUB = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="1.6"/></svg>`;
+const SVG_FILES = icon("files");
+const SVG_GIT = icon("git-compare");
+const SVG_CLONE = icon("git-branch-plus");
+const SVG_GITHUB = icon("circle-dot");
 
 function syncGitBadge(btn: Element, count: number) {
   const existing = btn.querySelector(".sidebar-nav-badge");
@@ -629,6 +634,7 @@ function createNavButton(panel: SidebarPanel, label: string, svgIcon: string): H
   btn.dataset.panel = panel;
   if (panel === activePanel) btn.classList.add("active");
   btn.title = label;
+  btn.setAttribute("aria-label", btn.title);
   btn.innerHTML = svgIcon;
 
   if (panel === "git") syncGitBadge(btn, gitChangeCount);
@@ -1087,15 +1093,17 @@ function createTreeItem(entry: DirEntry, depth: number, displayName?: string) {
   const indicator = document.createElement("span");
   indicator.className = "sidebar-tree-indicator";
   if (entry.is_dir) {
-    indicator.textContent = expandedDirs.has(entry.path) ? "▾" : "▸";
+    indicator.innerHTML = icon("chevron-right", 12);
+    indicator.classList.toggle("expanded", expandedDirs.has(entry.path));
   }
   item.appendChild(indicator);
 
   // Icon
-  const icon = document.createElement("span");
-  icon.className = "sidebar-tree-icon";
-  icon.textContent = entry.is_dir ? "📁" : fileIcon(entry.extension ?? "");
-  item.appendChild(icon);
+  const iconEl = document.createElement("span");
+  const kind = entry.is_dir ? "folder" : fileKind(entry.extension ?? "");
+  iconEl.className = `sidebar-tree-icon kind-${kind}`;
+  iconEl.innerHTML = icon(FILE_ICONS[kind], 15);
+  item.appendChild(iconEl);
 
   // Name
   const name = document.createElement("span");
@@ -1275,33 +1283,43 @@ function createTreeItem(entry: DirEntry, depth: number, displayName?: string) {
   return item;
 }
 
-function fileIcon(ext: string) {
-  switch (ext) {
+const FILE_ICONS = {
+  folder: "folder",
+  markdown: "file-text",
+  data: "braces",
+  code: "file-code",
+  image: "image",
+  pdf: "file-type",
+  other: "file",
+} as const satisfies Record<string, IconName>;
+
+function fileKind(ext: string): keyof typeof FILE_ICONS {
+  switch (ext.toLowerCase()) {
     case "md":
     case "markdown":
     case "mdx":
-      return "📝";
+      return "markdown";
     case "json":
     case "toml":
     case "yaml":
     case "yml":
-      return "⚙️";
+      return "data";
     case "js":
     case "ts":
     case "rs":
     case "py":
-      return "📄";
+      return "code";
     case "jpg":
     case "jpeg":
     case "png":
     case "gif":
     case "webp":
     case "svg":
-      return "🖼️";
+      return "image";
     case "pdf":
-      return "📕";
+      return "pdf";
     default:
-      return "📄";
+      return "other";
   }
 }
 

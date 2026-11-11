@@ -4,6 +4,7 @@
 import type { EditorView } from "@codemirror/view";
 import { getDocumentStructure, type FrontmatterInfo } from "./document-structure.ts";
 import { escapeHtml } from "./html-utils.ts";
+import { icon } from "./icons.ts";
 
 let panelEl: HTMLElement | null = null;
 let editor: EditorView;
@@ -68,7 +69,7 @@ function renderPanel() {
   const collapsed = panelEl.dataset.collapsed === "true";
 
   let html = `<div class="frontmatter-header">`;
-  html += `<button class="frontmatter-toggle" title="Toggle frontmatter">${collapsed ? "\u25B6" : "\u25BC"} Frontmatter</button>`;
+  html += `<button class="frontmatter-toggle${collapsed ? "" : " expanded"}" title="Toggle frontmatter">${icon("chevron-right", 12)} Frontmatter</button>`;
   if (!lastFm.valid) {
     html += `<span class="frontmatter-warning">Invalid YAML</span>`;
   }

@@ -8,9 +8,9 @@
   </head>
   <body>
     <div id="toolbar">
-      <button id="btn-open" title="Open file" class="icon-btn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13V3a1 1 0 011-1h4l2 2h4a1 1 0 011 1v1"/><path d="M2 13l1.5-6h11L13 13H2z"/></svg></button>
-      <button id="btn-save" title="Save file" class="icon-btn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 14H3a1 1 0 01-1-1V3a1 1 0 011-1h7l3 3v8a1 1 0 01-1 1z"/><path d="M10 14V9H6v5"/><path d="M6 2v3h4"/></svg></button>
-      <button id="btn-import" title="Import document as Markdown" class="icon-btn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg></button>
+      <button id="btn-open" title="Open file" class="icon-btn" data-icon="folder-open"></button>
+      <button id="btn-save" title="Save file" class="icon-btn" data-icon="save"></button>
+      <button id="btn-import" title="Import document as Markdown" class="icon-btn" data-icon="file-down"></button>
       <span class="separator"></span>
       <div id="url-bar">
         <input type="url" id="url-input" placeholder="Enter URL to fetch as Markdown…" />
@@ -21,7 +21,7 @@
       <button id="btn-table" title="Insert or edit Markdown table">Table</button>
       <button id="btn-cleanup" title="Clean up Markdown structure (normalize headings, links, tables)">Clean up</button>
       <span class="spacer"></span>
-      <button id="btn-settings" title="Settings" class="icon-btn"><svg width="16" height="16" viewBox="-1 -1 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 1.6h2.8l.4 2 1.4.8 1.9-.8 1.4 1.4-.8 1.9.8 1.4 2 .4v2.8l-2 .4-.8 1.4.8 1.9-1.4 1.4-1.9-.8-1.4.8-.4 2H6.6l-.4-2-1.4-.8-1.9.8-1.4-1.4.8-1.9-.8-1.4-2-.4V6.6l2-.4.8-1.4-.8-1.9 1.4-1.4 1.9.8 1.4-.8z"/><circle cx="8" cy="8" r="2.3"/></svg></button>
+      <button id="btn-settings" title="Settings" class="icon-btn" data-icon="settings"></button>
     </div>
     <div id="app">
       <div id="sidebar"></div>

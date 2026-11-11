@@ -2,6 +2,7 @@
 
 import { clampToViewport, writeTextFile } from "./html-utils.ts";
 import { relativeToRoot } from "./path-utils.ts";
+import { icon } from "./icons.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -198,8 +199,9 @@ export function showTagPopover(
         // Delete button
         const del = document.createElement("button");
         del.className = "tag-popover-delete";
-        del.textContent = "✕";
+        del.innerHTML = icon("x", 12);
         del.title = `Delete tag "${tagName}"`;
+        del.setAttribute("aria-label", del.title);
         del.addEventListener("click", async (e) => {
           e.stopPropagation();
           await deleteTag(tagName);

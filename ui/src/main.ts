@@ -171,6 +171,7 @@ import {
 } from "./toc-panel.ts";
 import { startPresentation } from "./presentation.ts";
 import { setPublishProjectRoot, loadPublishState } from "./publish.ts";
+import { hydrateIcons, icon } from "./icons.ts";
 // --- Window label (must run before any state restoration) ---
 initWindowLabel();
 const isFreshWindow = new URLSearchParams(window.location.search).has("fresh");
@@ -302,6 +303,7 @@ const editor = new EditorView({
 const previewPane = document.getElementById("preview-pane")!;
 const editorPane = document.getElementById("editor-pane")!;
 const cmScroller = editor.dom.querySelector(".cm-scroller")! as HTMLElement;
+hydrateIcons();
 const statusEl = document.getElementById("status")!;
 
 // --- Initialize modules ---
@@ -913,13 +915,14 @@ makeDraggable(
 
 // --- Panel Fold/Unfold ---
 
-const SVG_CHEVRON_LEFT = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"/></svg>`;
-const SVG_CHEVRON_RIGHT = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l4 4-4 4"/></svg>`;
+const SVG_CHEVRON_LEFT = icon("chevron-left", 14);
+const SVG_CHEVRON_RIGHT = icon("chevron-right", 14);
 
 // Editor fold button (in tab-bar, right side)
 const editorFoldBtn = document.createElement("button");
 editorFoldBtn.className = "icon-btn icon-btn-sm panel-fold-btn";
 editorFoldBtn.title = "Collapse Editor (⌘2)";
+editorFoldBtn.setAttribute("aria-label", editorFoldBtn.title);
 editorFoldBtn.innerHTML = SVG_CHEVRON_LEFT;
 
 // Preview header with fold button
@@ -928,6 +931,7 @@ previewHeader.className = "preview-header";
 const previewFoldBtn = document.createElement("button");
 previewFoldBtn.className = "icon-btn icon-btn-sm panel-fold-btn";
 previewFoldBtn.title = "Collapse Preview (⌘3)";
+previewFoldBtn.setAttribute("aria-label", previewFoldBtn.title);
 previewFoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 previewHeader.appendChild(previewFoldBtn);
 previewWrapper.insertBefore(previewHeader, previewPane);
@@ -939,18 +943,21 @@ const appEl = document.getElementById("app")!;
 const sidebarUnfoldBtn = document.createElement("button");
 sidebarUnfoldBtn.className = "panel-unfold-btn";
 sidebarUnfoldBtn.title = "Expand Sidebar (⌘1)";
+sidebarUnfoldBtn.setAttribute("aria-label", sidebarUnfoldBtn.title);
 sidebarUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 appEl.insertBefore(sidebarUnfoldBtn, sidebarDivider);
 
 const editorUnfoldBtn = document.createElement("button");
 editorUnfoldBtn.className = "panel-unfold-btn";
 editorUnfoldBtn.title = "Expand Editor (⌘2)";
+editorUnfoldBtn.setAttribute("aria-label", editorUnfoldBtn.title);
 editorUnfoldBtn.innerHTML = SVG_CHEVRON_RIGHT;
 appEl.insertBefore(editorUnfoldBtn, divider);
 
 const previewUnfoldBtn = document.createElement("button");
 previewUnfoldBtn.className = "panel-unfold-btn";
 previewUnfoldBtn.title = "Expand Preview (⌘3)";
+previewUnfoldBtn.setAttribute("aria-label", previewUnfoldBtn.title);
 previewUnfoldBtn.innerHTML = SVG_CHEVRON_LEFT;
 appEl.appendChild(previewUnfoldBtn);
 
