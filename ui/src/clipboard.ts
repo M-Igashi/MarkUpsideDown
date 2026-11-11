@@ -10,22 +10,43 @@ export function initClipboard(ed: EditorView, pp: HTMLElement, se: HTMLElement) 
   statusEl = se;
 }
 
+const UI_SELECTOR = ".code-copy-btn, .mermaid-copy-btn, .mermaid-expand-hint";
+
+// Copy without the preview's buttons, data-* attributes, and CJK hair spaces.
+// The container is attached off-screen so innerText keeps line breaks.
+function cleanCopy(range: Range): { html: string; text: string } {
+  const container = document.createElement("div");
+  container.style.cssText = "position:fixed;left:-99999px;top:0";
+  container.appendChild(range.cloneContents());
+  container.querySelectorAll(UI_SELECTOR).forEach((el) => el.remove());
+  for (const el of container.querySelectorAll("*")) {
+    for (const name of el.getAttributeNames()) {
+      if (name.startsWith("data-")) el.removeAttribute(name);
+    }
+  }
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    node.nodeValue = node.nodeValue!.replaceAll(" ", "");
+  }
+  document.body.appendChild(container);
+  const text = container.innerText;
+  container.remove();
+  return { html: container.innerHTML, text };
+}
+
 export async function copyRichText() {
   const sel = window.getSelection();
   const hasSelection = sel && !sel.isCollapsed && previewPane.contains(sel.anchorNode);
 
-  let html: string;
-  let text: string;
+  let range: Range;
   if (hasSelection) {
-    const range = sel.getRangeAt(0);
-    const container = document.createElement("div");
-    container.appendChild(range.cloneContents());
-    html = container.innerHTML;
-    text = sel.toString();
+    range = sel.getRangeAt(0);
   } else {
-    html = previewPane.innerHTML;
-    text = previewPane.innerText;
+    range = document.createRange();
+    range.selectNodeContents(previewPane);
   }
+  const { html, text } = cleanCopy(range);
 
   try {
     await navigator.clipboard.write([

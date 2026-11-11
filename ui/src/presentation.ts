@@ -1,18 +1,17 @@
-// Slide presentation mode: split document at `---` boundaries
+// Slide presentation mode: split document at horizontal rules
 // and display one slide at a time in fullscreen.
 
-import { markdownToSafeHtml } from "./preview-render.ts";
+import { markdownToSlides, renderSlide } from "./preview-render.ts";
+import { parseFrontmatter } from "./document-structure.ts";
 
 let overlay: HTMLElement | null = null;
 let slides: string[] = [];
 let currentSlide = 0;
 
 export function startPresentation(content: string) {
-  // Split at horizontal rules (--- on its own line)
-  slides = content
-    .split(/\n---\n/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  const lines = content.split("\n");
+  const fm = parseFrontmatter(lines);
+  slides = markdownToSlides(fm ? lines.slice(fm.endLine).join("\n") : content);
 
   if (slides.length === 0) return;
 
@@ -99,10 +98,9 @@ function navigate(dir: number) {
 function showSlide(index: number) {
   if (!overlay) return;
 
-  const slideEl = overlay.querySelector(".presentation-slide")!;
+  const slideEl = overlay.querySelector<HTMLElement>(".presentation-slide")!;
   const counterEl = overlay.querySelector(".presentation-counter")!;
 
-  const html = markdownToSafeHtml(slides[index]);
-  slideEl.innerHTML = `<article class="preview-page presentation-content">${html}</article>`;
+  void renderSlide(slideEl, slides[index]);
   counterEl.textContent = `${index + 1} / ${slides.length}`;
 }
