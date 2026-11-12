@@ -41,6 +41,17 @@ pub fn validate_path(path: &str) -> Result<std::path::PathBuf> {
     Ok(resolved)
 }
 
+/// Validate a rename destination. Only the parent is canonicalized: resolving
+/// the full path would turn `A.md` back into an existing `a.md` on a
+/// case-insensitive volume, making a case-only rename a silent no-op.
+fn validate_rename_dest(path: &str) -> Result<std::path::PathBuf> {
+    let p = std::path::Path::new(path);
+    let (Some(parent), Some(name)) = (p.parent(), p.file_name()) else {
+        return Err(AppError::Validation("Invalid destination path".into()));
+    };
+    Ok(validate_path(&parent.to_string_lossy())?.join(name))
+}
+
 /// Validate a path for read-only access. Allows any location since the user
 /// explicitly chose the file (e.g. via the native file dialog).
 pub fn validate_read_path(path: &str) -> Result<std::path::PathBuf> {
@@ -327,7 +338,7 @@ pub async fn create_directory(path: String) -> Result<()> {
 #[tauri::command]
 pub async fn rename_entry(from: String, to: String) -> Result<()> {
     let from = validate_path(&from)?;
-    let to = validate_path(&to)?;
+    let to = validate_rename_dest(&to)?;
     // rename(2) silently replaces the destination. Refuse unless the
     // destination is the source itself (a case-only rename on APFS).
     if let Ok(dest) = tokio::fs::symlink_metadata(&to).await {
@@ -653,4 +664,31 @@ pub async fn open_in_terminal(path: String) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn case_only_rename_changes_the_name_on_disk() {
+        let home = crate::util::home_dir().unwrap();
+        let dir = home.join(format!(".mud-rename-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "x").unwrap();
+        std::fs::write(dir.join("other.md"), "y").unwrap();
+        let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
+
+        rename_entry(path("a.md"), path("A.md")).await.unwrap();
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        let refused = rename_entry(path("A.md"), path("other.md")).await;
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        assert!(names.contains(&"A.md".to_string()), "{names:?}");
+        assert!(!names.contains(&"a.md".to_string()), "{names:?}");
+        assert!(refused.is_err());
+    }
 }
