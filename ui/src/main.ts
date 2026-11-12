@@ -162,7 +162,6 @@ import {
   KEY_STATUS_COUNT,
   initWindowLabel,
   windowKey,
-  getWindowLabel,
 } from "./storage-keys.ts";
 import {
   registerCommands,
@@ -1732,42 +1731,9 @@ registerCommands([
 
 // --- Window registry (session restoration) ---
 
-let lastWindowSnapshot = "";
-
-async function saveWindowRegistry() {
-  try {
-    // Load current registry and update this window's entry
-    type WindowEntry = {
-      label: string;
-      x?: number;
-      y?: number;
-      width: number;
-      height: number;
-    };
-    const label = getWindowLabel();
-    const entry = {
-      label,
-      x: window.screenX,
-      y: window.screenY,
-      width: window.outerWidth,
-      height: window.outerHeight,
-    };
-
-    // Skip the load + save IPC round-trip when geometry hasn't changed
-    const snapshot = JSON.stringify(entry);
-    if (snapshot === lastWindowSnapshot) return;
-    lastWindowSnapshot = snapshot;
-
-    const existing: WindowEntry[] = await invoke<WindowEntry[]>("load_window_registry").catch(
-      () => [] as WindowEntry[],
-    );
-
-    const filtered = (existing as (typeof entry)[]).filter((e) => e.label !== label);
-    filtered.push(entry);
-    await invoke("save_window_registry", { windows: filtered });
-  } catch {
-    // ignore
-  }
+// The backend reads this window's geometry from the native window.
+function saveWindowRegistry() {
+  invoke("save_window_registry").catch(() => {});
 }
 
 // Save registry periodically and on visibility change

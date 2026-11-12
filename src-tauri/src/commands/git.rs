@@ -1,17 +1,37 @@
 use serde::Serialize;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 
 use super::spawn_blocking;
 use crate::error::{AppError, Result};
 
 // --- CLI Command Runner ---
 
+/// Long enough for a slow push or pull, short enough that a dead connection
+/// or a credential prompt does not leave the panel spinning forever.
+const CLI_TIMEOUT: Duration = Duration::from_secs(120);
+const CLONE_TIMEOUT: Duration = Duration::from_secs(600);
+
 pub(super) fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new(cmd)
+    run_cli_with_timeout(cmd, args, CLI_TIMEOUT)
+}
+
+fn run_cli_with_timeout(cmd: &str, args: &[&str], timeout: Duration) -> Result<String> {
+    let child = Command::new(cmd)
         .args(args)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| AppError::Git(format!("Failed to run {cmd}: {e}")))?;
+    let output = crate::util::wait_with_timeout(child, timeout).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            AppError::Git(format!("{cmd} timed out after {} seconds", timeout.as_secs()))
+        } else {
+            AppError::Git(format!("Failed to run {cmd}: {e}"))
+        }
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -528,7 +548,7 @@ pub async fn git_clone(url: String, dest: String) -> Result<String> {
     spawn_blocking(move || {
         validate_clone_url(&url)?;
         reject_option_like("clone destination", &dest)?;
-        run_cli("git", &["clone", "--", &url, &dest]).map(|s| s.trim().to_string())
+        run_cli_with_timeout("git", &["clone", "--", &url, &dest], CLONE_TIMEOUT).map(|s| s.trim().to_string())
     })
     .await
 }

@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // All worker source files embedded at compile time
 const WORKER_INDEX_TS: &str = include_str!("../../worker/src/index.ts");
@@ -177,43 +176,15 @@ fn strip_ansi(s: &str) -> String {
 /// Wait for the child, killing it on timeout so it does not keep holding
 /// ports (the `wrangler login` callback) or files (the deploy temp dir).
 fn wait_with_timeout(
-    mut child: std::process::Child,
+    child: std::process::Child,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
-    let stdout = child.stdout.take().map(read_in_thread);
-    let stderr = child.stderr.take().map(read_in_thread);
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("wrangler command timed out".to_string());
-            }
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("wrangler process error: {e}"));
-            }
+    crate::util::wait_with_timeout(child, timeout).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            "wrangler command timed out".to_string()
+        } else {
+            format!("wrangler process error: {e}")
         }
-    };
-    let collect =
-        |h: Option<JoinHandle<Vec<u8>>>| h.and_then(|h| h.join().ok()).unwrap_or_default();
-    Ok(std::process::Output {
-        status,
-        stdout: collect(stdout),
-        stderr: collect(stderr),
-    })
-}
-
-/// Drain a pipe on its own thread so a full pipe buffer cannot block the child.
-fn read_in_thread<R: Read + Send + 'static>(mut reader: R) -> JoinHandle<Vec<u8>> {
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = reader.read_to_end(&mut buf);
-        buf
     })
 }
 
