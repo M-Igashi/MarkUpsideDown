@@ -56,6 +56,35 @@ function genId(): string {
   return `tab-${nextId++}`;
 }
 
+/**
+ * Prepare tabs loaded from storage: advance the ID counter past them, reset
+ * runtime-only fields, and resolve repeated IDs. Versions before 1.0 saved a
+ * carried-over untitled tab once per project switch, so stored state can hold
+ * many copies of one tab. Identical copies are dropped; a tab that shares an
+ * ID but differs gets a fresh one.
+ */
+function adoptStoredTabs(stored: Tab[]): Tab[] {
+  for (const tab of stored) {
+    const num = parseInt(tab.id?.replace("tab-", ""), 10);
+    if (num >= nextId) nextId = num + 1;
+    tab.savedContent = null; // will be set on reload from disk
+  }
+  const byId = new Map<string, Tab>();
+  return stored.filter((tab) => {
+    const first = byId.get(tab.id);
+    const sameSource =
+      first &&
+      first.path === tab.path &&
+      (first.remote && tab.remote
+        ? sameRemote(first.remote, tab.remote)
+        : !first.remote && !tab.remote);
+    if (sameSource && first.content === tab.content) return false;
+    if (first) tab.id = genId();
+    byId.set(tab.id, tab);
+    return true;
+  });
+}
+
 /** Storage key for a given project root. Falls back to the global key. */
 function tabsKey(root: string | null): string {
   return root ? `${KEY_TABS}:${root}` : KEY_TABS;
@@ -99,14 +128,8 @@ export function initTabs(
     if (saved) {
       try {
         const state = JSON.parse(saved);
-        tabs = state.tabs || [];
+        tabs = adoptStoredTabs(state.tabs || []);
         activeTabId = state.activeTabId || null;
-        // Ensure IDs are unique and initialize runtime-only fields
-        for (const tab of tabs) {
-          const num = parseInt(tab.id?.replace("tab-", ""), 10);
-          if (num >= nextId) nextId = num + 1;
-          tab.savedContent = null; // will be set on reload from disk
-        }
       } catch {
         // ignore
       }
@@ -193,19 +216,9 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
     (t) => !(t.path === null && !t.remote && untitledIds.has(t.id)),
   );
 
+  // Carried-over tabs that collide with restored ones get fresh IDs
   nextId = 1;
-  for (const tab of [...restoredTabs, ...untitled]) {
-    const num = parseInt(tab.id?.replace("tab-", ""), 10);
-    if (num >= nextId) nextId = num + 1;
-    tab.savedContent = null;
-  }
-  // Give carried-over tabs fresh IDs if they collide with restored ones
-  const restoredIds = new Set(restoredTabs.map((t) => t.id));
-  for (const tab of untitled) {
-    if (restoredIds.has(tab.id)) tab.id = genId();
-  }
-
-  tabs = [...restoredTabs, ...untitled];
+  tabs = adoptStoredTabs([...restoredTabs, ...untitled]);
 
   activeTabId = restoredActiveId;
 
