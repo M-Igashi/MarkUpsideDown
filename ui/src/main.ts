@@ -1744,21 +1744,42 @@ document.addEventListener("visibilitychange", () => {
 
 // --- Unsaved changes on window close ---
 
-window.__TAURI__.window?.getCurrentWindow().onCloseRequested(async (event) => {
+/** Save dirty tabs when auto-save can, otherwise ask. False keeps the window. */
+async function confirmUnsavedTabs(action: "Close the window" | "Quit"): Promise<boolean> {
   flushPendingContent();
   const dirty = getTabs().filter(isTabDirty);
-  if (dirty.length === 0) return;
+  if (dirty.length === 0) return true;
   if (isAutoSaveEnabled() && dirty.every((t) => t.path)) {
     const results = await Promise.all(dirty.map(saveTabToDisk));
-    if (results.every(Boolean)) return;
+    if (results.every(Boolean)) return true;
   }
   const names = dirty.map((t) => t.name).join(", ");
-  const ok = await confirmDialog(`Unsaved changes in: ${names}\n\nClose the window anyway?`, {
+  return confirmDialog(`Unsaved changes in: ${names}\n\n${action} anyway?`, {
     title: "Unsaved Changes",
     kind: "warning",
-    okLabel: "Close",
+    okLabel: action === "Quit" ? "Quit" : "Close",
   });
-  if (!ok) event.preventDefault();
+}
+
+window.__TAURI__.window?.getCurrentWindow().onCloseRequested(async (event) => {
+  if (!(await confirmUnsavedTabs("Close the window"))) event.preventDefault();
+});
+
+// Cmd+Q asks each window in turn (see `request_quit` in menu.rs)
+let quitCheckRunning = false;
+listenToWindow("app:quit-requested", async () => {
+  // A second Cmd+Q while the dialog is open must not stack another one
+  if (quitCheckRunning) return;
+  quitCheckRunning = true;
+  try {
+    flushPendingContent();
+    if (getTabs().some(isTabDirty)) await window.__TAURI__.window?.getCurrentWindow().setFocus();
+    const ok = await confirmUnsavedTabs("Quit").catch(() => false);
+    if (ok) await invoke("save_window_registry").catch(() => {});
+    invoke("quit_response", { ok });
+  } finally {
+    quitCheckRunning = false;
+  }
 });
 
 // --- Cleanup on window close ---

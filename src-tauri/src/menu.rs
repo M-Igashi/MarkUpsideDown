@@ -1,6 +1,8 @@
+use std::sync::{Arc, Mutex};
+
 use serde_json::json;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu, SubmenuBuilder};
-use tauri::{AppHandle, WebviewUrl, Wry};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, Wry};
 use tauri_plugin_store::StoreExt;
 
 const STORE_FILE: &str = "recent-files.json";
@@ -22,7 +24,15 @@ pub fn build(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .hide_others()
         .show_all()
         .separator()
-        .quit()
+        // Not the predefined Quit item: that one terminates the process
+        // without giving the windows a chance to save or ask.
+        .item(&MenuItem::with_id(
+            handle,
+            "quit",
+            "Quit MarkUpsideDown",
+            true,
+            Some("CmdOrCtrl+Q"),
+        )?)
         .build()?;
 
     // Open Recent submenu
@@ -164,6 +174,11 @@ pub fn handle_event(handle: &AppHandle, event: &MenuEvent) {
         return;
     }
 
+    if id == "quit" {
+        request_quit(handle);
+        return;
+    }
+
     if let Some(action) = id.strip_prefix("action:") {
         crate::util::emit_to_focused(handle, "menu:action", action.to_string());
         return;
@@ -180,6 +195,57 @@ pub fn handle_event(handle: &AppHandle, event: &MenuEvent) {
     {
         crate::util::emit_to_focused(handle, "menu:open-recent", path.clone());
     }
+}
+
+/// Windows that still have to agree before the app quits. The last one is
+/// the window being asked.
+#[derive(Default)]
+pub struct QuitQueue(Mutex<Vec<String>>);
+
+/// Ask every window with a loaded frontend to run its unsaved-changes check
+/// (`app:quit-requested`), one at a time, starting with the focused window.
+fn request_quit(handle: &AppHandle) {
+    let editor = handle.state::<Arc<crate::commands::EditorStates>>();
+    let focused = editor.get_focused_label();
+    let mut labels: Vec<String> = editor.get_all_windows().into_iter().map(|(l, _)| l).collect();
+    labels.sort_by_key(|l| Some(l) == focused.as_ref());
+    *handle.state::<QuitQueue>().0.lock().unwrap() = labels;
+    continue_quit(handle);
+}
+
+/// Ask the next window in the queue, or exit once none is left.
+fn continue_quit(handle: &AppHandle) {
+    {
+        let queue = handle.state::<QuitQueue>();
+        let mut queue = queue.0.lock().unwrap();
+        while let Some(label) = queue.last() {
+            if handle.get_webview_window(label).is_some()
+                && handle.emit_to(label.as_str(), "app:quit-requested", ()).is_ok()
+            {
+                return;
+            }
+            queue.pop();
+        }
+    }
+    crate::bridge::cleanup();
+    handle.exit(0);
+}
+
+/// A window's answer to `app:quit-requested`. `ok: false` cancels the quit.
+#[tauri::command]
+pub fn quit_response(window: tauri::WebviewWindow, queue: tauri::State<'_, QuitQueue>, ok: bool) {
+    {
+        let mut queue = queue.0.lock().unwrap();
+        if queue.last().map(String::as_str) != Some(window.label()) {
+            return;
+        }
+        if !ok {
+            queue.clear();
+            return;
+        }
+        queue.pop();
+    }
+    continue_quit(window.app_handle());
 }
 
 #[tauri::command]
