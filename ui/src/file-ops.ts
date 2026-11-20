@@ -396,7 +396,7 @@ export function initDragDrop(appEl: HTMLElement) {
     if (!files || files.length === 0) return;
 
     // If dropped on sidebar, let sidebar handle it
-    const sidebar = (e.target as HTMLElement).closest(".sidebar");
+    const sidebar = (e.target as HTMLElement).closest("#sidebar");
     if (sidebar) return;
 
     // Handle external file drop on editor area
