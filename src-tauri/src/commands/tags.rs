@@ -161,6 +161,30 @@ fn notify_changed(app: &AppHandle, root: &str) {
     let _ = app.emit("tags:changed", root);
 }
 
+/// Drop entries whose file is gone: renamed or deleted in Finder, in a
+/// terminal, or by git, where nothing could update the tags.
+async fn prune_at(root: &Path) -> Result<(TagsData, bool)> {
+    let mut pruned = false;
+    let data = apply_at(root, |data| {
+        let before = data.files.len();
+        data.files.retain(|path, _| root.join(path).exists());
+        pruned = data.files.len() != before;
+        Ok(())
+    })
+    .await?;
+    Ok((data, pruned))
+}
+
+/// Tags for the sidebar, with stale entries removed.
+#[tauri::command]
+pub async fn load_tags(app: AppHandle, root: String) -> Result<TagsData> {
+    let (data, pruned) = prune_at(&validate_path(&root)?).await?;
+    if pruned {
+        notify_changed(&app, &root);
+    }
+    Ok(data)
+}
+
 pub async fn read_tags(root: &str) -> Result<TagsData> {
     Ok(read(&validate_path(root)?).await)
 }
@@ -295,6 +319,35 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(read(&root).await.files.len(), 19);
+
+        tokio::fs::remove_dir_all(&root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn loading_drops_entries_whose_file_is_gone() {
+        let root = std::env::temp_dir().join(format!("mud-tags-prune-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        tokio::fs::create_dir_all(root.join("docs")).await.unwrap();
+        tokio::fs::write(root.join("docs/kept.md"), "").await.unwrap();
+        apply_at(&root, |d| {
+            apply_all(
+                d,
+                serde_json::json!([
+                    { "op": "create_tag", "name": "t", "color": "#000" },
+                    { "op": "add_file_tag", "paths": ["docs/kept.md", "docs/gone.md", "docs"], "tag": "t" },
+                ]),
+            )
+        })
+        .await
+        .unwrap();
+
+        let (data, pruned) = prune_at(&root).await.unwrap();
+        assert!(pruned);
+        assert_eq!(data.files.keys().collect::<Vec<_>>(), ["docs", "docs/kept.md"]);
+        assert_eq!(read(&root).await, data);
+        // The tag definition stays even when no file uses it
+        assert!(data.tags.contains_key("t"));
+        assert!(!prune_at(&root).await.unwrap().1);
 
         tokio::fs::remove_dir_all(&root).await.unwrap();
     }

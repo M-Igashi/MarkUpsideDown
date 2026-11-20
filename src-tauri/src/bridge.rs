@@ -646,9 +646,48 @@ struct RenameEntryRequest {
     to: String,
 }
 
-async fn rename_entry(Json(body): Json<RenameEntryRequest>) -> BridgeResult {
-    commands::rename_entry(body.from, body.to).await?;
+async fn rename_entry(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<RenameEntryRequest>,
+) -> BridgeResult {
+    commands::rename_entry(body.from.clone(), body.to.clone()).await?;
+    // Carry the tags along, as a rename in the sidebar does
+    if let (Some((root, from)), Some((to_root, to))) =
+        (project_relative(&state, &body.from), project_relative(&state, &body.to))
+    {
+        let op = if root == to_root {
+            commands::TagsOp::RenamePath { from, to }
+        } else {
+            commands::TagsOp::DeletePath { path: from }
+        };
+        update_tags_quietly(&state, &root, op).await;
+    }
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// Split a path into the root of the open project that contains it and the
+/// project-relative path that tags.json uses as a key.
+fn project_relative(state: &BridgeState, path: &str) -> Option<(String, String)> {
+    state
+        .editor
+        .get_all_windows()
+        .into_iter()
+        .filter_map(|(_, root)| root)
+        .filter_map(|root| {
+            let rel = std::path::Path::new(path).strip_prefix(&root).ok()?;
+            let rel = rel.to_str().filter(|r| !r.is_empty())?.to_string();
+            Some((root, rel))
+        })
+        // The innermost project when one open folder contains another
+        .max_by_key(|(root, _)| root.len())
+}
+
+/// Tags follow a file operation on a best-effort basis: the operation itself
+/// has already succeeded.
+async fn update_tags_quietly(state: &BridgeState, root: &str, op: commands::TagsOp) {
+    if let Err(e) = commands::apply_tag_ops(&state.app, root, vec![op]).await {
+        log::warn!("Failed to update tags in {root}: {e}");
+    }
 }
 
 #[derive(Deserialize)]
@@ -657,8 +696,14 @@ struct DeleteEntryRequest {
     is_dir: Option<bool>,
 }
 
-async fn delete_entry(Json(body): Json<DeleteEntryRequest>) -> BridgeResult {
-    commands::delete_entry(body.path, body.is_dir.unwrap_or(false)).await?;
+async fn delete_entry(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<DeleteEntryRequest>,
+) -> BridgeResult {
+    commands::delete_entry(body.path.clone(), body.is_dir.unwrap_or(false)).await?;
+    if let Some((root, path)) = project_relative(&state, &body.path) {
+        update_tags_quietly(&state, &root, commands::TagsOp::DeletePath { path }).await;
+    }
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

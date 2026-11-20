@@ -41,25 +41,20 @@ const PRESET_COLORS = [
 let currentRootPath: string | null = null;
 let data: TagsData = { tags: {}, files: {} };
 
-function tagsFilePath(): string | null {
-  if (!currentRootPath) return null;
-  return `${currentRootPath}/.markupsidedown/tags.json`;
-}
-
 export async function loadTags(rootPath: string): Promise<void> {
   currentRootPath = rootPath;
-  const fp = tagsFilePath();
-  if (!fp) return;
   try {
-    const raw = await invoke<string>("read_text_file", { path: fp });
-    const parsed = JSON.parse(raw);
-    data = {
-      tags: parsed.tags ?? {},
-      files: parsed.files ?? {},
-    };
+    // The backend drops entries whose file no longer exists
+    const loaded = await invoke<TagsData>("load_tags", { root: rootPath });
+    if (rootPath === currentRootPath) data = loaded;
   } catch {
     data = { tags: {}, files: {} };
   }
+}
+
+/** True when any file is tagged, i.e. a removed file could leave a stale entry. */
+export function hasTaggedFiles(): boolean {
+  return Object.keys(data.files).length > 0;
 }
 
 export async function reloadTags(): Promise<void> {

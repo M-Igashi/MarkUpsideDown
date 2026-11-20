@@ -229,7 +229,7 @@ These operate on the repository the open project's `origin` remote points at, us
 | `create_tag` | Create a new tag definition with a color | `name: string`, `color?: string` (hex, default: `#d94545`) |
 | `delete_tag` | Delete a tag and remove it from all files | `name: string` |
 
-Tags are stored in `.markupsidedown/tags.json` per project. Changes made via MCP are automatically synced to the frontend UI.
+Tags are stored in `.markupsidedown/tags.json` per project. Changes made via MCP are automatically synced to the frontend UI. `rename_entry` and `delete_entry` carry a file's tags along or remove them.
 
 </details>
 
