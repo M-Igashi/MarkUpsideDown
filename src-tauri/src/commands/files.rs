@@ -41,6 +41,25 @@ pub fn validate_path(path: &str) -> Result<std::path::PathBuf> {
     Ok(resolved)
 }
 
+/// Validate a destination whose parent directories may not exist yet (the
+/// caller creates them). The nearest existing ancestor is checked like
+/// `validate_path`, and the missing remainder must be plain names.
+pub fn validate_new_path(path: &str) -> Result<std::path::PathBuf> {
+    let p = std::path::Path::new(path);
+    let existing = p
+        .ancestors()
+        .find(|a| a.exists())
+        .ok_or_else(|| AppError::Validation("Invalid path: no existing parent directory".into()))?;
+    let rest = p.strip_prefix(existing).unwrap_or(std::path::Path::new(""));
+    if rest.as_os_str().is_empty() {
+        return validate_path(path);
+    }
+    if rest.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+        return Err(AppError::Validation("Invalid path: must not contain '..'".into()));
+    }
+    Ok(validate_path(&existing.to_string_lossy())?.join(rest))
+}
+
 /// Validate a rename destination. Only the parent is canonicalized: resolving
 /// the full path would turn `A.md` back into an existing `a.md` on a
 /// case-insensitive volume, making a case-only rename a silent no-op.
@@ -387,7 +406,7 @@ pub async fn write_file_bytes(request: tauri::ipc::Request<'_>) -> Result<()> {
 #[tauri::command]
 pub async fn save_image(request: tauri::ipc::Request<'_>) -> Result<()> {
     let (path, data) = raw_request_parts(&request)?;
-    let dest = validate_path(&path)?;
+    let dest = validate_new_path(&path)?;
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -690,5 +709,23 @@ mod tests {
         assert!(names.contains(&"A.md".to_string()), "{names:?}");
         assert!(!names.contains(&"a.md".to_string()), "{names:?}");
         assert!(refused.is_err());
+    }
+
+    #[test]
+    fn new_path_allows_missing_parents_but_not_traversal() {
+        let home = crate::util::home_dir().unwrap();
+        let dir = home.join(format!(".mud-new-path-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = |rest: &str| format!("{}/{rest}", dir.display());
+
+        let nested = validate_new_path(&path("assets/sub/a.png"));
+        let traversal = validate_new_path(&path("assets/../../../../etc/a.png"));
+        let outside = validate_new_path("/tmp/mud-missing-dir/a.png");
+        let canonical_dir = dir.canonicalize().unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(nested.unwrap(), canonical_dir.join("assets/sub/a.png"));
+        assert!(traversal.is_err());
+        assert!(outside.is_err());
     }
 }
