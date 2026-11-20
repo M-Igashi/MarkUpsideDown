@@ -1,16 +1,16 @@
 # Presentation Mode
 
-MarkUpsideDown can turn any Markdown document into a fullscreen slide presentation. Slides are split at horizontal rules (`---`), so you can write a presentation using the same Markdown you already know.
+MarkUpsideDown can turn any Markdown document into a slide presentation that fills the window. Slides are split at horizontal rules (`---`), so you can write a presentation using the same Markdown you already know.
 
 ## Starting a Presentation
 
-Open the Command Palette (Cmd+K) and run **Presentation Mode**. The app enters fullscreen and displays the first slide.
+Click **Present** in the toolbar, or open the Command Palette (Cmd+K) and run **Start Presentation**. The slides fill the window, starting with the first one.
 
 ![Presentation mode showing a slide](images/presentation/presentation-slide.png)
 
-The first slide displays the document's frontmatter (title, author, date, tags) as a title card:
+YAML frontmatter is skipped, so the first slide is the first section of the document body:
 
-![Presentation title slide with frontmatter](images/presentation/presentation-first-slide.png)
+![First slide of a presentation](images/presentation/presentation-first-slide.png)
 
 ## Writing Slides
 

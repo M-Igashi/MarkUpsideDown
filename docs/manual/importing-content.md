@@ -8,7 +8,7 @@ MarkUpsideDown can convert a wide range of content into Markdown: web pages, doc
 
 Type a URL into the URL bar and click **Get**. The page is fetched and converted to Markdown using Cloudflare's Markdown for Agents / `AI.toMarkdown()`.
 
-![URL bar with Get and Render options](images/importing-content/url-bar.png)
+![URL bar with the Get button](images/importing-content/url-bar.png)
 
 This works well for most web pages — articles, documentation, blog posts. Relative links and images are resolved to absolute URLs, so they keep working in the saved file.
 
