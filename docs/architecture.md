@@ -385,7 +385,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 
 | Crate | Purpose |
 |-------|---------|
-| `tauri` + plugins | Desktop app framework (dialog, fs, shell, store) |
+| `tauri` + plugins | Desktop app framework (dialog, shell, store) |
 | `reqwest` | HTTP client for Worker API and SVG fetch |
 | `axum` + `tokio` | MCP bridge HTTP server |
 | `serde` + `serde_json` | JSON serialization |
@@ -398,7 +398,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | Package | Purpose |
 |---------|---------|
 | `@codemirror/*` | Editor (markdown, search, state, view) |
-| `@tauri-apps/*` | Tauri IPC (api, plugin-dialog, plugin-fs) |
+| `@tauri-apps/*` | Tauri IPC (api, plugin-dialog) |
 | `marked` | Markdown → HTML |
 | `dompurify` | HTML sanitization for preview |
 | `mermaid` | Diagram rendering (lazy-loaded) |
