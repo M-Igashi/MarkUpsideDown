@@ -46,7 +46,7 @@ Paste TSV or CSV data from a spreadsheet to populate multiple cells at once.
 Paste an image from your clipboard or drag and drop an image file onto the editor. The image is saved to `./assets/` relative to the current file, and a Markdown image link is inserted:
 
 ```markdown
-![](assets/pasted-image-20260403.png)
+![](./assets/clipboard-20261120-134154.png)
 ```
 
 ![Image paste result with Markdown links inserted](images/editing-features/image-paste.png)
