@@ -38,6 +38,7 @@ import {
   openFolderByPath,
   updateGitChangeCount,
   refreshTree,
+  refreshAfterExternalChange,
   stopDirWatcher,
   getActivePanel,
   switchPanel,
@@ -707,7 +708,7 @@ document.addEventListener("visibilitychange", () => {
 // Catches file changes made by external tools (Cowork, Finder, terminal, etc.)
 // that macOS FSEvents may have missed.
 window.addEventListener("focus", () => {
-  refreshTree();
+  refreshAfterExternalChange();
   refreshGitAndSync();
 });
 

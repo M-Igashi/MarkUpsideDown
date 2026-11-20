@@ -25,6 +25,8 @@ import {
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import {
   loadTags,
+  reloadTags,
+  hasTaggedFiles,
   getFileTags,
   getTagDef,
   getAllTagNames,
@@ -715,6 +717,18 @@ function isTreeRelevantChange(path: string): boolean {
   return !rel.split("/").some((seg) => IGNORED_SEGMENTS.has(seg));
 }
 
+/** Refresh after files may have changed outside the app. */
+export async function refreshAfterExternalChange() {
+  // A file removed outside the app leaves its tags behind. Reloading drops them.
+  if (hasTaggedFiles()) await reloadTags();
+  refreshTree();
+}
+
+async function handleExternalDirChange() {
+  await refreshAfterExternalChange();
+  onExternalChange?.();
+}
+
 async function startDirWatcher() {
   stopDirWatcher();
   if (!rootPath) return;
@@ -725,10 +739,7 @@ async function startDirWatcher() {
       (event) => {
         if (event.paths.length > 0 && !event.paths.some(isTreeRelevantChange)) return;
         if (dirWatchDebounce) clearTimeout(dirWatchDebounce);
-        dirWatchDebounce = setTimeout(() => {
-          refreshTree();
-          onExternalChange?.();
-        }, 300);
+        dirWatchDebounce = setTimeout(handleExternalDirChange, 300);
       },
       { recursive: true },
     );
@@ -744,10 +755,7 @@ async function startDirWatcher() {
     if (!rootPath || rootPath !== watchRoot || document.hidden) return;
     try {
       const snapshot = await statSnapshot(rootPath);
-      if (lastDirSnapshot && snapshot !== lastDirSnapshot) {
-        refreshTree();
-        onExternalChange?.();
-      }
+      if (lastDirSnapshot && snapshot !== lastDirSnapshot) handleExternalDirChange();
       lastDirSnapshot = snapshot;
     } catch {
       // Folder may have been removed
