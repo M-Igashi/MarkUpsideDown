@@ -117,10 +117,10 @@ MCP Server (mcp-server-rs/)
 | `GET /render?url=` | JS-rendered page → Markdown | Browser Run `markdown` Quick Action (`browser` binding) |
 | `POST /json` | Extract structured JSON from a page with AI | Browser Run `json` Quick Action (`browser` binding) |
 | `POST /crawl` | Start website crawl (returns `job_id`) | Browser Run `/crawl` REST API |
-| `GET /crawl/:job_id` | Poll crawl status and retrieve results | Browser Run `/crawl` REST API |
+| `GET /crawl/:job_id` | Poll crawl status and retrieve results (`limit` up to 100 records per request, `cursor` for the next page) | Browser Run `/crawl` REST API |
 | `DELETE /crawl/:job_id` | Cancel a running crawl | Browser Run `/crawl` REST API |
-| `PUT /publish` | Publish Markdown to R2 | R2 |
-| `GET /published` | List published documents (`{ files: [{ key, size, uploaded }] }`) | R2 |
+| `PUT /publish` | Publish Markdown to R2 (409 for an existing key unless the body has `"overwrite": true`) | R2 |
+| `GET /published` | List published documents that have not expired (`{ files: [{ key, size, uploaded, expiresAt }] }`) | R2 |
 | `GET /p/:key` | Serve published Markdown | R2 |
 | `DELETE /publish/:key` | Unpublish | R2 |
 | `POST /embed` | Index documents for semantic search | AI Search (`ai_search_namespaces` binding) |

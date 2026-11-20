@@ -420,6 +420,8 @@ pub struct PublishDocumentParams {
     pub filename: Option<String>,
     #[schemars(description = "Time-to-live in seconds (omit or 0 for permanent). Examples: 3600 = 1h, 86400 = 24h, 604800 = 7d")]
     pub expires_in: Option<u64>,
+    #[schemars(description = "Replace the document already published under this key (default: false, publishing to an existing key fails)")]
+    pub overwrite: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1327,7 +1329,7 @@ impl McpTools {
         text_result(result.map(|_| format!("Removed document: {}", params.id)))
     }
 
-    #[tool(name = "publish_document", description = "Publish Markdown content to a public URL via R2 storage. Returns the public URL. Supports permanent or time-limited publishing.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
+    #[tool(name = "publish_document", description = "Publish Markdown content to a public URL via R2 storage. Returns the public URL. Supports permanent or time-limited publishing. Fails if the key is already published unless overwrite is true.", annotations(read_only_hint = false, open_world_hint = true, destructive_hint = true))]
     async fn publish_document(
         &self,
         Parameters(params): Parameters<PublishDocumentParams>,
@@ -1342,6 +1344,9 @@ impl McpTools {
                 && ttl > 0
             {
                 body["expires_in"] = serde_json::json!(ttl);
+            }
+            if params.overwrite == Some(true) {
+                body["overwrite"] = serde_json::json!(true);
             }
 
             let data = self.worker_call(reqwest::Method::PUT, "/publish", Some(body), 30).await?;
@@ -1368,7 +1373,7 @@ impl McpTools {
         text_result(result.map(|_| format!("Unpublished: {}", params.key)))
     }
 
-    #[tool(name = "list_published", description = "List all published documents in R2 storage. Returns key, size, and upload timestamp for each.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
+    #[tool(name = "list_published", description = "List all published documents in R2 storage. Returns key, size, upload timestamp, and expiry time for each. Expired documents are left out.", annotations(read_only_hint = true, open_world_hint = true, destructive_hint = false))]
     async fn list_published(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = self.worker_call(reqwest::Method::GET, "/published", None, 30).await;
         text_result(result.map(|data| match data["files"].as_array() {

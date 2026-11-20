@@ -1,5 +1,5 @@
 // Bump this when adding/changing endpoints so the app can detect outdated Workers.
-export const WORKER_VERSION = 16;
+export const WORKER_VERSION = 17;
 
 // --- Browser Run ---
 // Quick Actions cache their results on Cloudflare's side (max 86,400 seconds).
@@ -11,13 +11,13 @@ export const BROWSER_RUN_REJECT: ("image" | "media" | "font" | "stylesheet")[] =
 export const CRAWL_LIMIT_MAX = 100_000;
 export const CRAWL_DEPTH_DEFAULT = 3;
 export const CRAWL_LIMIT_DEFAULT = 50;
+// Records per GET /crawl/:id request. The app and the MCP server page through
+// results with a cursor and never ask for more.
+export const CRAWL_STATUS_LIMIT_MAX = 100;
 
 // --- Semantic search (AI Search) ---
 export const SEARCH_INSTANCE = "markupsidedown-docs";
 export const SEARCH_LIMIT_DEFAULT = 10;
-
-// --- R2 ---
-export const PUBLISH_LIST_LIMIT = 1000;
 
 // --- MIME types ---
 export const IMAGE_TYPES = new Set([

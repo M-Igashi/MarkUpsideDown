@@ -1,5 +1,4 @@
 import type { Env } from "../types.js";
-import { PUBLISH_LIST_LIMIT } from "../config.js";
 import { jsonResponse, parseJsonBody, CORS_HEADERS, R2_MISSING_ERROR } from "../utils.js";
 
 const MAX_EXPIRES_IN = 10 * 365 * 24 * 60 * 60;
@@ -9,6 +8,7 @@ interface PublishRequest {
   content: string;
   filename: string;
   expires_in?: number; // seconds (0 or omitted = permanent)
+  overwrite?: boolean; // replace the document already published under this key
 }
 
 function isExpired(expiresAt: string | undefined, now = Date.now()): boolean {
@@ -54,6 +54,18 @@ export async function handlePublish(request: Request, env: Env): Promise<Respons
   const ttl = body.expires_in;
   if (ttl !== undefined && ttl !== null && ttl !== 0 && !(typeof ttl === "number" && Number.isFinite(ttl) && ttl > 0 && ttl <= MAX_EXPIRES_IN)) {
     return jsonResponse({ error: `'expires_in' must be a number of seconds between 1 and ${MAX_EXPIRES_IN}` }, 400);
+  }
+
+  // A key is a public link, so replacing its content must be asked for.
+  // An expired document the cron has not purged yet does not count.
+  if (body.overwrite !== true) {
+    const existing = await env.PUBLISH_BUCKET.head(body.key);
+    if (existing && !isExpired(existing.customMetadata?.expiresAt)) {
+      return jsonResponse(
+        { error: `'${body.key}' is already published. Send "overwrite": true to replace it.` },
+        409,
+      );
+    }
   }
 
   const now = new Date();
@@ -124,12 +136,24 @@ export async function handlePublishedList(env: Env): Promise<Response> {
     return jsonResponse({ error: R2_MISSING_ERROR }, 500);
   }
 
-  const listed = await env.PUBLISH_BUCKET.list({ limit: PUBLISH_LIST_LIMIT });
-  const files = listed.objects.map((obj) => ({
-    key: obj.key,
-    size: obj.size,
-    uploaded: obj.uploaded.toISOString(),
-  }));
+  const now = Date.now();
+  const files: { key: string; size: number; uploaded: string; expiresAt: string | null }[] = [];
+  let cursor: string | undefined;
+  do {
+    const listed = await env.PUBLISH_BUCKET.list({ cursor, include: ["customMetadata"] });
+    for (const obj of listed.objects) {
+      const expiresAt = obj.customMetadata?.expiresAt;
+      // Expired documents stay in the bucket until the cron purges them
+      if (isExpired(expiresAt, now)) continue;
+      files.push({
+        key: obj.key,
+        size: obj.size,
+        uploaded: obj.uploaded.toISOString(),
+        expiresAt: expiresAt ?? null,
+      });
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
 
   return jsonResponse({ files });
 }

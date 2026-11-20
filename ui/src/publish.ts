@@ -96,6 +96,7 @@ async function upload(
   key: string,
   content: string,
   expiresIn: number,
+  overwrite: boolean,
 ): Promise<PublishEntry> {
   const resp = await workerFetch<{
     key: string;
@@ -109,6 +110,8 @@ async function upload(
       content,
       filename: basename(relativePath) || "untitled.md",
       expires_in: expiresIn || undefined,
+      // The Worker refuses to replace an existing key unless asked to
+      overwrite,
     }),
   });
 
@@ -130,8 +133,9 @@ export function publishFile(
   expiry: ExpiryOption = "permanent",
 ): Promise<PublishEntry> {
   // Publishing an already-published file again keeps its URL
-  const key = state.files[relativePath]?.key ?? newPublishKey(relativePath);
-  return upload(relativePath, key, content, EXPIRY_SECONDS[expiry]);
+  const existing = state.files[relativePath]?.key;
+  const key = existing ?? newPublishKey(relativePath);
+  return upload(relativePath, key, content, EXPIRY_SECONDS[expiry], existing !== undefined);
 }
 
 /** Replace the published content at the same URL, keeping the original expiry time. */
@@ -145,7 +149,7 @@ export async function updatePublishedFile(
     ? Math.ceil((Date.parse(entry.expiresAt) - Date.now()) / 1000)
     : 0;
   if (entry.expiresAt && remaining <= 0) throw new Error("The published link has expired");
-  return upload(relativePath, entry.key, content, remaining);
+  return upload(relativePath, entry.key, content, remaining, true);
 }
 
 export async function unpublishFile(relativePath: string): Promise<void> {
