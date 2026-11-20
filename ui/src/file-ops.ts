@@ -14,7 +14,7 @@ import {
 } from "./settings.ts";
 import { getUrlAsMarkdown, fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fetch-markdown.ts";
 import { normalizeMarkdown } from "./normalize.ts";
-import { getRootPath, refreshTree, hasPendingExternalDrop } from "./sidebar.ts";
+import { getRootPath, refreshTree } from "./sidebar.ts";
 import { indexDocument } from "./semantic-search.ts";
 import { getActiveTab, isTabDirty, markTabSaved, setTabContent, updateActiveTab } from "./tabs.ts";
 import type { Tab } from "./tabs.ts";
@@ -435,26 +435,4 @@ export function initDragDrop(appEl: HTMLElement) {
       }
     }
   });
-
-  if (window.__TAURI__?.event) {
-    window.__TAURI__.event.listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
-      // Sidebar handles its own external drops
-      if (hasPendingExternalDrop()) return;
-
-      const paths = event.payload.paths;
-      if (!paths || paths.length === 0) return;
-
-      const filePath = paths[0];
-      const ext = getExtension(filePath);
-
-      if (IMPORT_EXTENSIONS.includes(ext)) {
-        await convertFile(filePath);
-      } else if (MD_EXTENSIONS.has(ext)) {
-        const content = await invoke<string>("read_text_file", { path: filePath });
-        loadContentAsTab(content, filePath);
-      } else {
-        statusEl.textContent = `Unsupported file type: .${ext}`;
-      }
-    });
-  }
 }

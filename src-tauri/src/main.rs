@@ -198,7 +198,6 @@ fn main() {
             commands::delete_entry,
             commands::delete_entries,
             commands::copy_entry,
-            commands::import_paths,
             commands::duplicate_entry,
             commands::reveal_in_finder,
             commands::open_with_default_app,

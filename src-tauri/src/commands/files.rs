@@ -553,34 +553,6 @@ async fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> Re
 }
 
 #[tauri::command]
-pub async fn import_paths(sources: Vec<String>, target_dir: String) -> Result<Vec<String>> {
-    let target = validate_path(&target_dir)?;
-    if !target.is_dir() {
-        return Err(AppError::Validation("Target is not a directory".into()));
-    }
-    let mut imported = Vec::new();
-    for source in &sources {
-        let src = validate_read_path(source)?;
-        let file_name = src
-            .file_name()
-            .ok_or(AppError::Validation("Invalid source path".into()))?;
-        let dest = target.join(file_name);
-        if dest.exists() {
-            continue;
-        }
-        if src.is_dir() {
-            copy_dir_recursive(&src, &dest).await?;
-        } else {
-            tokio::fs::copy(&src, &dest)
-                .await
-                .map_err(|e| AppError::Io(format!("Failed to copy: {e}")))?;
-        }
-        imported.push(dest.to_string_lossy().to_string());
-    }
-    Ok(imported)
-}
-
-#[tauri::command]
 pub async fn reveal_in_finder(path: String) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
