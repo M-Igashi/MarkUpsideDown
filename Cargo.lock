@@ -2460,6 +2460,7 @@ dependencies = [
  "axum",
  "comrak",
  "log",
+ "objc2",
  "reqwest",
  "serde",
  "serde_json",
