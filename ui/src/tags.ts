@@ -4,7 +4,7 @@
 // the project and MCP agents never overwrite each other.
 
 import { clampToViewport } from "./html-utils.ts";
-import { relativeToRoot } from "./path-utils.ts";
+import { dirname, relativeToRoot } from "./path-utils.ts";
 import { icon } from "./icons.ts";
 
 const { invoke } = window.__TAURI__.core;
@@ -55,6 +55,13 @@ export async function loadTags(rootPath: string): Promise<void> {
 /** True when any file is tagged, i.e. a removed file could leave a stale entry. */
 export function hasTaggedFiles(): boolean {
   return Object.keys(data.files).length > 0;
+}
+
+/** Absolute paths of the folders that hold a tagged file. */
+export function getTaggedDirs(): string[] {
+  const root = currentRootPath;
+  if (!root) return [];
+  return [...new Set(Object.keys(data.files).map((rel) => dirname(`${root}/${rel}`)))];
 }
 
 export async function reloadTags(): Promise<void> {

@@ -27,6 +27,7 @@ import {
   loadTags,
   reloadTags,
   hasTaggedFiles,
+  getTaggedDirs,
   getFileTags,
   getTagDef,
   getAllTagNames,
@@ -687,15 +688,25 @@ export async function openFolderByPath(path: string) {
   onFolderChange?.(rootPath);
 }
 
-// Last-known (mtime, size) of the root directory.
-// Used by the poll fallback to detect changes cheaply — a directory's mtime
-// changes when direct children are created, deleted, or renamed, which is
-// the same coverage as the previous top-level listing snapshot.
-let lastDirSnapshot = "";
+// Last-known (mtime, size) of each polled directory. A directory's mtime
+// changes when a direct child is created, deleted, or renamed, so the poll
+// fallback covers the folders whose listing matters: the root, the expanded
+// folders, and the folders that hold a tagged file.
+let lastDirSnapshots = new Map<string, string>();
 
 async function statSnapshot(path: string): Promise<string> {
-  const stat = await invoke<{ mtime_ms: number; size: number }>("stat_file", { path });
-  return `${stat.mtime_ms}:${stat.size}`;
+  try {
+    const stat = await invoke<{ mtime_ms: number; size: number }>("stat_file", { path });
+    return `${stat.mtime_ms}:${stat.size}`;
+  } catch {
+    return "missing";
+  }
+}
+
+async function snapshotPolledDirs(root: string): Promise<Map<string, string>> {
+  const dirs = [...new Set([root, ...expandedDirs, ...getTaggedDirs()])];
+  const snapshots = await Promise.all(dirs.map(statSnapshot));
+  return new Map(dirs.map((dir, i) => [dir, snapshots[i]]));
 }
 
 // Changes that never alter the tree: git internals, entries hidden from
@@ -747,27 +758,23 @@ async function startDirWatcher() {
     // Watch may not be supported for some paths
   }
 
-  // Poll fallback: macOS FSEvents can miss new-file-creation events from
-  // external processes. Compare the root directory's (mtime, size) to detect
-  // changes the watcher missed (mirrors file-watcher.ts design).
+  // Poll fallback: macOS FSEvents can miss events from external processes.
+  // Compare each polled directory's (mtime, size) to detect changes the
+  // watcher missed (mirrors file-watcher.ts design). A directory polled for
+  // the first time has nothing to compare against.
   const watchRoot = rootPath;
   dirPollTimer = setInterval(async () => {
-    if (!rootPath || rootPath !== watchRoot || document.hidden) return;
-    try {
-      const snapshot = await statSnapshot(rootPath);
-      if (lastDirSnapshot && snapshot !== lastDirSnapshot) handleExternalDirChange();
-      lastDirSnapshot = snapshot;
-    } catch {
-      // Folder may have been removed
-    }
+    if (rootPath !== watchRoot || document.hidden) return;
+    const snapshots = await snapshotPolledDirs(watchRoot);
+    if (rootPath !== watchRoot) return;
+    const changed = [...snapshots].some(([dir, snapshot]) => {
+      const last = lastDirSnapshots.get(dir);
+      return last !== undefined && last !== snapshot;
+    });
+    lastDirSnapshots = snapshots;
+    if (changed) handleExternalDirChange();
   }, DIR_POLL_INTERVAL_MS);
-
-  // Capture initial snapshot
-  try {
-    lastDirSnapshot = await statSnapshot(rootPath);
-  } catch {
-    // ignore
-  }
+  lastDirSnapshots = await snapshotPolledDirs(watchRoot);
 }
 
 export function stopDirWatcher() {
@@ -783,7 +790,7 @@ export function stopDirWatcher() {
     clearInterval(dirPollTimer);
     dirPollTimer = null;
   }
-  lastDirSnapshot = "";
+  lastDirSnapshots = new Map();
 }
 
 function attachTreeListeners(el: HTMLElement) {
