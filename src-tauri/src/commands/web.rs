@@ -5,7 +5,7 @@ use std::time::Duration;
 use tauri::AppHandle;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
-use super::files::validate_path;
+use super::files::validate_new_path;
 use crate::error::{AppError, Result};
 
 fn too_large(max_bytes: usize) -> AppError {
@@ -353,7 +353,7 @@ pub async fn download_image_with(
     dest_path: &str,
 ) -> Result<String> {
     let validated_url = validate_url(url)?;
-    let validated_path = validate_path(dest_path)?;
+    let validated_path = validate_new_path(dest_path)?;
     confirm_private_fetch(app, &validated_url).await?;
     let response = client
         .get(validated_url)
