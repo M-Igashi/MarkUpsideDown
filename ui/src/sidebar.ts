@@ -115,13 +115,6 @@ let clipboardPaths = new Set<string>();
 let clipboardMode: "cut" | "copy" | null = null;
 let dirWatcherUnwatch: UnwatchFn | null = null;
 
-// Pending folder drop target — set by DOM drop for folders, consumed by tauri://drag-drop.
-let pendingFolderDropTarget: string | null = null;
-
-/** Check whether sidebar has a pending folder drop (for file-ops.ts coordination). */
-export function hasPendingExternalDrop(): boolean {
-  return pendingFolderDropTarget !== null;
-}
 let dirWatchDebounce: ReturnType<typeof setTimeout> | null = null;
 // Poll fallback interval — mirrors file-watcher.ts design.
 // Catches new file creation events that macOS FSEvents may drop.
@@ -260,30 +253,6 @@ export function initSidebar(
       refreshTree();
     });
     startDirWatcher();
-  }
-
-  // Handle folder drops from Finder via Tauri's native drag-drop.
-  // Files are handled by handleExternalFileDrop() in DOM drop; folders need
-  // tauri://drag-drop because FileList cannot represent directories.
-  if (window.__TAURI__?.event) {
-    window.__TAURI__.event.listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
-      const target = pendingFolderDropTarget;
-      pendingFolderDropTarget = null;
-      if (!target) return;
-
-      const paths = event.payload.paths;
-      if (!paths || paths.length === 0) return;
-
-      try {
-        const imported = await invoke<string[]>("import_paths", {
-          sources: paths,
-          targetDir: target,
-        });
-        if (imported.length > 0) await expandAndRefresh(target);
-      } catch (e) {
-        await message(`Failed to import: ${e}`, { kind: "error" });
-      }
-    });
   }
 }
 
@@ -842,15 +811,9 @@ function attachTreeListeners(el: HTMLElement) {
     if (!rootPath) return;
     if ((e.target as HTMLElement).closest(".sidebar-tree-item[data-is-dir='true']")) return;
     e.preventDefault();
-    // External file drop from Finder
-    if (e.dataTransfer?.types.includes("Files") && e.dataTransfer.files.length > 0) {
-      // FileList contains files — handle directly via arrayBuffer copy
-      if (e.dataTransfer.files[0].size > 0 || e.dataTransfer.files[0].type !== "") {
-        handleExternalFileDrop(e.dataTransfer.files, rootPath);
-      } else {
-        // Likely a folder drop — delegate to tauri://drag-drop for path access
-        pendingFolderDropTarget = rootPath;
-      }
+    // External file or folder drop from Finder
+    if (e.dataTransfer?.types.includes("Files")) {
+      handleExternalDrop(e.dataTransfer, rootPath);
       return;
     }
     // Internal file/folder move to root
@@ -1203,13 +1166,9 @@ function createTreeItem(entry: DirEntry, depth: number, displayName?: string) {
       e.preventDefault();
       e.stopPropagation();
       item.classList.remove("drop-target");
-      // External file drop from Finder
-      if (e.dataTransfer?.types.includes("Files") && e.dataTransfer.files.length > 0) {
-        if (e.dataTransfer.files[0].size > 0 || e.dataTransfer.files[0].type !== "") {
-          handleExternalFileDrop(e.dataTransfer.files, entry.path);
-        } else {
-          pendingFolderDropTarget = entry.path;
-        }
+      // External file or folder drop from Finder
+      if (e.dataTransfer?.types.includes("Files")) {
+        handleExternalDrop(e.dataTransfer, entry.path);
         return;
       }
       if (dragSourcePaths.size === 0) return;
@@ -1375,7 +1334,77 @@ function clearTreeDropTarget() {
   }
 }
 
-async function handleExternalFileDrop(files: FileList, targetDir: string) {
+/**
+ * Copy files and folders dropped from Finder into `targetDir`. WebKit gives
+ * a dropped item no path, so folders are read through the File and Directory
+ * Entries API. Must run inside the drop event: the DataTransfer is emptied
+ * once the handler returns.
+ */
+function handleExternalDrop(dataTransfer: DataTransfer, targetDir: string) {
+  const files: File[] = [];
+  const folders: FileSystemDirectoryEntry[] = [];
+  for (let i = 0; i < dataTransfer.items.length; i++) {
+    const item = dataTransfer.items[i];
+    if (item.kind !== "file") continue;
+    const entry = item.webkitGetAsEntry();
+    if (entry?.isDirectory) {
+      folders.push(entry as FileSystemDirectoryEntry);
+    } else {
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  (async () => {
+    if (files.length > 0) await handleExternalFileDrop(files, targetDir);
+    if (folders.length > 0) await importDroppedFolders(folders, targetDir);
+  })();
+}
+
+function readDirectoryEntries(dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
+  const reader = dir.createReader();
+  const all: FileSystemEntry[] = [];
+  return new Promise((resolve, reject) => {
+    // readEntries returns the listing in batches, and an empty one at the end
+    const next = () =>
+      reader.readEntries((batch) => {
+        if (batch.length === 0) return resolve(all);
+        all.push(...batch);
+        next();
+      }, reject);
+    next();
+  });
+}
+
+async function copyDroppedEntry(entry: FileSystemEntry, destPath: string): Promise<void> {
+  if (entry.isDirectory) {
+    await invoke("create_directory", { path: destPath });
+    for (const child of await readDirectoryEntries(entry as FileSystemDirectoryEntry)) {
+      if (child.name === ".DS_Store") continue;
+      await copyDroppedEntry(child, `${destPath}/${child.name}`);
+    }
+    return;
+  }
+  const file = await new Promise<File>((resolve, reject) =>
+    (entry as FileSystemFileEntry).file(resolve, reject),
+  );
+  await invoke("write_file_bytes", new Uint8Array(await file.arrayBuffer()), {
+    headers: { path: encodeURIComponent(destPath) },
+  });
+}
+
+async function importDroppedFolders(folders: FileSystemDirectoryEntry[], targetDir: string) {
+  for (const folder of folders) {
+    try {
+      await copyDroppedEntry(folder, `${targetDir}/${folder.name}`);
+    } catch (e) {
+      await message(`Failed to copy "${folder.name}": ${e}`, { kind: "error" });
+    }
+  }
+  // Refresh even after a failure: part of the folder may have been copied
+  await expandAndRefresh(targetDir);
+}
+
+async function handleExternalFileDrop(files: File[], targetDir: string) {
   let copiedCount = 0;
 
   for (const file of files) {
