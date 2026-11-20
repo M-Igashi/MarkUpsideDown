@@ -93,13 +93,7 @@ import {
   setTabContentFlusher,
   setTabContent,
 } from "./tabs.ts";
-import {
-  initFileWatcher,
-  startWatching,
-  stopWatching,
-  stopWatchingUnder,
-  stopAll as stopAllFileWatchers,
-} from "./file-watcher.ts";
+import { initFileWatcher, stopFileWatcher } from "./file-watcher.ts";
 import "katex/dist/katex.min.css";
 
 import {
@@ -1021,11 +1015,6 @@ initSidebar(sidebarEl, {
   onFolder: async (rootPath: string) => {
     // Save current tabs, restore tabs for the new project
     switchProjectTabs(rootPath, reloadTab);
-    // Stop watchers for old tabs, start watchers for new tabs
-    stopAllFileWatchers();
-    for (const tab of getTabs()) {
-      if (tab.path) startWatching(tab.path);
-    }
     setRepoPath(rootPath);
     setGitHubRepoPath(rootPath);
     setPublishProjectRoot(rootPath);
@@ -1037,11 +1026,6 @@ initSidebar(sidebarEl, {
   },
   onRename: (oldPath, newPath) => {
     updateTabPath(oldPath, newPath);
-    // Move watchers to the new paths, including open files inside a renamed directory
-    stopWatchingUnder(oldPath);
-    for (const tab of getTabs()) {
-      if (tab.path === newPath || tab.path?.startsWith(`${newPath}/`)) startWatching(tab.path);
-    }
     // Reload active tab if it was renamed (path changed, content may differ)
     const active = getActiveTab();
     if (active?.path === newPath) {
@@ -1050,7 +1034,6 @@ initSidebar(sidebarEl, {
   },
   onDelete: (paths, hadDir) => {
     for (const p of paths) {
-      stopWatchingUnder(p);
       if (hadDir) {
         closeTabsUnderDir(p);
       } else {
@@ -1325,10 +1308,6 @@ initFileWatcher({
       { title: "File Changed", kind: "warning" },
     );
   },
-  onFileDeleted: (path: string) => {
-    stopWatching(path);
-    closeTabsByPath([path]);
-  },
 });
 
 // Set project root before restoring tabs so the correct per-project key is used
@@ -1421,12 +1400,6 @@ initTabs(tabBarEl, {
     loadContent("");
   },
   onReload: reloadTab,
-  onOpen: (tab) => {
-    if (tab.path) startWatching(tab.path);
-  },
-  onClose: (tab) => {
-    if (tab.path) stopWatching(tab.path);
-  },
   onLeave: (tab) => {
     // The outgoing tab leaves the editor, so the pending auto-save would no
     // longer see it; write it now.
@@ -1435,11 +1408,6 @@ initTabs(tabBarEl, {
   beforeClose: confirmCloseTab,
   skipRestore: isFreshWindow,
 });
-
-// Start watching all previously open file-backed tabs
-for (const tab of getTabs()) {
-  if (tab.path) startWatching(tab.path);
-}
 
 // Initial render — when a tab was restored above its activation already
 // rendered, so only the welcome document needs an explicit first render.
@@ -1788,7 +1756,7 @@ listenToWindow("app:quit-requested", async () => {
 window.addEventListener("beforeunload", () => {
   saveWindowRegistry();
   stopDirWatcher();
-  stopAllFileWatchers();
+  stopFileWatcher();
 });
 
 // --- First-run ---
