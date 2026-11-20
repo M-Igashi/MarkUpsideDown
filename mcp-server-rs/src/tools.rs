@@ -102,10 +102,19 @@ fn parse_schema_param(value: serde_json::Value) -> Result<serde_json::Value, Str
 
 // --- Parameter types ---
 
+/// For tools whose only parameter is the window to act on.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct WindowParams {
+    #[schemars(description = "Window label from list_windows (default: the focused window)")]
+    pub window: Option<String>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SetContentParams {
     #[schemars(description = "Markdown content to set")]
     pub markdown: String,
+    #[schemars(description = "Window label from list_windows (default: the focused window)")]
+    pub window: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -114,6 +123,8 @@ pub struct InsertTextParams {
     pub text: String,
     #[schemars(description = "Where to insert: cursor, start, or end (default: end)")]
     pub position: Option<String>,
+    #[schemars(description = "Window label from list_windows (default: the focused window)")]
+    pub window: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -132,12 +143,16 @@ pub struct FilePathParams {
 pub struct OpenFileParams {
     #[schemars(description = "Absolute path to the Markdown file")]
     pub path: String,
+    #[schemars(description = "Window label from list_windows (default: the focused window)")]
+    pub window: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SaveFileParams {
     #[schemars(description = "File path to save to (uses current file if omitted)")]
     pub path: Option<String>,
+    #[schemars(description = "Window label from list_windows (default: the focused window)")]
+    pub window: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -210,6 +225,8 @@ pub struct SwitchTabParams {
     pub path: Option<String>,
     #[schemars(description = "Tab ID to switch to")]
     pub tab_id: Option<String>,
+    #[schemars(description = "Window label from list_windows (default: the focused window)")]
+    pub window: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -530,7 +547,7 @@ impl McpTools {
     /// Resolve an absolute path to a path relative to the project root
     /// (used by the tag tools, which key files by relative path).
     async fn resolve_rel_path(&self, path: &str) -> String {
-        let root = self.bridge.get_project_root().await.ok().flatten().unwrap_or_default();
+        let root = self.bridge.get_project_root(None).await.ok().flatten().unwrap_or_default();
         match std::path::Path::new(path).strip_prefix(&root) {
             Ok(rel) if !root.is_empty() => rel.to_string_lossy().into_owned(),
             _ => path.to_string(),
@@ -570,8 +587,11 @@ impl McpTools {
     // --- Editor Tools (require running app) ---
 
     #[tool(name = "get_editor_content", description = "Get current Markdown content from the editor", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
-    async fn get_editor_content(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.get_editor_content().await)
+    async fn get_editor_content(
+        &self,
+        Parameters(params): Parameters<WindowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        text_result(self.bridge.get_editor_content(params.window.as_deref()).await)
     }
 
     #[tool(name = "set_editor_content", description = "Replace the editor content with the provided Markdown", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
@@ -579,7 +599,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<SetContentParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.set_editor_content(&params.markdown).await.map(|()| "Editor content updated"))
+        text_result(self.bridge.set_editor_content(&params.markdown, params.window.as_deref()).await.map(|()| "Editor content updated"))
     }
 
     #[tool(name = "insert_text", description = "Insert text at cursor position, start, or end of the editor", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
@@ -587,7 +607,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<InsertTextParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.insert_text(&params.text, params.position.as_deref()).await.map(|()| "Text inserted"))
+        text_result(self.bridge.insert_text(&params.text, params.position.as_deref(), params.window.as_deref()).await.map(|()| "Text inserted"))
     }
 
     // --- Conversion Tools (use Worker, no app needed) ---
@@ -717,7 +737,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<OpenFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.open_file(&params.path).await.map(|()| format!("Opened: {}", params.path)))
+        text_result(self.bridge.open_file(&params.path, params.window.as_deref()).await.map(|()| format!("Opened: {}", params.path)))
     }
 
     #[tool(name = "save_file", description = "Save the current editor content to a file", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = true))]
@@ -725,20 +745,26 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<SaveFileParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.save_file(params.path.as_deref()).await.map(|()| match &params.path {
+        text_result(self.bridge.save_file(params.path.as_deref(), params.window.as_deref()).await.map(|()| match &params.path {
             Some(p) => format!("Saved to: {p}"),
             None => "File saved".to_string(),
         }))
     }
 
     #[tool(name = "normalize_document", description = "Normalize the current editor content: fix heading hierarchy, reformat tables, clean up whitespace, remove broken links, standardize list markers, and add CJK emphasis spacing", annotations(read_only_hint = false, open_world_hint = false, destructive_hint = false))]
-    async fn normalize_document(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.normalize_document().await.map(|()| "Document normalized"))
+    async fn normalize_document(
+        &self,
+        Parameters(params): Parameters<WindowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        text_result(self.bridge.normalize_document(params.window.as_deref()).await.map(|()| "Document normalized"))
     }
 
     #[tool(name = "lint_document", description = "Run structural lint checks on the current editor content. Returns diagnostics with line number, severity (error/warning/info), and message. Checks: headings, links, tables, frontmatter, lists, emphasis (CommonMark flanking), code blocks, footnotes, HTML comments, blank lines.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
-    async fn lint_document(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.lint_document().await.map(|diagnostics| {
+    async fn lint_document(
+        &self,
+        Parameters(params): Parameters<WindowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        text_result(self.bridge.lint_document(params.window.as_deref()).await.map(|diagnostics| {
             if diagnostics.as_array().is_none_or(|a| a.is_empty()) {
                 "No lint issues found".to_string()
             } else {
@@ -748,13 +774,19 @@ impl McpTools {
     }
 
     #[tool(name = "get_document_structure", description = "Get the current document's structural information (heading tree, links, frontmatter, stats) as JSON. More efficient than parsing raw Markdown — reduces token usage for structure-aware operations.", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
-    async fn get_document_structure(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        json_result(self.bridge.get_document_structure().await)
+    async fn get_document_structure(
+        &self,
+        Parameters(params): Parameters<WindowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        json_result(self.bridge.get_document_structure(params.window.as_deref()).await)
     }
 
     #[tool(name = "get_editor_state", description = "Get the current editor state: file path, cursor position (byte offset, line, column), and Worker URL", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
-    async fn get_editor_state(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        json_result(self.bridge.get_editor_state().await)
+    async fn get_editor_state(
+        &self,
+        Parameters(params): Parameters<WindowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        json_result(self.bridge.get_editor_state(params.window.as_deref()).await)
     }
 
     // --- Project Context Tools (require running app) ---
@@ -778,13 +810,19 @@ impl McpTools {
     }
 
     #[tool(name = "get_open_tabs", description = "List all open editor tabs with their path, name, and dirty (unsaved) status", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
-    async fn get_open_tabs(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        json_result(self.bridge.get_tabs().await)
+    async fn get_open_tabs(
+        &self,
+        Parameters(params): Parameters<WindowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        json_result(self.bridge.get_tabs(params.window.as_deref()).await)
     }
 
     #[tool(name = "get_project_root", description = "Get the current project root directory path", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
-    async fn get_project_root(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.get_project_root().await.and_then(|root| {
+    async fn get_project_root(
+        &self,
+        Parameters(params): Parameters<WindowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        text_result(self.bridge.get_project_root(params.window.as_deref()).await.and_then(|root| {
             root.ok_or_else(|| "No project root set (no folder opened in sidebar)".to_string())
         }))
     }
@@ -798,8 +836,11 @@ impl McpTools {
     }
 
     #[tool(name = "get_dirty_files", description = "List files with unsaved changes (dirty tabs)", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]
-    async fn get_dirty_files(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.get_dirty_files().await.map(|files| {
+    async fn get_dirty_files(
+        &self,
+        Parameters(params): Parameters<WindowParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        text_result(self.bridge.get_dirty_files(params.window.as_deref()).await.map(|files| {
             if files.is_empty() {
                 "No unsaved changes".to_string()
             } else {
@@ -813,7 +854,7 @@ impl McpTools {
         &self,
         Parameters(params): Parameters<SwitchTabParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        text_result(self.bridge.switch_tab(params.path.as_deref(), params.tab_id.as_deref()).await.map(|()| "Tab switched"))
+        text_result(self.bridge.switch_tab(params.path.as_deref(), params.tab_id.as_deref(), params.window.as_deref()).await.map(|()| "Tab switched"))
     }
 
     #[tool(name = "git_status", description = "Get git status of the project: branch, file changes (staged/unstaged), ahead/behind counts", annotations(read_only_hint = true, open_world_hint = false, destructive_hint = false))]

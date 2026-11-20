@@ -269,6 +269,8 @@ The Tauri backend runs an axum HTTP server on `localhost:31415` (fallback: 31416
 
 ### Editor
 
+Every `/editor/*` route and `/worker` accept `?window=<label>` (labels come from `GET /windows`) to read from or act on one window. Without it they use the focused window. A label that matches no open window gets a 404.
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |

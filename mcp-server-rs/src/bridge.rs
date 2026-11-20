@@ -66,6 +66,15 @@ fn clear_bridge_url_cache() {
     *CACHED_BRIDGE.lock().unwrap() = None;
 }
 
+/// Address a bridge route to one window (`?window=<label>`), or to the
+/// focused window when no label is given.
+fn in_window(path: &str, window: Option<&str>) -> String {
+    match window {
+        Some(label) => format!("{path}?window={}", urlencoding::encode(label)),
+        None => path.to_string(),
+    }
+}
+
 pub struct BridgeClient {
     client: Client,
 }
@@ -154,60 +163,60 @@ impl BridgeClient {
         self.request_json(Method::POST, path, Some(body)).await.map(|_| ())
     }
 
-    pub async fn get_editor_content(&self) -> Result<String, String> {
-        self.request_field(Method::GET, "/editor/content", "content").await
+    pub async fn get_editor_content(&self, window: Option<&str>) -> Result<String, String> {
+        self.request_field(Method::GET, &in_window("/editor/content", window), "content").await
     }
 
-    pub async fn set_editor_content(&self, content: &str) -> Result<(), String> {
-        self.post_check_error("/editor/content", serde_json::json!({ "content": content })).await
+    pub async fn set_editor_content(&self, content: &str, window: Option<&str>) -> Result<(), String> {
+        self.post_check_error(&in_window("/editor/content", window), serde_json::json!({ "content": content })).await
     }
 
-    pub async fn insert_text(&self, text: &str, position: Option<&str>) -> Result<(), String> {
-        self.post_check_error("/editor/insert", serde_json::json!({ "text": text, "position": position })).await
+    pub async fn insert_text(&self, text: &str, position: Option<&str>, window: Option<&str>) -> Result<(), String> {
+        self.post_check_error(&in_window("/editor/insert", window), serde_json::json!({ "text": text, "position": position })).await
     }
 
-    pub async fn get_editor_state(&self) -> Result<EditorState, String> {
-        self.request_as(Method::GET, "/editor/state", None).await
+    pub async fn get_editor_state(&self, window: Option<&str>) -> Result<EditorState, String> {
+        self.request_as(Method::GET, &in_window("/editor/state", window), None).await
     }
 
     pub async fn get_worker_config(&self) -> Result<WorkerConfig, String> {
         self.request_as(Method::GET, "/worker", None).await
     }
 
-    pub async fn open_file(&self, path: &str) -> Result<(), String> {
-        self.post_check_error("/editor/open-file", serde_json::json!({ "path": path })).await
+    pub async fn open_file(&self, path: &str, window: Option<&str>) -> Result<(), String> {
+        self.post_check_error(&in_window("/editor/open-file", window), serde_json::json!({ "path": path })).await
     }
 
-    pub async fn save_file(&self, path: Option<&str>) -> Result<(), String> {
-        self.post_check_error("/editor/save-file", serde_json::json!({ "path": path })).await
+    pub async fn save_file(&self, path: Option<&str>, window: Option<&str>) -> Result<(), String> {
+        self.post_check_error(&in_window("/editor/save-file", window), serde_json::json!({ "path": path })).await
     }
 
-    pub async fn normalize_document(&self) -> Result<(), String> {
-        self.request_json(Method::POST, "/editor/normalize", None).await.map(|_| ())
+    pub async fn normalize_document(&self, window: Option<&str>) -> Result<(), String> {
+        self.request_json(Method::POST, &in_window("/editor/normalize", window), None).await.map(|_| ())
     }
 
-    pub async fn lint_document(&self) -> Result<serde_json::Value, String> {
-        self.request_field(Method::GET, "/editor/lint", "diagnostics").await
+    pub async fn lint_document(&self, window: Option<&str>) -> Result<serde_json::Value, String> {
+        self.request_field(Method::GET, &in_window("/editor/lint", window), "diagnostics").await
     }
 
-    pub async fn get_document_structure(&self) -> Result<serde_json::Value, String> {
-        self.request_json(Method::GET, "/editor/structure", None).await
+    pub async fn get_document_structure(&self, window: Option<&str>) -> Result<serde_json::Value, String> {
+        self.request_json(Method::GET, &in_window("/editor/structure", window), None).await
     }
 
-    pub async fn get_tabs(&self) -> Result<Vec<TabInfo>, String> {
-        self.request_field(Method::GET, "/editor/tabs", "tabs").await
+    pub async fn get_tabs(&self, window: Option<&str>) -> Result<Vec<TabInfo>, String> {
+        self.request_field(Method::GET, &in_window("/editor/tabs", window), "tabs").await
     }
 
-    pub async fn get_project_root(&self) -> Result<Option<String>, String> {
-        self.request_field(Method::GET, "/editor/root", "root_path").await
+    pub async fn get_project_root(&self, window: Option<&str>) -> Result<Option<String>, String> {
+        self.request_field(Method::GET, &in_window("/editor/root", window), "root_path").await
     }
 
-    pub async fn get_dirty_files(&self) -> Result<Vec<TabInfo>, String> {
-        Ok(self.get_tabs().await?.into_iter().filter(|t| t.is_dirty).collect())
+    pub async fn get_dirty_files(&self, window: Option<&str>) -> Result<Vec<TabInfo>, String> {
+        Ok(self.get_tabs(window).await?.into_iter().filter(|t| t.is_dirty).collect())
     }
 
-    pub async fn switch_tab(&self, path: Option<&str>, tab_id: Option<&str>) -> Result<(), String> {
-        self.post_check_error("/editor/switch-tab", serde_json::json!({ "path": path, "tab_id": tab_id })).await
+    pub async fn switch_tab(&self, path: Option<&str>, tab_id: Option<&str>, window: Option<&str>) -> Result<(), String> {
+        self.post_check_error(&in_window("/editor/switch-tab", window), serde_json::json!({ "path": path, "tab_id": tab_id })).await
     }
 
     pub async fn list_files(&self, path: Option<&str>, recursive: bool) -> Result<Vec<FileEntry>, String> {
