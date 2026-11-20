@@ -22,7 +22,6 @@
     "core:event:allow-listen",
     "core:window:allow-destroy",
     "core:window:allow-set-focus",
-    "core:window:allow-start-dragging",
-    "fs:allow-watch"
+    "core:window:allow-start-dragging"
   ]
 }

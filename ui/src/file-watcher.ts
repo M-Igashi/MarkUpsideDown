@@ -1,24 +1,13 @@
-import { watch } from "@tauri-apps/plugin-fs";
-import type { WatchEvent, UnwatchFn } from "@tauri-apps/plugin-fs";
 import type { Tab } from "./tabs.ts";
 
 const { invoke } = window.__TAURI__.core;
-
-// Active watchers: filePath -> unwatch function
-const watchers = new Map<string, UnwatchFn>();
 
 // Suppress mechanism: ignore change events triggered by our own saves
 const suppressUntil = new Map<string, number>();
 const SUPPRESS_WINDOW_MS = 1000;
 
-// Per-path debounce for reload: coalesces rapid external changes (e.g. Claude Code
-// writing multiple times within a second) into a single reload.
-const reloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const RELOAD_DEBOUNCE_MS = 800;
-
-// Poll fallback: macOS FSEvents can miss events for individual file watches,
-// especially with atomic writes (write temp → rename). Periodic metadata polling
-// catches changes the watcher misses.
+// External changes are detected by polling the active tab's file metadata.
+// Other tabs are checked when they become active.
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 const POLL_INTERVAL_MS = 3000;
 let lastPolledPath: string | null = null;
@@ -36,7 +25,6 @@ let deps: {
   isTabDirty: (tab: Tab) => boolean;
   reloadTab: (path: string) => Promise<void>;
   confirmReload: (path: string) => Promise<boolean>;
-  onFileDeleted?: (path: string) => void;
 };
 
 export function initFileWatcher(d: typeof deps) {
@@ -80,66 +68,11 @@ async function reloadPath(path: string) {
   await deps.reloadTab(path);
 }
 
-function scheduleReload(path: string) {
-  const existing = reloadTimers.get(path);
-  if (existing) clearTimeout(existing);
-  reloadTimers.set(
-    path,
-    setTimeout(() => {
-      reloadTimers.delete(path);
-      reloadPath(path);
-    }, RELOAD_DEBOUNCE_MS),
-  );
-}
-
-function handleReload(event: WatchEvent) {
-  for (const path of event.paths) {
-    if (!path || isRecentlySuppressed(path)) continue;
-    scheduleReload(path);
-  }
-}
-
-function onFileChanged(event: WatchEvent) {
-  const kind = event.type;
-
-  // 'any' — generic event (common on macOS FSEvents); treat as modify
-  if (kind === "any") {
-    handleReload(event);
-    return;
-  }
-
-  if (typeof kind !== "object") return;
-
-  // Handle file removal — close the tab for deleted files. Unlink-and-recreate
-  // writers (git checkout, some editors) also report a removal, so confirm the
-  // file is really gone, and keep tabs with unsaved edits open.
-  if ("remove" in kind) {
-    for (const path of event.paths) {
-      if (!path || !deps.getTabByPath(path)) continue;
-      invoke("stat_file", { path })
-        .then(() => scheduleReload(path))
-        .catch(() => {
-          const tab = deps.getTabByPath(path);
-          if (tab && !deps.isTabDirty(tab)) deps.onFileDeleted?.(path);
-        });
-    }
-    return;
-  }
-
-  // React to modify and create events
-  // Create events cover atomic writes (write temp file → rename over original)
-  // used by most editors (Vim, Zed, sed -i) and tools (Claude Code Edit)
-  if ("modify" in kind || "create" in kind) {
-    handleReload(event);
-  }
-}
-
 // Poll active tab's file via a cheap (mtime, size) metadata check; the
 // content is only read and compared when the metadata changed.
 // Uses stat_file (Tauri command) which has proper fs permissions,
 // unlike plugin-fs stat() which may lack fs:allow-stat permission.
 function startPolling() {
-  if (pollTimer) return;
   pollTimer = setInterval(async () => {
     if (document.hidden) return; // skip when window is not visible
     const activeTab = deps.getActiveTab();
@@ -159,49 +92,12 @@ function startPolling() {
         await reloadPath(path);
       }
     } catch {
-      // File may have been deleted — watcher handles removal
+      // File may have been deleted; the tab stays open
     }
   }, POLL_INTERVAL_MS);
 }
 
-export async function startWatching(filePath: string) {
-  startPolling(); // stopAll() clears the poll timer on project switch
-  if (watchers.has(filePath)) return;
-  try {
-    const unwatch = await watch(filePath, onFileChanged, { delayMs: 50 });
-    watchers.set(filePath, unwatch);
-  } catch {
-    // Watch may fail for some paths — silently ignore
-  }
-}
-
-export function stopWatching(filePath: string) {
-  const unwatch = watchers.get(filePath);
-  if (unwatch) {
-    unwatch();
-    watchers.delete(filePath);
-  }
-  const timer = reloadTimers.get(filePath);
-  if (timer) {
-    clearTimeout(timer);
-    reloadTimers.delete(filePath);
-  }
-}
-
-/** Stop watching a path and every watched path under it. */
-export function stopWatchingUnder(path: string) {
-  for (const p of watchers.keys()) {
-    if (p === path || p.startsWith(`${path}/`)) stopWatching(p);
-  }
-}
-
-export function stopAll() {
-  for (const unwatch of watchers.values()) unwatch();
-  watchers.clear();
-  for (const timer of reloadTimers.values()) clearTimeout(timer);
-  reloadTimers.clear();
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
+export function stopFileWatcher() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
 }

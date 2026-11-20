@@ -13,8 +13,6 @@ import {
 } from "./path-utils.ts";
 import { escapeHtml } from "./html-utils.ts";
 import { showContextMenu, type MenuItem } from "./context-menu.ts";
-import { watchImmediate, type UnwatchFn } from "@tauri-apps/plugin-fs";
-import { isRecentlySuppressed } from "./file-watcher.ts";
 import {
   KEY_SIDEBAR,
   KEY_SIDEBAR_SORT,
@@ -116,11 +114,7 @@ let reuseFilterCache = false;
 let dragSourcePaths = new Set<string>();
 let clipboardPaths = new Set<string>();
 let clipboardMode: "cut" | "copy" | null = null;
-let dirWatcherUnwatch: UnwatchFn | null = null;
-
-let dirWatchDebounce: ReturnType<typeof setTimeout> | null = null;
-// Poll fallback interval — mirrors file-watcher.ts design.
-// Catches new file creation events that macOS FSEvents may drop.
+// Changes made outside the app are detected by polling (see startDirWatcher)
 let dirPollTimer: ReturnType<typeof setInterval> | null = null;
 const DIR_POLL_INTERVAL_MS = 3000;
 
@@ -709,25 +703,6 @@ async function snapshotPolledDirs(root: string): Promise<Map<string, string>> {
   return new Map(dirs.map((dir, i) => [dir, snapshots[i]]));
 }
 
-// Changes that never alter the tree: git internals, entries hidden from
-// listings (mirrors is_hidden_entry in files.rs), and files the app just saved.
-// External git commands are still picked up by the window focus refresh.
-const IGNORED_SEGMENTS = new Set([
-  ".git",
-  "node_modules",
-  "target",
-  "dist",
-  "build",
-  ".DS_Store",
-  "Thumbs.db",
-]);
-
-function isTreeRelevantChange(path: string): boolean {
-  if (isRecentlySuppressed(path)) return false;
-  const rel = rootPath && path.startsWith(rootPath) ? path.slice(rootPath.length) : path;
-  return !rel.split("/").some((seg) => IGNORED_SEGMENTS.has(seg));
-}
-
 /** Refresh after files may have changed outside the app. */
 export async function refreshAfterExternalChange() {
   // A file removed outside the app leaves its tags behind. Reloading drops them.
@@ -743,25 +718,9 @@ async function handleExternalDirChange() {
 async function startDirWatcher() {
   stopDirWatcher();
   if (!rootPath) return;
-  try {
-    // watchImmediate: plain watch() adds a 2s Tauri-side debounce on top of ours.
-    dirWatcherUnwatch = await watchImmediate(
-      rootPath,
-      (event) => {
-        if (event.paths.length > 0 && !event.paths.some(isTreeRelevantChange)) return;
-        if (dirWatchDebounce) clearTimeout(dirWatchDebounce);
-        dirWatchDebounce = setTimeout(handleExternalDirChange, 300);
-      },
-      { recursive: true },
-    );
-  } catch {
-    // Watch may not be supported for some paths
-  }
-
-  // Poll fallback: macOS FSEvents can miss events from external processes.
-  // Compare each polled directory's (mtime, size) to detect changes the
-  // watcher missed (mirrors file-watcher.ts design). A directory polled for
-  // the first time has nothing to compare against.
+  // Compare each polled directory's (mtime, size) to detect changes made
+  // outside the app. A directory polled for the first time has nothing to
+  // compare against.
   const watchRoot = rootPath;
   dirPollTimer = setInterval(async () => {
     if (rootPath !== watchRoot || document.hidden) return;
@@ -778,14 +737,6 @@ async function startDirWatcher() {
 }
 
 export function stopDirWatcher() {
-  if (dirWatcherUnwatch) {
-    dirWatcherUnwatch();
-    dirWatcherUnwatch = null;
-  }
-  if (dirWatchDebounce) {
-    clearTimeout(dirWatchDebounce);
-    dirWatchDebounce = null;
-  }
   if (dirPollTimer) {
     clearInterval(dirPollTimer);
     dirPollTimer = null;

@@ -373,7 +373,7 @@ Preview updates use idiomorph (DOM-diffing) instead of innerHTML for flicker-fre
 | Git clone | `git` CLI subprocess |
 | MCP agent access | MCP Server → HTTP → axum bridge → Tauri events → Frontend |
 | Auto-setup | Rust → wrangler CLI → Cloudflare API |
-| File watcher | Tauri FS plugin → watch events → prompt reload |
+| File watcher | Metadata poll (`stat_file`) of the active file and the project folders → reload, or prompt when the tab has unsaved changes |
 | Settings (Worker URL) | Browser localStorage |
 | Tab state | Browser localStorage (debounced writes) |
 | Bridge port discovery | `~/.markupsidedown-bridge-port` file (port and token, mode 0600) |
