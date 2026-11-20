@@ -121,6 +121,7 @@ fn main() {
         .manage(editor_states_managed)
         .manage(http_client)
         .manage(PendingOpenFiles(Mutex::new(Some(Vec::new()))))
+        .manage(menu::QuitQueue::default())
 
         .setup(move |app| {
             let m = menu::build(app.handle())?;
@@ -232,6 +233,7 @@ fn main() {
             cloudflare::set_r2_public_url,
             cloudflare::set_worker_api_key,
             menu::add_recent_file,
+            menu::quit_response,
             commands::validate_markdown,
             commands::print_webview,
             commands::save_window_registry,
