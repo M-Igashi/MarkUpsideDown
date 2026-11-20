@@ -70,8 +70,6 @@ async function reloadPath(path: string) {
 
 // Poll active tab's file via a cheap (mtime, size) metadata check; the
 // content is only read and compared when the metadata changed.
-// Uses stat_file (Tauri command) which has proper fs permissions,
-// unlike plugin-fs stat() which may lack fs:allow-stat permission.
 function startPolling() {
   pollTimer = setInterval(async () => {
     if (document.hidden) return; // skip when window is not visible
