@@ -1194,28 +1194,12 @@ impl McpTools {
         Parameters(params): Parameters<SetFileTagsParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let mut data = self.bridge.get_tags().await?;
             let rel_path = self.resolve_rel_path(&params.path).await;
-
-            // Validate that all tags exist
-            if let Some(tag_defs) = data.get("tags").and_then(|t| t.as_object()) {
-                for tag in &params.tags {
-                    if !tag_defs.contains_key(tag) {
-                        return Err(format!("Tag '{}' does not exist. Create it first with create_tag.", tag));
-                    }
-                }
-            }
-
-            if let Some(files) = data.get_mut("files").and_then(|f| f.as_object_mut()) {
-                if params.tags.is_empty() {
-                    files.remove(&rel_path);
-                } else {
-                    files.insert(rel_path.clone(), serde_json::json!(params.tags));
-                }
-            }
-
-            self.bridge.set_tags(&data).await?;
-            Ok(format!("Tags for '{}' updated to {:?}", rel_path, params.tags))
+            // The app rejects tags that do not exist
+            self.bridge
+                .update_tags(serde_json::json!({ "op": "set_file_tags", "path": rel_path, "tags": params.tags }))
+                .await?;
+            Ok::<_, String>(format!("Tags for '{}' updated to {:?}", rel_path, params.tags))
         }
         .await;
 
@@ -1232,17 +1216,11 @@ impl McpTools {
                 return Err("Tag name must be 1-24 characters".to_string());
             }
 
-            let mut data = self.bridge.get_tags().await?;
             let color = params.color.unwrap_or_else(|| "#d94545".to_string());
-
-            if let Some(tags) = data.get_mut("tags").and_then(|t| t.as_object_mut()) {
-                if tags.contains_key(&params.name) {
-                    return Err(format!("Tag '{}' already exists", params.name));
-                }
-                tags.insert(params.name.clone(), serde_json::json!({ "color": color }));
-            }
-
-            self.bridge.set_tags(&data).await?;
+            // The app rejects a name that already exists
+            self.bridge
+                .update_tags(serde_json::json!({ "op": "create_tag", "name": params.name, "color": color }))
+                .await?;
             Ok(format!("Tag '{}' created with color {}", params.name, color))
         }
         .await;
@@ -1256,37 +1234,11 @@ impl McpTools {
         Parameters(params): Parameters<DeleteTagParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let result = async {
-            let mut data = self.bridge.get_tags().await?;
-
-            // Remove tag definition
-            let removed = if let Some(tags) = data.get_mut("tags").and_then(|t| t.as_object_mut()) {
-                tags.remove(&params.name).is_some()
-            } else {
-                false
-            };
-
-            if !removed {
-                return Err(format!("Tag '{}' not found", params.name));
-            }
-
-            // Remove tag from all file assignments
-            if let Some(files) = data.get_mut("files").and_then(|f| f.as_object_mut()) {
-                let mut empty_paths = Vec::new();
-                for (path, tags) in files.iter_mut() {
-                    if let Some(arr) = tags.as_array_mut() {
-                        arr.retain(|t| t.as_str() != Some(&params.name));
-                        if arr.is_empty() {
-                            empty_paths.push(path.clone());
-                        }
-                    }
-                }
-                for path in empty_paths {
-                    files.remove(&path);
-                }
-            }
-
-            self.bridge.set_tags(&data).await?;
-            Ok(format!("Tag '{}' deleted", params.name))
+            // The app rejects a tag that does not exist
+            self.bridge
+                .update_tags(serde_json::json!({ "op": "delete_tag", "name": params.name }))
+                .await?;
+            Ok::<_, String>(format!("Tag '{}' deleted", params.name))
         }
         .await;
 

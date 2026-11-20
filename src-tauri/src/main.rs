@@ -236,6 +236,7 @@ fn main() {
             menu::quit_response,
             commands::validate_markdown,
             commands::print_webview,
+            commands::update_tags,
             commands::save_window_registry,
             take_pending_open_files,
         ])
