@@ -1,6 +1,7 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tauri::AppHandle;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -208,7 +209,7 @@ pub async fn fetch_url_as_markdown(
         .header("Accept", "text/markdown")
         .send()
         .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
+        .map_err(|e| AppError::Network(describe_send_error(&e)))?;
 
     let content_type = response
         .headers()
@@ -321,7 +322,7 @@ pub async fn fetch_page_title_with(
         .header("Accept", "text/html")
         .send()
         .await
-        .map_err(|e| AppError::Network(format!("Failed to fetch: {e}")))?;
+        .map_err(|e| AppError::Network(format!("Failed to fetch: {}", describe_send_error(&e))))?;
 
     if !response.status().is_success() {
         return Err(AppError::Network(format!("HTTP {}", response.status())));
@@ -360,7 +361,7 @@ pub async fn download_image_with(
         .timeout(Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| AppError::Network(format!("Failed to fetch image: {e}")))?;
+        .map_err(|e| AppError::Network(format!("Failed to fetch image: {}", describe_send_error(&e))))?;
 
     if !response.status().is_success() {
         return Err(AppError::Network(format!("HTTP {}", response.status())));
@@ -507,6 +508,11 @@ fn is_local_url(url: &reqwest::Url) -> bool {
     if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
         return is_non_public_ip(ip);
     }
+    is_local_name(host)
+}
+
+/// Names that are local by definition, whatever they resolve to.
+fn is_local_name(host: &str) -> bool {
     let d = host.trim_end_matches('.').to_ascii_lowercase();
     d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local")
 }
@@ -544,6 +550,71 @@ async fn ensure_public_url(url: &reqwest::Url) -> Result<()> {
 static PRIVATE_HOST_DECISIONS: LazyLock<tokio::sync::Mutex<HashMap<String, bool>>> =
     LazyLock::new(Default::default);
 
+/// Hosts the user allowed in the prompt. A separate lock, because the one
+/// above stays held while a prompt is open and the resolver must not wait.
+static ALLOWED_PRIVATE_HOSTS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+/// DNS resolver that refuses to hand the HTTP client a private address.
+///
+/// `is_private_target` resolves a name before the request, and the client
+/// resolves it again to connect, for the first URL and for every redirect. A
+/// host that answers differently the second time (DNS rebinding), or a
+/// redirect to a public-looking name that points at the LAN, would get past
+/// a check on the URL alone. Every connection by name goes through here, so
+/// the addresses checked are the addresses used.
+struct PublicOnlyResolver {
+    /// Let hosts through that the user allowed in the private address prompt.
+    honor_allowed: bool,
+}
+
+impl PublicOnlyResolver {
+    fn check(&self, host: &str, addrs: &[SocketAddr]) -> std::result::Result<(), String> {
+        // Local names are caught by URL (`is_local_url`) before the request
+        // and on each redirect, and the Worker may run on localhost.
+        if is_local_name(host) || !addrs.iter().any(|a| is_non_public_ip(a.ip())) {
+            return Ok(());
+        }
+        let allowed = self.honor_allowed
+            && ALLOWED_PRIVATE_HOSTS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(host);
+        if allowed {
+            Ok(())
+        } else {
+            Err(format!("{BLOCKED_PREFIX} {host}: it resolves to a local or private address"))
+        }
+    }
+}
+
+const BLOCKED_PREFIX: &str = "Blocked a request to";
+
+/// reqwest reports a resolver refusal as a generic "error sending request",
+/// so dig the reason out of the source chain.
+fn describe_send_error(e: &reqwest::Error) -> String {
+    let mut source = std::error::Error::source(e);
+    while let Some(inner) = source {
+        let text = inner.to_string();
+        if text.starts_with(BLOCKED_PREFIX) {
+            return text;
+        }
+        source = inner.source();
+    }
+    e.to_string()
+}
+
+impl reqwest::dns::Resolve for PublicOnlyResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let honor_allowed = self.honor_allowed;
+        Box::pin(async move {
+            let host = name.as_str();
+            let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, 0)).await?.collect();
+            Self { honor_allowed }.check(host, &addrs)?;
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
 /// Fetches started by the user or an MCP agent may target localhost or the
 /// LAN (intranet pages), but only after the user allows that host. Holding
 /// the lock while asking keeps parallel requests to one prompt per host.
@@ -575,6 +646,12 @@ async fn confirm_private_fetch(app: &AppHandle, url: &reqwest::Url) -> Result<()
                 });
             let allowed = rx.await.unwrap_or(false);
             decisions.insert(host.clone(), allowed);
+            if allowed {
+                ALLOWED_PRIVATE_HOSTS
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(host.clone());
+            }
             allowed
         }
     };
@@ -588,9 +665,11 @@ async fn confirm_private_fetch(app: &AppHandle, url: &reqwest::Url) -> Result<()
 }
 
 /// Shared HTTP client. A public page cannot redirect it to localhost or the
-/// LAN, since only the URL the user approved is checked.
+/// LAN: the redirect policy stops local URLs, and the resolver stops names
+/// that resolve to private addresses unless the user allowed that host.
 pub fn build_http_client() -> reqwest::Client {
     reqwest::Client::builder()
+        .dns_resolver(Arc::new(PublicOnlyResolver { honor_allowed: true }))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             let from_local = attempt.previous().first().is_some_and(is_local_url);
             if attempt.previous().len() >= 10 || (!from_local && is_local_url(attempt.url())) {
@@ -609,6 +688,7 @@ pub async fn fetch_svg(url: String) -> Result<String> {
     ensure_public_url(&url).await?;
     // Own client so redirects can be checked too
     let client = reqwest::Client::builder()
+        .dns_resolver(Arc::new(PublicOnlyResolver { honor_allowed: false }))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= 5 || is_local_url(attempt.url()) {
                 attempt.stop()
@@ -623,7 +703,7 @@ pub async fn fetch_svg(url: String) -> Result<String> {
         .timeout(Duration::from_secs(15))
         .send()
         .await
-        .map_err(|e| AppError::Network(format!("Failed to fetch SVG: {e}")))?;
+        .map_err(|e| AppError::Network(format!("Failed to fetch SVG: {}", describe_send_error(&e))))?;
 
     if !response.status().is_success() {
         return Err(AppError::Network(format!("HTTP {}", response.status())));
@@ -934,6 +1014,29 @@ mod tests {
         ] {
             assert!(local(u), "{u} should be blocked");
         }
+    }
+
+    #[test]
+    fn resolver_refuses_private_addresses_for_hosts_that_were_not_allowed() {
+        let addr = |ip: &str| vec![SocketAddr::new(ip.parse().unwrap(), 0)];
+        let shared = PublicOnlyResolver { honor_allowed: true };
+        let strict = PublicOnlyResolver { honor_allowed: false };
+
+        assert!(shared.check("example.com", &addr("93.184.215.14")).is_ok());
+        // A public-looking name that points at the loopback or the LAN
+        assert!(shared.check("rebind.example", &addr("127.0.0.1")).is_err());
+        assert!(shared.check("rebind.example", &addr("192.168.1.10")).is_err());
+        assert!(shared.check("rebind.example", &addr("::1")).is_err());
+        // One private answer among public ones is enough
+        let mixed = [addr("93.184.215.14"), addr("10.0.0.5")].concat();
+        assert!(shared.check("rebind.example", &mixed).is_err());
+        // Local names are handled by the URL checks
+        assert!(shared.check("localhost", &addr("127.0.0.1")).is_ok());
+
+        ALLOWED_PRIVATE_HOSTS.lock().unwrap().insert("intranet.example".into());
+        assert!(shared.check("intranet.example", &addr("10.0.0.5")).is_ok());
+        // Images in a document never reach private addresses
+        assert!(strict.check("intranet.example", &addr("10.0.0.5")).is_err());
     }
 
     #[test]
