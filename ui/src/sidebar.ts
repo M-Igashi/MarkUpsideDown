@@ -1295,6 +1295,7 @@ async function selectAndOpenFile(entry: DirEntry) {
 
 function clearTreeDropTarget() {
   if (!treeEl) return;
+  treeEl.classList.remove("drop-target-root");
   for (const el of treeEl.querySelectorAll(".drop-target")) {
     el.classList.remove("drop-target");
   }

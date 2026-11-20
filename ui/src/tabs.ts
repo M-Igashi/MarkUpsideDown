@@ -115,6 +115,8 @@ export function initTabs(
   },
 ): void {
   tabBarEl = el;
+  el.addEventListener("dragover", handleBarDragOver);
+  el.addEventListener("drop", handleBarDrop);
   onTabSwitch = onSwitch;
   onTabEmpty = onEmpty;
   onTabOpen = onOpen || null;
@@ -519,6 +521,33 @@ function handleTabDrop(e: DragEvent, targetTabId: string) {
   saveState();
   cleanupDrag();
   renderTabs();
+}
+
+/** The last tab, when a tab is dragged over the empty space after it. */
+function barDropTarget(e: DragEvent): Tab | null {
+  if (e.target !== tabBarEl || !dragTabId) return null;
+  const last = tabs[tabs.length - 1];
+  return last && last.id !== dragTabId ? last : null;
+}
+
+function handleBarDragOver(e: DragEvent) {
+  const last = barDropTarget(e);
+  if (!last) return;
+  e.preventDefault();
+  e.dataTransfer!.dropEffect = "move";
+  if (dragOverTabId !== last.id || dropIndicatorSide !== "right") {
+    clearDropIndicator();
+    dragOverTabId = last.id;
+    dropIndicatorSide = "right";
+    tabBarEl!.lastElementChild?.classList.add("drop-right");
+  }
+}
+
+function handleBarDrop(e: DragEvent) {
+  const last = barDropTarget(e);
+  if (!last) return;
+  dropIndicatorSide = "right";
+  handleTabDrop(e, last.id);
 }
 
 function handleTabDragEnd() {

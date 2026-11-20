@@ -386,9 +386,11 @@ export function initDragDrop(appEl: HTMLElement) {
     }
   });
 
+  // Capture phase: a drop on a sidebar folder stops propagation
+  appEl.addEventListener("drop", () => appEl.classList.remove("drop-active"), true);
+
   appEl.addEventListener("drop", async (e) => {
     e.preventDefault();
-    appEl.classList.remove("drop-active");
 
     // Ignore internal drags (sidebar/tab reorder)
     if (!e.dataTransfer?.types.includes("Files")) return;
@@ -396,7 +398,7 @@ export function initDragDrop(appEl: HTMLElement) {
     if (!files || files.length === 0) return;
 
     // If dropped on sidebar, let sidebar handle it
-    const sidebar = (e.target as HTMLElement).closest(".sidebar");
+    const sidebar = (e.target as HTMLElement).closest("#sidebar");
     if (sidebar) return;
 
     // Handle external file drop on editor area
