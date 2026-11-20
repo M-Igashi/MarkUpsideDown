@@ -128,16 +128,24 @@ fn main() {
             bridge::start(app.handle().clone(), editor_states.clone());
 
             // Restore additional windows from session registry
-            if let Ok(entries) = commands::load_window_registry(app.handle().clone()) {
+            if let Ok(entries) = commands::load_window_registry(app.handle()) {
                 for entry in entries.iter().filter(|e| e.label != "main") {
                     let url = WebviewUrl::App("index.html".into());
                     let Ok(builder) = util::app_window_builder(app, &entry.label, url) else {
                         continue;
                     };
-                    let mut builder = builder.inner_size(entry.width, entry.height);
-                    if let (Some(x), Some(y)) = (entry.x, entry.y) {
-                        builder = builder.position(x, y);
-                    }
+                    // Older versions could save a hidden window as 0x0. Give
+                    // such a window the default geometry instead of restoring
+                    // it invisible (it may hold unsaved untitled tabs).
+                    let builder = if entry.has_usable_size() {
+                        let builder = builder.inner_size(entry.width, entry.height);
+                        match (entry.x, entry.y) {
+                            (Some(x), Some(y)) => builder.position(x, y),
+                            _ => builder,
+                        }
+                    } else {
+                        builder
+                    };
                     let _ = builder.build();
                 }
             }
@@ -227,7 +235,6 @@ fn main() {
             commands::validate_markdown,
             commands::print_webview,
             commands::save_window_registry,
-            commands::load_window_registry,
             take_pending_open_files,
         ])
         .on_window_event(move |window, event| {
@@ -250,10 +257,10 @@ fn main() {
                     // Remove closed window from registry (if app stays open)
                     if remaining > 0 {
                         let label = window.label().to_string();
-                        let handle = window.app_handle().clone();
-                        if let Ok(mut entries) = commands::load_window_registry(handle.clone()) {
+                        let handle = window.app_handle();
+                        if let Ok(mut entries) = commands::load_window_registry(handle) {
                             entries.retain(|e| e.label != label);
-                            let _ = commands::save_window_registry(handle, entries);
+                            let _ = commands::write_window_registry(handle, entries);
                         }
                     }
 

@@ -178,18 +178,26 @@ pub async fn crawl_save(
     let base = super::validate_path(&base_dir)?;
     let base = base.to_string_lossy();
     let mut saved_count = 0u32;
-    let mut paths = Vec::new();
+    let mut paths: Vec<String> = Vec::new();
 
     for page in &pages {
-        let file_path = url_to_filepath(&page.url, &base);
+        let file_path = unique_path(url_to_filepath(&page.url, &base), &paths);
         if let Some(parent) = std::path::Path::new(&file_path).parent() {
             tokio::fs::create_dir_all(parent)
                 .await
                 .map_err(|e| AppError::Io(format!("Failed to create directory: {e}")))?;
         }
-        tokio::fs::write(&file_path, &page.markdown)
-            .await
-            .map_err(|e| AppError::Io(format!("Failed to write {file_path}: {e}")))?;
+        // Write beside the target and rename, so an interrupted save never
+        // leaves a truncated page where a complete one used to be.
+        let tmp_path = format!("{file_path}.tmp-{}", std::process::id());
+        let written = match tokio::fs::write(&tmp_path, &page.markdown).await {
+            Ok(()) => tokio::fs::rename(&tmp_path, &file_path).await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = written {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(AppError::Io(format!("Failed to write {file_path}: {e}")));
+        }
         saved_count += 1;
         paths.push(file_path);
     }
@@ -201,20 +209,37 @@ pub async fn crawl_save(
     })
 }
 
+/// Two URLs of one crawl can still map to the same file (names differing only
+/// in characters that sanitizing replaces, or in case). Number the later ones
+/// instead of letting them overwrite the earlier page.
+fn unique_path(path: String, taken: &[String]) -> String {
+    let is_taken = |p: &str| taken.iter().any(|t| t.eq_ignore_ascii_case(p));
+    if !is_taken(&path) {
+        return path;
+    }
+    let stem = path.strip_suffix(".md").unwrap_or(&path);
+    (2..)
+        .map(|n| format!("{stem}-{n}.md"))
+        .find(|p| !is_taken(p))
+        .unwrap_or(path)
+}
+
 fn url_to_filepath(url: &str, base_dir: &str) -> String {
     // Simple URL parsing without the `url` crate
     let without_scheme = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
         .unwrap_or(url);
-    let (host_port, path) = match without_scheme.find('/') {
+    let (host_port, path) = match without_scheme.find(['/', '?', '#']) {
         Some(i) => (&without_scheme[..i], &without_scheme[i..]),
         None => (without_scheme, "/"),
     };
     let host = host_port.split(':').next().unwrap_or("unknown");
-    // Strip query string and fragment
-    let path = path.split('?').next().unwrap_or(path);
+    // Drop the fragment. The query string stays in the file name, because
+    // `/item?id=1` and `/item?id=2` are different pages.
     let path = path.split('#').next().unwrap_or(path);
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
+    let query: String = sanitize_filename(query).chars().take(80).collect();
 
     let path = path.trim_matches('/');
     let segments: Vec<&str> = if path.is_empty() {
@@ -232,11 +257,12 @@ fn url_to_filepath(url: &str, base_dir: &str) -> String {
             continue;
         }
         if i == segments.len() - 1 {
-            // Last segment: add .md extension if not present
-            if clean.ends_with(".md") {
-                file_path.push(&clean);
+            // Last segment: append the query and the .md extension
+            let stem = clean.strip_suffix(".md").unwrap_or(&clean);
+            if query.is_empty() {
+                file_path.push(format!("{stem}.md"));
             } else {
-                file_path.push(format!("{clean}.md"));
+                file_path.push(format!("{stem}_{query}.md"));
             }
         } else {
             file_path.push(&clean);
@@ -258,4 +284,27 @@ fn sanitize_filename(name: &str) -> String {
         return String::new();
     }
     cleaned
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_strings_map_to_different_files() {
+        let a = url_to_filepath("https://example.com/item?id=1#top", "/base");
+        let b = url_to_filepath("https://example.com/item?id=2", "/base");
+        assert_eq!(a, "/base/example.com/item_id_1.md");
+        assert_eq!(b, "/base/example.com/item_id_2.md");
+        assert_eq!(url_to_filepath("https://example.com/docs/a.md", "/base"), "/base/example.com/docs/a.md");
+        assert_eq!(url_to_filepath("https://example.com", "/base"), "/base/example.com/index.md");
+        assert_eq!(url_to_filepath("https://example.com?p=2", "/base"), "/base/example.com/index_p_2.md");
+    }
+
+    #[test]
+    fn colliding_paths_are_numbered() {
+        let taken = vec!["/base/a.md".to_string(), "/base/a-2.md".to_string()];
+        assert_eq!(unique_path("/base/A.md".into(), &taken), "/base/A-3.md");
+        assert_eq!(unique_path("/base/b.md".into(), &taken), "/base/b.md");
+    }
 }

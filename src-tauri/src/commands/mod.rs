@@ -13,6 +13,7 @@ pub use github::*;
 pub use web::*;
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
 use crate::error::{AppError, Result};
@@ -139,9 +140,14 @@ pub struct WindowRegistryEntry {
     pub height: f64,
 }
 
-#[tauri::command]
-pub fn save_window_registry(
-    handle: tauri::AppHandle,
+impl WindowRegistryEntry {
+    pub fn has_usable_size(&self) -> bool {
+        self.width >= 200.0 && self.height >= 200.0
+    }
+}
+
+pub fn write_window_registry(
+    handle: &tauri::AppHandle,
     windows: Vec<WindowRegistryEntry>,
 ) -> Result<()> {
     let store = handle
@@ -154,10 +160,37 @@ pub fn save_window_registry(
     Ok(())
 }
 
+/// Record the calling window's geometry for session restoration. The size is
+/// read from the native window: the webview's `window.outerWidth` is 0 while
+/// the window is hidden, which used to be saved and restored as an invisible
+/// 0x0 window.
 #[tauri::command]
-pub fn load_window_registry(
-    handle: tauri::AppHandle,
-) -> Result<Vec<WindowRegistryEntry>> {
+pub fn save_window_registry(window: tauri::WebviewWindow) -> Result<()> {
+    let geometry = |e: tauri::Error| AppError::Store(e.to_string());
+    let scale = window.scale_factor().map_err(geometry)?;
+    let size = window.inner_size().map_err(geometry)?.to_logical::<f64>(scale);
+    let position = window
+        .outer_position()
+        .ok()
+        .map(|p| p.to_logical::<f64>(scale));
+    let entry = WindowRegistryEntry {
+        label: window.label().to_string(),
+        x: position.map(|p| p.x),
+        y: position.map(|p| p.y),
+        width: size.width,
+        height: size.height,
+    };
+    if !entry.has_usable_size() {
+        return Ok(());
+    }
+    let handle = window.app_handle();
+    let mut entries = load_window_registry(handle)?;
+    entries.retain(|e| e.label != entry.label);
+    entries.push(entry);
+    write_window_registry(handle, entries)
+}
+
+pub fn load_window_registry(handle: &tauri::AppHandle) -> Result<Vec<WindowRegistryEntry>> {
     let store = handle
         .store(WINDOW_REGISTRY_STORE)
         .map_err(|e| AppError::Store(e.to_string()))?;

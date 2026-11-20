@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use super::git::run_cli;
 use super::spawn_blocking;
@@ -19,16 +20,28 @@ const VIEW_FIELDS_PR: &str =
 
 // --- gh CLI runner ---
 
+const GH_TIMEOUT: Duration = Duration::from_secs(60);
+
 fn gh_command(args: &[&str]) -> Command {
     let mut cmd = Command::new("gh");
-    cmd.args(args);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     // GUI launches inherit a minimal PATH and no HOME, so gh would be
     // unfindable and unable to read its auth config.
     crate::cloudflare::setup_gui_env(&mut cmd);
     cmd
 }
 
-fn gh_output(output: std::process::Output) -> Result<String> {
+fn gh_wait(child: std::process::Child) -> Result<String> {
+    let output = crate::util::wait_with_timeout(child, GH_TIMEOUT).map_err(|e| {
+        AppError::GitHub(if e.kind() == std::io::ErrorKind::TimedOut {
+            format!("gh timed out after {} seconds", GH_TIMEOUT.as_secs())
+        } else {
+            format!("gh did not complete: {e}")
+        })
+    })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(AppError::GitHub(if stderr.is_empty() {
@@ -41,10 +54,10 @@ fn gh_output(output: std::process::Output) -> Result<String> {
 }
 
 fn run_gh(args: &[&str]) -> Result<String> {
-    let output = gh_command(args)
-        .output()
+    let child = gh_command(args)
+        .spawn()
         .map_err(|e| AppError::GitHub(format!("Failed to run gh: {e}")))?;
-    gh_output(output)
+    gh_wait(child)
 }
 
 /// Run gh with `input` piped to stdin (used for `--body-file -`), which keeps
@@ -52,8 +65,6 @@ fn run_gh(args: &[&str]) -> Result<String> {
 fn run_gh_with_stdin(args: &[&str], input: &str) -> Result<String> {
     let mut child = gh_command(args)
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| AppError::GitHub(format!("Failed to run gh: {e}")))?;
     {
@@ -65,10 +76,7 @@ fn run_gh_with_stdin(args: &[&str], input: &str) -> Result<String> {
             .write_all(input.as_bytes())
             .map_err(|e| AppError::GitHub(format!("Failed to write to gh: {e}")))?;
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| AppError::GitHub(format!("gh did not complete: {e}")))?;
-    gh_output(output)
+    gh_wait(child)
 }
 
 // --- Input validation ---
