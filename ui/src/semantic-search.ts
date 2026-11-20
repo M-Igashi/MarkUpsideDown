@@ -9,21 +9,29 @@ import { workerFetch } from "./worker-fetch.ts";
 // can make at most 50 subrequests, so large sets are sent in chunks.
 const INDEX_BATCH_SIZE = 20;
 
+export interface IndexResult {
+  indexed: number;
+  /** Documents the Worker could not index. */
+  failed: number;
+}
+
 export async function indexDocuments(
   docs: { id: string; content: string }[],
-): Promise<{ indexed: number }> {
+): Promise<IndexResult> {
   let indexed = 0;
+  let failed = 0;
   for (let i = 0; i < docs.length; i += INDEX_BATCH_SIZE) {
-    const resp = await workerFetch<{ indexed: number }>("/embed", {
+    const resp = await workerFetch<{ indexed: number; errors?: string[] }>("/embed", {
       method: "POST",
       body: JSON.stringify({ documents: docs.slice(i, i + INDEX_BATCH_SIZE) }),
     });
     indexed += resp.indexed;
+    failed += resp.errors?.length ?? 0;
   }
-  return { indexed };
+  return { indexed, failed };
 }
 
-export function indexDocument(id: string, content: string): Promise<{ indexed: number }> {
+export function indexDocument(id: string, content: string): Promise<IndexResult> {
   return indexDocuments([{ id, content }]);
 }
 

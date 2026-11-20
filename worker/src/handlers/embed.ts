@@ -19,6 +19,14 @@ const INSTANCE_CONFIG: AiSearchConfig = {
   custom_metadata: [{ field_name: "doc_id", data_type: "text" }],
 };
 
+// A new instance rejects uploads with a not-found error for its first seconds.
+// The retries are capped so a 20-document request stays within the 50
+// subrequests of the Workers Free plan.
+const READY_RETRIES = 4;
+const READY_WAIT_MS = 1500;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 interface EmbedDocument {
   id: string;
   content: string;
@@ -76,9 +84,31 @@ export async function handleEmbed(request: Request, env: Env): Promise<Response>
 
   // Upload is an upsert, so re-indexing a document replaces its old chunks.
   // Indexing continues in the background after the upload returns.
-  const results = await Promise.allSettled(
-    body.documents.map((doc) => instance.items.upload(itemKey(doc.id), doc.content, { metadata: { doc_id: doc.id } })),
-  );
+  const upload = (doc: EmbedDocument) =>
+    instance.items.upload(itemKey(doc.id), doc.content, { metadata: { doc_id: doc.id } });
+  const uploadWhenReady = async (doc: EmbedDocument) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await upload(doc);
+      } catch (e) {
+        if (!isNotFound(e) || attempt >= READY_RETRIES) throw e;
+        await sleep(READY_WAIT_MS);
+      }
+    }
+  };
+
+  // The first document waits for the instance to accept uploads, then the
+  // rest go in parallel, with one more try for any that still miss it.
+  const [first, ...rest] = body.documents;
+  const results = await Promise.allSettled([uploadWhenReady(first)]);
+  results.push(...(await Promise.allSettled(rest.map(upload))));
+  const missed = results.flatMap((r, i) => (r.status === "rejected" && isNotFound(r.reason) ? [i] : []));
+  if (missed.length > 0 && missed.length < results.length) {
+    await sleep(READY_WAIT_MS);
+    const retried = await Promise.allSettled(missed.map((i) => upload(body.documents[i])));
+    missed.forEach((i, n) => (results[i] = retried[n]));
+  }
+
   const errors = results.flatMap((r, i) =>
     r.status === "rejected" ? [`${body.documents[i].id}: ${errorMessage(r.reason)}`] : [],
   );
