@@ -386,9 +386,11 @@ export function initDragDrop(appEl: HTMLElement) {
     }
   });
 
+  // Capture phase: a drop on a sidebar folder stops propagation
+  appEl.addEventListener("drop", () => appEl.classList.remove("drop-active"), true);
+
   appEl.addEventListener("drop", async (e) => {
     e.preventDefault();
-    appEl.classList.remove("drop-active");
 
     // Ignore internal drags (sidebar/tab reorder)
     if (!e.dataTransfer?.types.includes("Files")) return;
