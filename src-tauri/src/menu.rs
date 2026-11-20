@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
@@ -228,7 +229,9 @@ fn continue_quit(handle: &AppHandle) {
         }
     }
     crate::bridge::cleanup();
-    handle.exit(0);
+    if !reply_to_terminate(handle, true) {
+        handle.exit(0);
+    }
 }
 
 /// A window's answer to `app:quit-requested`. `ok: false` cancels the quit.
@@ -241,11 +244,75 @@ pub fn quit_response(window: tauri::WebviewWindow, queue: tauri::State<'_, QuitQ
         }
         if !ok {
             queue.clear();
+            reply_to_terminate(window.app_handle(), false);
             return;
         }
         queue.pop();
     }
     continue_quit(window.app_handle());
+}
+
+/// True while macOS waits for the answer to `applicationShouldTerminate:`.
+static TERMINATE_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Answer a pending `applicationShouldTerminate:`. False when none is pending,
+/// i.e. the quit came from the menu and the caller has to exit itself.
+fn reply_to_terminate(handle: &AppHandle, quit: bool) -> bool {
+    if !TERMINATE_PENDING.swap(false, Ordering::SeqCst) {
+        return false;
+    }
+    #[cfg(target_os = "macos")]
+    let _ = handle.run_on_main_thread(move || unsafe {
+        use objc2::{class, msg_send, runtime::AnyObject, runtime::Bool};
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![app, replyToApplicationShouldTerminate: Bool::new(quit)];
+    });
+    true
+}
+
+/// Route Quit in the Dock menu, logout, restart, and shutdown through
+/// `request_quit`. They send `terminate:` to the application, and tao's app
+/// delegate has no `applicationShouldTerminate:`, so the process would end
+/// without asking about unsaved tabs. The method is added to the delegate's
+/// class; nothing happens if a later tao version defines it itself.
+#[cfg(target_os = "macos")]
+pub fn install_terminate_handler(handle: &AppHandle) {
+    use objc2::runtime::{AnyObject, Imp, Sel};
+    use objc2::{class, msg_send, sel};
+
+    static HANDLE: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
+    const NS_TERMINATE_NOW: usize = 1;
+    const NS_TERMINATE_LATER: usize = 2;
+
+    extern "C-unwind" fn should_terminate(_: &AnyObject, _: Sel, _: *mut AnyObject) -> usize {
+        let Some(handle) = HANDLE.get() else {
+            return NS_TERMINATE_NOW;
+        };
+        // The answer follows through `reply_to_terminate`
+        TERMINATE_PENDING.store(true, Ordering::SeqCst);
+        request_quit(handle);
+        NS_TERMINATE_LATER
+    }
+
+    if HANDLE.set(handle.clone()).is_err() {
+        return;
+    }
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let delegate: *mut AnyObject = msg_send![app, delegate];
+        let Some(delegate) = delegate.as_ref() else {
+            return;
+        };
+        let imp: Imp = std::mem::transmute(
+            should_terminate as extern "C-unwind" fn(&AnyObject, Sel, *mut AnyObject) -> usize,
+        );
+        objc2::ffi::class_addMethod(
+            std::ptr::from_ref(delegate.class()).cast_mut(),
+            sel!(applicationShouldTerminate:),
+            imp,
+            c"Q@:@".as_ptr(),
+        );
+    }
 }
 
 #[tauri::command]

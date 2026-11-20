@@ -127,6 +127,8 @@ fn main() {
             let m = menu::build(app.handle())?;
             app.set_menu(m)?;
             bridge::start(app.handle().clone(), editor_states.clone());
+            #[cfg(target_os = "macos")]
+            menu::install_terminate_handler(app.handle());
 
             // Restore additional windows from session registry
             if let Ok(entries) = commands::load_window_registry(app.handle()) {
