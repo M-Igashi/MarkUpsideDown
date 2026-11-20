@@ -251,9 +251,9 @@ Requires the AI Search binding in the Worker (Worker v13+). The AI Search instan
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `publish_document` | Publish Markdown to a public URL via R2 | `key: string`, `content: string`, `filename?: string`, `expires_in?: number` (seconds, 0 = permanent) |
+| `publish_document` | Publish Markdown to a public URL via R2. Fails if `key` is already published, unless `overwrite` is true | `key: string`, `content: string`, `filename?: string`, `expires_in?: number` (seconds, 0 = permanent), `overwrite?: boolean` |
 | `unpublish_document` | Remove a published document from R2 | `key: string` |
-| `list_published` | List all published documents in R2 | — |
+| `list_published` | List all published documents in R2 (expired ones are left out) | — |
 
 Published documents are accessible at `{worker_url}/p/{key}` as `text/markdown`.
 

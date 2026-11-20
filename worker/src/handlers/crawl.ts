@@ -4,6 +4,7 @@ import {
   BROWSER_RUN_REJECT,
   CRAWL_LIMIT_MAX,
   CRAWL_LIMIT_DEFAULT,
+  CRAWL_STATUS_LIMIT_MAX,
   CRAWL_DEPTH_DEFAULT,
 } from "../config.js";
 import { jsonResponse, parseJsonBody, hasCrawlSecrets, wrapJsonSchema, CORS_HEADERS, errorMessage } from "../utils.js";
@@ -11,6 +12,16 @@ import { validateUrlForSsrf } from "../ssrf.js";
 
 const SECRETS_MISSING_ERROR =
   "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN secrets are required for crawling";
+
+/** 502, not the upstream status: a 401/403 from the Browser Run API must not
+ *  look like a rejected Worker API key. The status stays in the body. */
+async function upstreamError(label: string, response: Response): Promise<Response> {
+  const errorBody = await response.text();
+  return jsonResponse(
+    { error: `${label} (${response.status}): ${errorBody}`, upstream_status: response.status },
+    502,
+  );
+}
 
 // /crawl is only available through the REST API, not the browser binding.
 function crawlApiUrl(env: Env, jobId?: string): string {
@@ -81,8 +92,7 @@ export async function handleCrawlStart(request: Request, env: Env): Promise<Resp
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      return jsonResponse({ error: `Crawl API error (${response.status}): ${errorBody}` }, response.status);
+      return upstreamError("Crawl API error", response);
     }
 
     const data = await response.json<{ success: boolean; result: string; errors?: unknown[] }>();
@@ -101,8 +111,11 @@ export async function handleCrawlStatus(jobId: string, url: URL, env: Env): Prom
     return jsonResponse({ error: SECRETS_MISSING_ERROR }, 500);
   }
 
-  const limitRaw = url.searchParams.get("limit") || "100";
-  const limit = Math.max(1, Math.min(Number.parseInt(limitRaw, 10) || 100, 10000));
+  const limitRaw = url.searchParams.get("limit") || "";
+  const limit = Math.max(
+    1,
+    Math.min(Number.parseInt(limitRaw, 10) || CRAWL_STATUS_LIMIT_MAX, CRAWL_STATUS_LIMIT_MAX),
+  );
   const status = url.searchParams.get("status") || "";
   const cursor = url.searchParams.get("cursor") || "";
 
@@ -124,8 +137,7 @@ export async function handleCrawlStatus(jobId: string, url: URL, env: Env): Prom
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      return jsonResponse({ error: `Crawl status API error (${response.status}): ${errorBody}` }, response.status);
+      return upstreamError("Crawl status API error", response);
     }
 
     // Stream the upstream body through — results can be many MB of markdown,
@@ -150,8 +162,7 @@ export async function handleCrawlCancel(jobId: string, env: Env): Promise<Respon
       headers: { "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
     });
     if (!response.ok) {
-      const errorBody = await response.text();
-      return jsonResponse({ error: `Crawl cancel API error (${response.status}): ${errorBody}` }, response.status);
+      return upstreamError("Crawl cancel API error", response);
     }
     return jsonResponse({ cancelled: jobId });
   } catch (e) {
