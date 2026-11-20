@@ -133,7 +133,8 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
       statusEl.textContent += " | Indexing for search…";
       indexDocuments(docs)
         .then((r) => {
-          statusEl.textContent = `${outcome}: ${result.saved_count} pages saved, ${r.indexed} indexed${stopped}`;
+          const failed = r.failed > 0 ? ` (${r.failed} failed to index)` : "";
+          statusEl.textContent = `${outcome}: ${result.saved_count} pages saved, ${r.indexed} indexed${failed}${stopped}`;
         })
         .catch(() => {
           // Semantic search not configured — silently ignore
