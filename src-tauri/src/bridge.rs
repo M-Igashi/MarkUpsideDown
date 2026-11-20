@@ -24,8 +24,15 @@ struct BridgeState {
 }
 
 impl BridgeState {
-    fn emit_to_focused<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
-        crate::util::emit_to_focused(&self.app, event, payload);
+    /// Emit to the window named in `?window=`, or to the focused one.
+    /// `require_known_window` has already rejected labels that do not exist.
+    fn emit_to_window<S: serde::Serialize + Clone>(&self, window: &WindowQuery, event: &str, payload: S) {
+        match window.window.as_deref() {
+            Some(label) => {
+                let _ = self.app.emit_to(label, event, payload);
+            }
+            None => crate::util::emit_to_focused(&self.app, event, payload),
+        }
     }
 }
 
@@ -84,6 +91,26 @@ async fn require_local_client(
             )
                 .into_response();
         }
+    }
+    next.run(request).await
+}
+
+/// A `?window=<label>` that names no open window is an error. Falling back
+/// to the focused window would send an agent's edit to the wrong document.
+async fn require_known_window(
+    State(state): State<Arc<BridgeState>>,
+    Query(wq): Query<WindowQuery>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if let Some(label) = wq.window.as_deref()
+        && state.app.get_webview_window(label).is_none()
+    {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("No window with the label '{label}' (see list_windows)") })),
+        )
+            .into_response();
     }
     next.run(request).await
 }
@@ -160,6 +187,7 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/github/update", post(github_update))
         // crawl_save and set_editor_content can exceed axum's 2 MB default
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
+        .layer(middleware::from_fn_with_state(state.clone(), require_known_window))
         .layer(middleware::from_fn_with_state(
             (port, token.clone()),
             require_local_client,
@@ -263,16 +291,17 @@ struct SetContentRequest {
 
 async fn set_content(
     State(state): State<Arc<BridgeState>>,
+    Query(wq): Query<WindowQuery>,
     Json(body): Json<SetContentRequest>,
 ) -> StatusCode {
-    // Update focused window's state
-    if let Some(label) = state.editor.get_focused_label() {
+    // Update the target window's state
+    if let Some(label) = wq.window.clone().or_else(|| state.editor.get_focused_label()) {
         let mut map = state.editor.map.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(s) = map.get_mut(&label) {
             s.content = body.content.clone();
         }
     }
-    state.emit_to_focused("bridge:set-content", &body.content);
+    state.emit_to_window(&wq, "bridge:set-content", &body.content);
     StatusCode::OK
 }
 
@@ -284,6 +313,7 @@ struct InsertTextRequest {
 
 async fn insert_text(
     State(state): State<Arc<BridgeState>>,
+    Query(wq): Query<WindowQuery>,
     Json(body): Json<InsertTextRequest>,
 ) -> StatusCode {
     #[derive(Serialize)]
@@ -295,7 +325,7 @@ async fn insert_text(
         text: body.text,
         position: body.position.unwrap_or_else(|| "end".to_string()),
     };
-    state.emit_to_focused("bridge:insert-text", &payload);
+    state.emit_to_window(&wq, "bridge:insert-text", &payload);
     StatusCode::OK
 }
 
@@ -354,11 +384,12 @@ struct OpenFileRequest {
 
 async fn open_file(
     State(state): State<Arc<BridgeState>>,
+    Query(wq): Query<WindowQuery>,
     Json(body): Json<OpenFileRequest>,
 ) -> Result<StatusCode, (StatusCode, BridgeError)> {
     commands::validate_path(&body.path)
         .map_err(|e| (StatusCode::BAD_REQUEST, BridgeError::from(e)))?;
-    state.emit_to_focused("bridge:open-file", &body.path);
+    state.emit_to_window(&wq, "bridge:open-file", &body.path);
     Ok(StatusCode::OK)
 }
 
@@ -369,18 +400,22 @@ struct SaveFileRequest {
 
 async fn save_file(
     State(state): State<Arc<BridgeState>>,
+    Query(wq): Query<WindowQuery>,
     Json(body): Json<SaveFileRequest>,
 ) -> Result<StatusCode, (StatusCode, BridgeError)> {
     if let Some(ref path) = body.path {
         commands::validate_path(path)
             .map_err(|e| (StatusCode::BAD_REQUEST, BridgeError::from(e)))?;
     }
-    state.emit_to_focused("bridge:save-file", &body.path);
+    state.emit_to_window(&wq, "bridge:save-file", &body.path);
     Ok(StatusCode::OK)
 }
 
-async fn normalize_document(State(state): State<Arc<BridgeState>>) -> StatusCode {
-    state.emit_to_focused("bridge:normalize", ());
+async fn normalize_document(
+    State(state): State<Arc<BridgeState>>,
+    Query(wq): Query<WindowQuery>,
+) -> StatusCode {
+    state.emit_to_window(&wq, "bridge:normalize", ());
     StatusCode::OK
 }
 
@@ -448,9 +483,10 @@ struct SwitchTabRequest {
 
 async fn switch_tab(
     State(state): State<Arc<BridgeState>>,
+    Query(wq): Query<WindowQuery>,
     Json(body): Json<SwitchTabRequest>,
 ) -> StatusCode {
-    state.emit_to_focused("bridge:switch-tab", &body);
+    state.emit_to_window(&wq, "bridge:switch-tab", &body);
     StatusCode::OK
 }
 

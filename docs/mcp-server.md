@@ -96,15 +96,15 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `get_editor_content` | Get current Markdown from the editor | — |
-| `set_editor_content` | Replace editor content | `markdown: string` |
-| `insert_text` | Insert text at cursor, start, or end | `text: string`, `position?: "cursor" \| "start" \| "end"` |
-| `get_editor_state` | Get editor state (file path, cursor position/line/column, Worker URL) | — |
-| `get_document_structure` | Get document structure (headings, links, stats) as JSON | — |
-| `normalize_document` | Normalize headings, tables, list markers, whitespace, CJK emphasis spacing | — |
-| `lint_document` | Run structural lint checks (headings, links, tables, emphasis, code blocks, footnotes, blank lines) | — |
-| `open_file` | Open a Markdown file in the editor | `path: string` |
-| `save_file` | Save content to a file | `path?: string` (uses current file if omitted) |
+| `get_editor_content` | Get current Markdown from the editor | `window?: string` |
+| `set_editor_content` | Replace editor content | `markdown: string`, `window?: string` |
+| `insert_text` | Insert text at cursor, start, or end | `text: string`, `position?: "cursor" \| "start" \| "end"`, `window?: string` |
+| `get_editor_state` | Get editor state (file path, cursor position/line/column, Worker URL) | `window?: string` |
+| `get_document_structure` | Get document structure (headings, links, stats) as JSON | `window?: string` |
+| `normalize_document` | Normalize headings, tables, list markers, whitespace, CJK emphasis spacing | `window?: string` |
+| `lint_document` | Run structural lint checks (headings, links, tables, emphasis, code blocks, footnotes, blank lines) | `window?: string` |
+| `open_file` | Open a Markdown file in the editor | `path: string`, `window?: string` |
+| `save_file` | Save content to a file | `path?: string` (uses current file if omitted), `window?: string` |
 
 </details>
 
@@ -115,10 +115,10 @@ The Tauri app listens on `localhost:31415` by default (fallback: 31416–31420).
 |------|-------------|------------|
 | `list_directory` | List files and directories (respects .gitignore) | `path?: string`, `recursive?: boolean`, `max_entries?: number` (default: 1000) |
 | `read_file` | Read a text file (must be under the home directory) | `path: string` |
-| `get_open_tabs` | List all open editor tabs with dirty status | — |
-| `get_project_root` | Get the current project root directory path | — |
-| `get_dirty_files` | List files with unsaved changes | — |
-| `switch_tab` | Switch the active editor tab | `path?: string`, `tab_id?: string` |
+| `get_open_tabs` | List all open editor tabs with dirty status | `window?: string` |
+| `get_project_root` | Get the current project root directory path | `window?: string` |
+| `get_dirty_files` | List files with unsaved changes | `window?: string` |
+| `switch_tab` | Switch the active editor tab | `path?: string`, `tab_id?: string`, `window?: string` |
 | `git_status` | Get git status (branch, files, ahead/behind) | — |
 | `search_files` | Search file names (not content) by substring match | `query: string`, `path?: string` |
 
