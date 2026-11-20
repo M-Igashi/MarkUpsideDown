@@ -9,7 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use crate::commands::{self, EditorStates};
 use crate::error::AppError;
@@ -148,6 +148,7 @@ pub fn start(app: AppHandle, editor_state: Arc<EditorStates>) {
         .route("/content/download-image", post(download_image))
         .route("/content/fetch-title", post(fetch_page_title))
         .route("/tags/list", get(tags_list))
+        .route("/tags/update", post(tags_update))
         .route("/tags/set", post(tags_set))
         .route("/git/stage-all", post(git_stage_all))
         .route("/git/show", get(git_show))
@@ -893,45 +894,35 @@ async fn fetch_page_title(
 
 // --- Tag handlers ---
 
-fn tags_file_path(root: &str) -> String {
-    format!("{root}/.markupsidedown/tags.json")
-}
-
-async fn read_tags(root: &str) -> serde_json::Value {
-    let path = tags_file_path(root);
-    match tokio::fs::read_to_string(&path).await {
-        Ok(content) => serde_json::from_str(&content).unwrap_or(serde_json::json!({ "tags": {}, "files": {} })),
-        Err(_) => serde_json::json!({ "tags": {}, "files": {} }),
-    }
-}
-
-async fn write_tags(root: &str, data: &serde_json::Value) -> crate::error::Result<()> {
-    let dir = format!("{root}/.markupsidedown");
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|e| AppError::Io(format!("Failed to create directory: {e}")))?;
-    let json = serde_json::to_string_pretty(data).map_err(|e| AppError::Io(e.to_string()))?;
-    tokio::fs::write(tags_file_path(root), json)
-        .await
-        .map_err(|e| AppError::Io(format!("Failed to write tags: {e}")))
-}
-
 async fn tags_list(State(state): State<Arc<BridgeState>>) -> BridgeResult {
-    Ok(Json(read_tags(&get_repo_path(&state)?).await))
+    let data = commands::read_tags(&get_repo_path(&state)?).await?;
+    Ok(Json(serde_json::json!(data)))
+}
+
+#[derive(Deserialize)]
+struct TagsUpdateRequest {
+    ops: Vec<commands::TagsOp>,
+}
+
+async fn tags_update(
+    State(state): State<Arc<BridgeState>>,
+    Json(body): Json<TagsUpdateRequest>,
+) -> BridgeResult {
+    commands::apply_tag_ops(&state.app, &get_repo_path(&state)?, body.ops).await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 #[derive(Deserialize)]
 struct TagsSetRequest {
-    tags: serde_json::Value,
+    tags: commands::TagsData,
 }
 
+/// Whole-file replace, kept for MCP servers that predate `/tags/update`.
 async fn tags_set(
     State(state): State<Arc<BridgeState>>,
     Json(body): Json<TagsSetRequest>,
 ) -> BridgeResult {
-    write_tags(&get_repo_path(&state)?, &body.tags).await?;
-    // Tags are per project, so every window refreshes its view
-    let _ = state.app.emit("bridge:tags-changed", ());
+    commands::replace_tags(&state.app, &get_repo_path(&state)?, body.tags).await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

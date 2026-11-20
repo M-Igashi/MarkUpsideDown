@@ -224,7 +224,9 @@ export function initBridgeListeners() {
   );
 
   track(
-    listen("bridge:tags-changed", async () => {
+    // Sent to every window when a window or an MCP agent changes tags.json
+    listen<string>("tags:changed", async (event) => {
+      if (event.payload !== getRootPath()) return;
       await reloadTags();
       refreshTree();
     }),

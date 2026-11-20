@@ -234,6 +234,7 @@ fn main() {
             menu::add_recent_file,
             commands::validate_markdown,
             commands::print_webview,
+            commands::update_tags,
             commands::save_window_registry,
             take_pending_open_files,
         ])

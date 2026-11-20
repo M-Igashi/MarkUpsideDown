@@ -389,8 +389,10 @@ impl BridgeClient {
         self.request_json(Method::GET, "/tags/list", None).await
     }
 
-    pub async fn set_tags(&self, data: &serde_json::Value) -> Result<(), String> {
-        self.post_check_error("/tags/set", serde_json::json!({ "tags": data })).await
+    /// Apply one change to tags.json. The app re-reads the file for each
+    /// change, so edits made in its windows meanwhile are kept.
+    pub async fn update_tags(&self, op: serde_json::Value) -> Result<(), String> {
+        self.post_check_error("/tags/update", serde_json::json!({ "ops": [op] })).await
     }
 
     // --- Git extended operations ---

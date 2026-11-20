@@ -247,6 +247,7 @@ Backed by the `gh` CLI, scoped to the `owner/name` parsed from the project's `or
 |---------|-------------|--------|
 | `load_window_registry` | Load saved window positions | `commands/editor.rs` |
 | `save_window_registry` | Save window positions | `commands/editor.rs` |
+| `update_tags` | Apply tag changes to `.markupsidedown/tags.json` (re-reads the file for each change, then notifies every window) | `commands/tags.rs` |
 
 ### Cloudflare / Wrangler
 

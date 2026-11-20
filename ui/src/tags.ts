@@ -1,6 +1,9 @@
 // File tagging system — stores tags in .markupsidedown/tags.json per project.
+// `data` is a read cache. Every change goes through the backend's `update_tags`,
+// which re-reads the file and applies just that change, so other windows on
+// the project and MCP agents never overwrite each other.
 
-import { clampToViewport, writeTextFile } from "./html-utils.ts";
+import { clampToViewport } from "./html-utils.ts";
 import { relativeToRoot } from "./path-utils.ts";
 import { icon } from "./icons.ts";
 
@@ -14,6 +17,15 @@ interface TagsData {
   tags: Record<string, TagDef>;
   files: Record<string, string[]>;
 }
+
+/** Mirrors `TagsOp` in src-tauri/src/commands/tags.rs. Paths are project-relative. */
+type TagsOp =
+  | { op: "create_tag"; name: string; color: string }
+  | { op: "delete_tag"; name: string }
+  | { op: "add_file_tag"; paths: string[]; tag: string }
+  | { op: "remove_file_tag"; paths: string[]; tag: string }
+  | { op: "rename_path"; from: string; to: string }
+  | { op: "delete_path"; path: string };
 
 const PRESET_COLORS = [
   { name: "Red", value: "#d94545" },
@@ -54,45 +66,28 @@ export async function reloadTags(): Promise<void> {
   if (currentRootPath) await loadTags(currentRootPath);
 }
 
-async function save(): Promise<void> {
-  const fp = tagsFilePath();
-  if (!fp) return;
-  const dir = `${currentRootPath}/.markupsidedown`;
+/** Apply changes to tags.json. On failure (e.g. a tag another window just deleted), resync. */
+async function update(ops: TagsOp[]): Promise<void> {
+  const root = currentRootPath;
+  if (!root || ops.length === 0) return;
   try {
-    await invoke("create_directory", { path: dir });
-  } catch {}
-
-  // Remove empty file entries before saving
-  for (const [path, tags] of Object.entries(data.files)) {
-    if (tags.length === 0) delete data.files[path];
+    const updated = await invoke<TagsData>("update_tags", { root, ops });
+    if (root === currentRootPath) data = updated;
+  } catch {
+    await reloadTags();
   }
-  await writeTextFile(fp, JSON.stringify(data, null, 2));
 }
 
 function toRelPath(absPath: string): string {
   return currentRootPath ? relativeToRoot(currentRootPath, absPath) : absPath;
 }
 
-/** Re-key or drop tag entries for a path and everything under it. */
-function updateTaggedPaths(absPath: string, newAbsPath: string | null): void {
-  const rel = toRelPath(absPath);
-  const newRel = newAbsPath === null ? null : toRelPath(newAbsPath);
-  let changed = false;
-  for (const [path, tags] of Object.entries(data.files)) {
-    if (path !== rel && !path.startsWith(`${rel}/`)) continue;
-    delete data.files[path];
-    if (newRel !== null) data.files[newRel + path.slice(rel.length)] = tags;
-    changed = true;
-  }
-  if (changed) save().catch(() => {});
-}
-
 export function renameFileTags(oldPath: string, newPath: string): void {
-  updateTaggedPaths(oldPath, newPath);
+  update([{ op: "rename_path", from: toRelPath(oldPath), to: toRelPath(newPath) }]);
 }
 
 export function deleteFileTags(paths: string[]): void {
-  for (const p of paths) updateTaggedPaths(p, null);
+  update(paths.map((p) => ({ op: "delete_path", path: toRelPath(p) })));
 }
 
 export function getFileTags(absPath: string): string[] {
@@ -108,27 +103,20 @@ export function getAllTagNames(): string[] {
   return Object.keys(data.tags);
 }
 
-async function deleteTag(name: string): Promise<void> {
-  delete data.tags[name];
-  for (const [path, tags] of Object.entries(data.files)) {
-    data.files[path] = tags.filter((t) => t !== name);
-  }
-  await save();
+function deleteTag(name: string): Promise<void> {
+  return update([{ op: "delete_tag", name }]);
 }
 
-async function bulkToggleTag(absPaths: string[], tagName: string): Promise<void> {
+function bulkToggleTag(absPaths: string[], tagName: string): Promise<void> {
   // If all selected files have this tag, remove it from all; otherwise add to all
   const allHave = absPaths.every((p) => getFileTags(p).includes(tagName));
-  for (const absPath of absPaths) {
-    const rel = toRelPath(absPath);
-    const tags = data.files[rel] ?? [];
-    if (allHave) {
-      data.files[rel] = tags.filter((t) => t !== tagName);
-    } else if (!tags.includes(tagName)) {
-      data.files[rel] = [...tags, tagName];
-    }
-  }
-  await save();
+  return update([
+    {
+      op: allHave ? "remove_file_tag" : "add_file_tag",
+      paths: absPaths.map(toRelPath),
+      tag: tagName,
+    },
+  ]);
 }
 
 // --- Popover UI ---
@@ -259,16 +247,11 @@ export function showTagPopover(
     addBtn.addEventListener("click", async () => {
       const name = input.value.trim();
       if (!name || data.tags[name]) return;
-      data.tags[name] = { color: selectedColor };
-      // Auto-assign to selected files
-      for (const absPath of targetPaths) {
-        const rel = toRelPath(absPath);
-        const tags = data.files[rel] ?? [];
-        if (!tags.includes(name)) {
-          data.files[rel] = [...tags, name];
-        }
-      }
-      await save();
+      // Create the tag and assign it to the selected files
+      await update([
+        { op: "create_tag", name, color: selectedColor },
+        { op: "add_file_tag", paths: targetPaths.map(toRelPath), tag: name },
+      ]);
       renderContent();
       onDone();
     });

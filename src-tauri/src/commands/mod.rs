@@ -3,6 +3,7 @@ mod editor;
 mod files;
 mod git;
 mod github;
+mod tags;
 mod web;
 
 pub use crawl::*;
@@ -10,6 +11,7 @@ pub use editor::*;
 pub use files::*;
 pub use git::*;
 pub use github::*;
+pub use tags::*;
 pub use web::*;
 
 use serde::{Deserialize, Serialize};
