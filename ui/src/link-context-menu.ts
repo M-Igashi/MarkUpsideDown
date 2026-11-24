@@ -2,7 +2,7 @@
 // Offers: Open in Browser, Get/Fetch/Render as Markdown, Crawl Site.
 
 import { getWorkerUrl } from "./settings.ts";
-import { closeContextMenu, showContextMenu } from "./context-menu.ts";
+import { showContextMenu } from "./context-menu.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -31,10 +31,6 @@ export function initLinkContextMenu(previewPane: HTMLElement, d: LinkMenuDeps) {
 
     e.preventDefault();
     showMenu(e.clientX, e.clientY, href);
-  });
-
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeContextMenu();
   });
 }
 

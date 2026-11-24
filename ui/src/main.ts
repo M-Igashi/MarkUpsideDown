@@ -9,7 +9,7 @@ import {
 import { Compartment, EditorState } from "@codemirror/state";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { defaultKeymap, indentWithTab, history, historyKeymap } from "@codemirror/commands";
-import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from "@codemirror/language";
+import { bracketMatching } from "@codemirror/language";
 import { search, searchKeymap } from "@codemirror/search";
 import { lintGutter } from "@codemirror/lint";
 import { markdownLinter } from "./markdown-lint.ts";
@@ -38,7 +38,7 @@ import {
   openFolderByPath,
   updateGitChangeCount,
   refreshTree,
-  refreshAfterExternalChange,
+  checkExternalDirChanges,
   stopDirWatcher,
   getActivePanel,
   switchPanel,
@@ -85,7 +85,6 @@ import {
   markTabSaved,
   updateTabPath,
   type Tab,
-  closeTabsByPath,
   closeTabsUnderDir,
   setTabsProjectRoot,
   switchProjectTabs,
@@ -93,7 +92,7 @@ import {
   setTabContentFlusher,
   setTabContent,
 } from "./tabs.ts";
-import { initFileWatcher, stopFileWatcher } from "./file-watcher.ts";
+import { checkExternalChange, initFileWatcher, stopFileWatcher } from "./file-watcher.ts";
 import "katex/dist/katex.min.css";
 
 import {
@@ -144,6 +143,7 @@ import {
   relativeToRoot,
   resolveRelativePath,
   SYSTEM_OPEN_EXTENSIONS,
+  stripExtension,
 } from "./path-utils.ts";
 import { getStorageBool, setStorageBool } from "./storage-utils.ts";
 import {
@@ -189,7 +189,7 @@ import {
 } from "./publish.ts";
 import { showDropdown, type MenuItem } from "./context-menu.ts";
 import { hydrateIcons, icon } from "./icons.ts";
-import { escapeHtml } from "./html-utils.ts";
+import { copyText, escapeHtml } from "./html-utils.ts";
 import { getAppearance, watchAppearance } from "./appearance.ts";
 // --- Window label (must run before any state restoration) ---
 initWindowLabel();
@@ -286,7 +286,6 @@ const editor = new EditorView({
       bracketMatching(),
       history(),
       markdown({ base: markdownLanguage }),
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       editorTheme,
       search(),
       markdownLinter,
@@ -464,8 +463,7 @@ function initStatusBar() {
     const target = publishTarget();
     const url = target && getPublishUrl(target.relPath);
     if (!url) return;
-    await invoke("copy_to_clipboard", { text: url });
-    statusEl.textContent = "Public URL copied";
+    if (await copyText(url)) statusEl.textContent = "Public URL copied";
   });
   onClick("status-worker", () => document.getElementById("btn-settings")!.click());
   window.addEventListener(WORKER_STATUS_EVENT, updateWorkerStatus);
@@ -512,7 +510,6 @@ function refreshGitAfterAutoSave(path: string) {
   refreshGitAndSync();
 }
 
-/** Reload all open file-backed tabs from disk (after git ops that modify files). */
 /** Reload open files after a git operation, asking before dropping unsaved edits. */
 async function reloadAllOpenTabs() {
   const fileTabs = getTabs().filter((t) => t.path);
@@ -569,7 +566,6 @@ initMcpSync({
   statusEl,
   getCurrentFilePath,
   loadContentAsTab,
-  renderPreview,
   updateStatus: () => updateStatus(editor.state),
   refreshGitAndSync,
   refreshTree,
@@ -608,7 +604,6 @@ function cleanupDocument() {
   const cleaned = normalizeMarkdown(content);
   if (cleaned !== content) {
     editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: cleaned } });
-    renderPreview(cleaned);
     statusEl.textContent = "Document cleaned up";
   } else {
     statusEl.textContent = "No changes needed";
@@ -698,11 +693,10 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) autoSave();
 });
 
-// Refresh sidebar tree and git status when window regains focus.
-// Catches file changes made by external tools (Cowork, Finder, terminal, etc.)
-// that macOS FSEvents may have missed.
+// Catch changes made by external tools (Finder, terminal, agents) right away
+// on focus instead of waiting for the next directory poll.
 window.addEventListener("focus", () => {
-  refreshAfterExternalChange();
+  checkExternalDirChanges();
   refreshGitAndSync();
 });
 
@@ -756,7 +750,7 @@ cmScroller.addEventListener("drop", (e) => {
     const pos =
       editor.posAtCoords({ x: e.clientX, y: e.clientY }) ?? editor.state.selection.main.head;
     const currentFile = getCurrentFilePath();
-    const fileName = basename(imagePath).replace(/\.[^.]+$/, "");
+    const fileName = stripExtension(basename(imagePath));
     const relativePath = currentFile
       ? buildRelativePath(currentFile, imagePath)
       : basename(imagePath);
@@ -937,7 +931,7 @@ previewPane.addEventListener("mouseout", (e) => {
   const anchor = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
   if (anchor) {
     linkHoverActive = false;
-    updateStatus(editor.state);
+    statusEl.textContent = "";
   }
 });
 
@@ -1014,7 +1008,7 @@ initSidebar(sidebarEl, {
   },
   onFolder: async (rootPath: string) => {
     // Save current tabs, restore tabs for the new project
-    switchProjectTabs(rootPath, reloadTab);
+    switchProjectTabs(rootPath);
     setRepoPath(rootPath);
     setGitHubRepoPath(rootPath);
     setPublishProjectRoot(rootPath);
@@ -1026,20 +1020,14 @@ initSidebar(sidebarEl, {
   },
   onRename: (oldPath, newPath) => {
     updateTabPath(oldPath, newPath);
-    // Reload active tab if it was renamed (path changed, content may differ)
+    // The status bar describes the active file
     const active = getActiveTab();
     if (active?.path === newPath) {
       updateStatus(editor.state);
     }
   },
-  onDelete: (paths, hadDir) => {
-    for (const p of paths) {
-      if (hadDir) {
-        closeTabsUnderDir(p);
-      } else {
-        closeTabsByPath([p]);
-      }
-    }
+  onDelete: (paths) => {
+    for (const p of paths) closeTabsUnderDir(p);
   },
   skipRestore: isFreshWindow,
 });
@@ -1241,7 +1229,7 @@ async function printPreview() {
   const imgs = Array.from(previewPane.querySelectorAll("img")) as HTMLImageElement[];
   for (const img of imgs) img.loading = "eager";
   await Promise.allSettled(imgs.map((img) => img.decode()));
-  updateStatus(editor.state);
+  statusEl.textContent = "";
   try {
     await invoke("print_webview");
   } catch (e) {
@@ -1272,9 +1260,6 @@ if (
 // --- Tabs ---
 
 const tabBarEl = document.getElementById("tab-bar")!;
-
-// Last-seen (mtime, size) per file path — gates disk re-reads on tab switch
-const tabStatKeys = new Map<string, string>();
 
 // --- File Watcher ---
 
@@ -1313,7 +1298,7 @@ initFileWatcher({
 // Set project root before restoring tabs so the correct per-project key is used
 setTabsProjectRoot(getRootPath());
 
-// Shared tab reload logic — used by initTabs.onReload and switchProjectTabs
+// Load a restored tab's content from its file or remote item
 async function reloadTab(tab: Tab) {
   if (tab.remote) {
     try {
@@ -1371,35 +1356,12 @@ initTabs(tabBarEl, {
       return;
     }
     loadContent(tab.content, tab.path);
-    // Check if file changed on disk since last load (catches missed watcher events).
-    // Cheap (mtime, size) gate first — only re-read the file when it changed.
-    if (tab.path && tab.savedContent !== null) {
-      const path = tab.path;
-      invoke<{ mtime_ms: number; size: number }>("stat_file", { path })
-        .then((stat) => {
-          const statKey = `${stat.mtime_ms}:${stat.size}`;
-          if (tabStatKeys.get(path) === statKey) return;
-          tabStatKeys.set(path, statKey);
-          return invoke<string>("read_text_file", { path }).then(async (diskContent) => {
-            if (diskContent === tab.savedContent || tab.id !== getActiveTab()?.id) return;
-            if (isTabDirty(tab)) {
-              const fileName = basename(path);
-              const reload = await confirmDialog(
-                `"${fileName}" has been modified externally.\nReload and discard your unsaved changes?`,
-                { title: "File Changed", kind: "warning" },
-              );
-              if (!reload || tab.id !== getActiveTab()?.id) return;
-            }
-            applyDiskContent(tab, diskContent);
-          });
-        })
-        .catch(() => {});
-    }
+    // The file may have changed on disk while the tab was in the background
+    checkExternalChange(tab);
   },
   onEmpty: () => {
     loadContent("");
   },
-  onReload: reloadTab,
   onLeave: (tab) => {
     // The outgoing tab leaves the editor, so the pending auto-save would no
     // longer see it; write it now.
@@ -1587,7 +1549,6 @@ registerCommands([
   {
     id: "export.richText",
     label: "Copy as Rich Text",
-    shortcut: "⌘⇧C",
     category: "Export",
     run: copyRichText,
   },

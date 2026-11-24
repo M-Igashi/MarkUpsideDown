@@ -10,8 +10,8 @@ const SUPPRESS_WINDOW_MS = 1000;
 // Other tabs are checked when they become active.
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 const POLL_INTERVAL_MS = 3000;
-let lastPolledPath: string | null = null;
-let lastPolledStat: string | null = null;
+// Last seen `mtime:size` per path, so unchanged files are not re-read
+const statKeys = new Map<string, string>();
 
 interface FileStat {
   mtime_ms: number;
@@ -37,7 +37,7 @@ export function suppressNext(filePath: string) {
 }
 
 /** True while a path is inside the window opened by `suppressNext` (the app just wrote it). */
-export function isRecentlySuppressed(filePath: string): boolean {
+function isRecentlySuppressed(filePath: string): boolean {
   const until = suppressUntil.get(filePath);
   if (until && Date.now() < until) return true;
   suppressUntil.delete(filePath);
@@ -68,30 +68,32 @@ async function reloadPath(path: string) {
   await deps.reloadTab(path);
 }
 
-// Poll active tab's file via a cheap (mtime, size) metadata check; the
-// content is only read and compared when the metadata changed.
+/**
+ * Reload a tab whose file changed on disk, asking first if it has unsaved
+ * edits. A cheap (mtime, size) check gates the read, so an unchanged file
+ * is never re-read.
+ */
+export async function checkExternalChange(tab: Tab) {
+  const path = tab.path;
+  if (!path || tab.savedContent === null || isRecentlySuppressed(path)) return;
+  try {
+    const stat = await invoke<FileStat>("stat_file", { path });
+    const statKey = `${stat.mtime_ms}:${stat.size}`;
+    if (statKeys.get(path) === statKey) return;
+    statKeys.set(path, statKey);
+    const diskContent = await invoke<string>("read_text_file", { path });
+    if (tab.savedContent !== null && diskContent !== tab.savedContent) await reloadPath(path);
+  } catch {
+    // File may have been deleted; the tab stays open
+  }
+}
+
+// Poll the active tab; other tabs are checked by the caller when they become active.
 function startPolling() {
-  pollTimer = setInterval(async () => {
+  pollTimer = setInterval(() => {
     if (document.hidden) return; // skip when window is not visible
     const activeTab = deps.getActiveTab();
-    const path = activeTab?.path;
-    if (!path) return;
-    if (isRecentlySuppressed(path)) return;
-
-    try {
-      const stat = await invoke<FileStat>("stat_file", { path });
-      const statKey = `${stat.mtime_ms}:${stat.size}`;
-      // Skip the full read when the file metadata hasn't changed
-      if (path === lastPolledPath && statKey === lastPolledStat) return;
-      lastPolledPath = path;
-      lastPolledStat = statKey;
-      const diskContent = await invoke<string>("read_text_file", { path });
-      if (activeTab.savedContent !== null && diskContent !== activeTab.savedContent) {
-        await reloadPath(path);
-      }
-    } catch {
-      // File may have been deleted; the tab stays open
-    }
+    if (activeTab) checkExternalChange(activeTab);
   }, POLL_INTERVAL_MS);
 }
 

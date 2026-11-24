@@ -7,11 +7,12 @@ import {
   dirname,
   getExtension,
   IMAGE_EXTENSIONS,
+  isWithin,
   MD_EXTENSIONS,
   relativeToRoot,
   SYSTEM_OPEN_EXTENSIONS,
 } from "./path-utils.ts";
-import { escapeHtml } from "./html-utils.ts";
+import { copyText, escapeHtml, writeFileBytes } from "./html-utils.ts";
 import { showContextMenu, type MenuItem } from "./context-menu.ts";
 import {
   KEY_SIDEBAR,
@@ -20,7 +21,7 @@ import {
   KEY_SIDEBAR_SHOW_DOTFILES,
   windowKey,
 } from "./storage-keys.ts";
-import { getStorageBool, setStorageBool } from "./storage-utils.ts";
+import { getStorageBool, getStorageJson, setStorageBool } from "./storage-utils.ts";
 import {
   loadTags,
   reloadTags,
@@ -101,7 +102,7 @@ let onFolderChange: ((rootPath: string) => void | Promise<void>) | null = null;
 let beforeFolderChange: (() => Promise<boolean>) | null = null;
 let onExternalChange: (() => void) | null = null;
 let onEntryRename: ((oldPath: string, newPath: string) => void) | null = null;
-let onEntryDelete: ((paths: string[], hadDir: boolean) => void) | null = null;
+let onEntryDelete: ((paths: string[]) => void) | null = null;
 let gitStatusMap: Map<string, GitStatus> = new Map();
 let refreshGeneration = 0; // guards against concurrent refreshTree() races
 let filterQuery = "";
@@ -206,7 +207,7 @@ export function initSidebar(
     beforeFolder?: () => Promise<boolean>;
     onDirChange?: () => void;
     onRename?: (oldPath: string, newPath: string) => void;
-    onDelete?: (paths: string[], hadDir: boolean) => void;
+    onDelete?: (paths: string[]) => void;
     skipRestore?: boolean;
   },
 ) {
@@ -220,15 +221,12 @@ export function initSidebar(
 
   // Restore state (per-window scoped key)
   if (!skipRestore) {
-    const saved = localStorage.getItem(windowKey(KEY_SIDEBAR));
+    const saved = getStorageJson<{ rootPath?: string | null; expandedDirs?: string[] }>(
+      windowKey(KEY_SIDEBAR),
+    );
     if (saved) {
-      try {
-        const state = JSON.parse(saved);
-        rootPath = state.rootPath || null;
-        expandedDirs = new Set(state.expandedDirs || []);
-      } catch {
-        // ignore
-      }
+      rootPath = saved.rootPath || null;
+      expandedDirs = new Set(saved.expandedDirs || []);
     }
 
     // Restore active panel
@@ -703,35 +701,34 @@ async function snapshotPolledDirs(root: string): Promise<Map<string, string>> {
   return new Map(dirs.map((dir, i) => [dir, snapshots[i]]));
 }
 
-/** Refresh after files may have changed outside the app. */
-export async function refreshAfterExternalChange() {
+/**
+ * Refresh the tree if a polled directory's (mtime, size) changed since the
+ * last check, i.e. something was created, deleted, or renamed outside the
+ * app. A directory seen for the first time has nothing to compare against.
+ */
+export async function checkExternalDirChanges() {
+  const root = rootPath;
+  if (!root) return;
+  const snapshots = await snapshotPolledDirs(root);
+  if (rootPath !== root) return;
+  const changed = [...snapshots].some(([dir, snapshot]) => {
+    const last = lastDirSnapshots.get(dir);
+    return last !== undefined && last !== snapshot;
+  });
+  lastDirSnapshots = snapshots;
+  if (!changed) return;
   // A file removed outside the app leaves its tags behind. Reloading drops them.
   if (hasTaggedFiles()) await reloadTags();
   refreshTree();
-}
-
-async function handleExternalDirChange() {
-  await refreshAfterExternalChange();
   onExternalChange?.();
 }
 
 async function startDirWatcher() {
   stopDirWatcher();
   if (!rootPath) return;
-  // Compare each polled directory's (mtime, size) to detect changes made
-  // outside the app. A directory polled for the first time has nothing to
-  // compare against.
   const watchRoot = rootPath;
-  dirPollTimer = setInterval(async () => {
-    if (rootPath !== watchRoot || document.hidden) return;
-    const snapshots = await snapshotPolledDirs(watchRoot);
-    if (rootPath !== watchRoot) return;
-    const changed = [...snapshots].some(([dir, snapshot]) => {
-      const last = lastDirSnapshots.get(dir);
-      return last !== undefined && last !== snapshot;
-    });
-    lastDirSnapshots = snapshots;
-    if (changed) handleExternalDirChange();
+  dirPollTimer = setInterval(() => {
+    if (rootPath === watchRoot && !document.hidden) checkExternalDirChanges();
   }, DIR_POLL_INTERVAL_MS);
   lastDirSnapshots = await snapshotPolledDirs(watchRoot);
 }
@@ -914,7 +911,7 @@ async function renderDirectory(
   // Deduplicate by path (safety net)
   const seen = new Set<string>();
   // When scoped, only filter within the target directory (and its children)
-  const inScope = !filterScope || dirPath === filterScope || dirPath.startsWith(filterScope + "/");
+  const inScope = !filterScope || isWithin(dirPath, filterScope);
   const isFiltering = filterQuery.length > 0 && (!filterScope || inScope);
   const isTagFiltering = tagFilter !== null;
 
@@ -1100,9 +1097,8 @@ function createTreeItem(entry: DirEntry, depth: number, displayName?: string) {
   if (entry.is_dir) {
     const isDragBlocked = () => {
       if (dragSourcePaths.size === 0) return true;
-      if (dragSourcePaths.has(entry.path)) return true;
       for (const src of dragSourcePaths) {
-        if (entry.path.startsWith(src + "/")) return true;
+        if (isWithin(entry.path, src)) return true;
       }
       return false;
     };
@@ -1354,9 +1350,7 @@ async function copyDroppedEntry(entry: FileSystemEntry, destPath: string): Promi
   const file = await new Promise<File>((resolve, reject) =>
     (entry as FileSystemFileEntry).file(resolve, reject),
   );
-  await invoke("write_file_bytes", new Uint8Array(await file.arrayBuffer()), {
-    headers: { path: encodeURIComponent(destPath) },
-  });
+  await writeFileBytes(destPath, new Uint8Array(await file.arrayBuffer()));
 }
 
 async function importDroppedFolders(folders: FileSystemDirectoryEntry[], targetDir: string) {
@@ -1371,7 +1365,7 @@ async function importDroppedFolders(folders: FileSystemDirectoryEntry[], targetD
   await expandAndRefresh(targetDir);
 }
 
-async function handleExternalFileDrop(files: File[], targetDir: string) {
+export async function handleExternalFileDrop(files: File[], targetDir: string) {
   let copiedCount = 0;
 
   for (const file of files) {
@@ -1379,10 +1373,7 @@ async function handleExternalFileDrop(files: File[], targetDir: string) {
     const targetPath = `${targetDir}/${file.name}`;
 
     try {
-      const buffer = await file.arrayBuffer();
-      await invoke("write_file_bytes", new Uint8Array(buffer), {
-        headers: { path: encodeURIComponent(targetPath) },
-      });
+      await writeFileBytes(targetPath, new Uint8Array(await file.arrayBuffer()));
       copiedCount++;
 
       if (MD_EXTENSIONS.has(ext)) {
@@ -1399,6 +1390,15 @@ async function handleExternalFileDrop(files: File[], targetDir: string) {
   if (copiedCount > 0) await expandAndRefresh(targetDir);
 }
 
+/** Carry tags, selection, and expanded folders over to an entry's new path. */
+function remapRenamedEntry(from: string, to: string) {
+  renameFileTags(from, to);
+  if (selectedPaths.delete(from)) selectedPaths.add(to);
+  expandedDirs = new Set(
+    [...expandedDirs].map((p) => (isWithin(p, from) ? to + p.slice(from.length) : p)),
+  );
+}
+
 async function moveEntries(sourcePaths: Set<string>, targetDirPath: string) {
   let anyMoved = false;
   for (const sourcePath of sourcePaths) {
@@ -1408,11 +1408,7 @@ async function moveEntries(sourcePaths: Set<string>, targetDirPath: string) {
     if (sourcePath === newPath) continue;
     try {
       await invoke("rename_entry", { from: sourcePath, to: newPath });
-      renameFileTags(sourcePath, newPath);
-      if (selectedPaths.has(sourcePath)) {
-        selectedPaths.delete(sourcePath);
-        selectedPaths.add(newPath);
-      }
+      remapRenamedEntry(sourcePath, newPath);
       onEntryRename?.(sourcePath, newPath);
       anyMoved = true;
     } catch (e) {
@@ -1464,10 +1460,10 @@ function showEntryContextMenu(event: MouseEvent, entry: DirEntry) {
   items.push({ label: "Open in Terminal", action: () => openInTerminal(entry.path) });
   items.push(null);
 
-  items.push({ label: "Copy Path", action: () => copyToClipboard(entry.path) });
+  items.push({ label: "Copy Path", action: () => copyText(entry.path) });
   if (rootPath) {
     const relPath = relativeToRoot(rootPath, entry.path);
-    items.push({ label: "Copy Relative Path", action: () => copyToClipboard(relPath) });
+    items.push({ label: "Copy Relative Path", action: () => copyText(relPath) });
   }
   items.push(null);
 
@@ -1615,14 +1611,6 @@ function showMultiContextMenu(event: MouseEvent) {
   showContextMenu(event.clientX, event.clientY, items);
 }
 
-async function copyToClipboard(text: string) {
-  try {
-    await invoke("copy_to_clipboard", { text });
-  } catch (e) {
-    message(`Copy failed: ${e}`, { kind: "error" });
-  }
-}
-
 async function revealInFinder(path: string) {
   try {
     await invoke("reveal_in_finder", { path });
@@ -1692,51 +1680,33 @@ function promptRename(entry: DirEntry) {
   input.select();
   input.focus();
 
+  const restoreName = () => {
+    const span = document.createElement("span");
+    span.className = "sidebar-tree-name";
+    span.textContent = entry.name;
+    if (input.parentElement) input.replaceWith(span);
+  };
+
   let committed = false;
   const commit = async () => {
     if (committed) return;
     committed = true;
     const newName = input.value.trim();
     if (!newName || newName === entry.name) {
-      // Restore original name
-      const span = document.createElement("span");
-      span.className = "sidebar-tree-name";
-      span.textContent = entry.name;
-      input.replaceWith(span);
+      restoreName();
       return;
     }
     try {
       const parentDir = dirname(entry.path);
       const newPath = `${parentDir}/${newName}`;
       await invoke("rename_entry", { from: entry.path, to: newPath });
-      renameFileTags(entry.path, newPath);
-      if (selectedPaths.has(entry.path)) {
-        selectedPaths.delete(entry.path);
-        selectedPaths.add(newPath);
-      }
-      if (entry.is_dir) {
-        const updated = new Set<string>();
-        for (const p of expandedDirs) {
-          if (p === entry.path) {
-            updated.add(newPath);
-          } else if (p.startsWith(entry.path + "/")) {
-            updated.add(newPath + p.substring(entry.path.length));
-          } else {
-            updated.add(p);
-          }
-        }
-        expandedDirs = updated;
-      }
+      remapRenamedEntry(entry.path, newPath);
       saveState();
       await refreshTree();
       onEntryRename?.(entry.path, newPath);
     } catch (e) {
       message(`Failed to rename: ${e}`, { kind: "error" });
-      // Restore original name on error
-      const span = document.createElement("span");
-      span.className = "sidebar-tree-name";
-      span.textContent = entry.name;
-      if (input.parentElement) input.replaceWith(span);
+      restoreName();
     }
   };
 
@@ -1749,10 +1719,7 @@ function promptRename(entry: DirEntry) {
     if (e.key === "Escape") {
       e.preventDefault();
       committed = true;
-      const span = document.createElement("span");
-      span.className = "sidebar-tree-name";
-      span.textContent = entry.name;
-      input.replaceWith(span);
+      restoreName();
     }
   });
   input.addEventListener("blur", () => commit());
@@ -1771,7 +1738,7 @@ async function promptDelete(entry: DirEntry) {
     expandedDirs.delete(entry.path);
     saveState();
     await refreshTree();
-    onEntryDelete?.([entry.path], entry.is_dir);
+    onEntryDelete?.([entry.path]);
   } catch (e) {
     message(`Failed to delete: ${e}`, { kind: "error" });
   }
@@ -1787,7 +1754,6 @@ async function promptDeleteSelected() {
     kind: "warning",
   });
   if (!ok) return;
-  const hadDir = paths.some((p) => findTreeItem(p)?.dataset.isDir === "true");
   let deleted = false;
   try {
     await invoke("delete_entries", { paths });
@@ -1801,7 +1767,7 @@ async function promptDeleteSelected() {
   anchorPath = null;
   saveState();
   await refreshTree();
-  if (deleted) onEntryDelete?.(paths, hadDir);
+  if (deleted) onEntryDelete?.(paths);
 }
 
 // --- Keyboard Navigation ---
@@ -2000,7 +1966,7 @@ async function pasteEntry() {
     for (const sourcePath of clipboardPaths) {
       // Pasting into the copied folder itself, or next to the original,
       // makes a numbered duplicate instead
-      const intoItself = targetDir === sourcePath || targetDir.startsWith(sourcePath + "/");
+      const intoItself = isWithin(targetDir, sourcePath);
       if (intoItself || dirname(sourcePath) === targetDir) {
         await invoke("duplicate_entry", { path: sourcePath });
       } else {
@@ -2025,7 +1991,7 @@ export function setSelectedPath(path: string | null) {
 }
 
 export async function revealPath(filePath: string) {
-  if (!rootPath || !filePath.startsWith(rootPath)) return;
+  if (!rootPath || !isWithin(filePath, rootPath)) return;
   if (activePanel !== "files") return;
 
   // Expand all parent directories

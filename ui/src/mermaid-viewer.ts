@@ -208,7 +208,7 @@ function makeBtn(label: string, onClick: () => void): HTMLButtonElement {
   return b;
 }
 
-export function close() {
+function close() {
   if (overlay) {
     overlay.remove();
     overlay = null;

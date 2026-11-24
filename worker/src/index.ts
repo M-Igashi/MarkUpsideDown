@@ -1,5 +1,5 @@
 import type { Env } from "./types.js";
-import { CORS_HEADERS, jsonResponse, checkAuth, authErrorResponse } from "./utils.js";
+import { CORS_HEADERS, jsonResponse, checkAuth, authErrorResponse, errorMessage } from "./utils.js";
 import { handleHealth } from "./handlers/health.js";
 import { handleFetch } from "./handlers/fetch.js";
 import { handleConvert } from "./handlers/convert.js";
@@ -112,7 +112,7 @@ export default {
       // Without this an uncaught error returns Cloudflare's HTML 1101 page
       // with no CORS headers, which clients can only report as "Unknown error"
       console.error(e);
-      return jsonResponse({ error: `Internal error: ${e instanceof Error ? e.message : String(e)}` }, 500);
+      return jsonResponse({ error: `Internal error: ${errorMessage(e)}` }, 500);
     }
   },
 

@@ -140,23 +140,16 @@ impl BridgeClient {
     }
 
     /// Like `request_json`, deserializing a single field (missing field -> Null).
-    async fn request_field<T: DeserializeOwned>(&self, method: Method, path: &str, field: &str) -> Result<T, String> {
-        let mut json = self.request_json(method, path, None).await?;
-        let value = json.get_mut(field).map(serde_json::Value::take).unwrap_or_default();
-        serde_json::from_value(value).map_err(|e| e.to_string())
-    }
-
-    /// Like `request_json`, extracting a single string field from the response
-    /// (missing field -> empty string).
-    async fn request_str(
+    async fn request_field<T: DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
         body: Option<serde_json::Value>,
         field: &str,
-    ) -> Result<String, String> {
-        let json = self.request_json(method, path, body).await?;
-        Ok(json.get(field).and_then(|v| v.as_str()).unwrap_or("").to_string())
+    ) -> Result<T, String> {
+        let mut json = self.request_json(method, path, body).await?;
+        let value = json.get_mut(field).map(serde_json::Value::take).unwrap_or_default();
+        serde_json::from_value(value).map_err(|e| e.to_string())
     }
 
     async fn post_check_error(&self, path: &str, body: serde_json::Value) -> Result<(), String> {
@@ -164,7 +157,7 @@ impl BridgeClient {
     }
 
     pub async fn get_editor_content(&self, window: Option<&str>) -> Result<String, String> {
-        self.request_field(Method::GET, &in_window("/editor/content", window), "content").await
+        self.request_field(Method::GET, &in_window("/editor/content", window), None, "content").await
     }
 
     pub async fn set_editor_content(&self, content: &str, window: Option<&str>) -> Result<(), String> {
@@ -196,7 +189,7 @@ impl BridgeClient {
     }
 
     pub async fn lint_document(&self, window: Option<&str>) -> Result<serde_json::Value, String> {
-        self.request_field(Method::GET, &in_window("/editor/lint", window), "diagnostics").await
+        self.request_field(Method::GET, &in_window("/editor/lint", window), None, "diagnostics").await
     }
 
     pub async fn get_document_structure(&self, window: Option<&str>) -> Result<serde_json::Value, String> {
@@ -204,11 +197,11 @@ impl BridgeClient {
     }
 
     pub async fn get_tabs(&self, window: Option<&str>) -> Result<Vec<TabInfo>, String> {
-        self.request_field(Method::GET, &in_window("/editor/tabs", window), "tabs").await
+        self.request_field(Method::GET, &in_window("/editor/tabs", window), None, "tabs").await
     }
 
     pub async fn get_project_root(&self, window: Option<&str>) -> Result<Option<String>, String> {
-        self.request_field(Method::GET, &in_window("/editor/root", window), "root_path").await
+        self.request_field(Method::GET, &in_window("/editor/root", window), None, "root_path").await
     }
 
     pub async fn get_dirty_files(&self, window: Option<&str>) -> Result<Vec<TabInfo>, String> {
@@ -227,12 +220,12 @@ impl BridgeClient {
         if recursive {
             query.push_str("recursive=true");
         }
-        self.request_field(Method::GET, &query, "entries").await
+        self.request_field(Method::GET, &query, None, "entries").await
     }
 
     pub async fn read_file(&self, path: &str) -> Result<String, String> {
         let query = format!("/files/read?path={}", urlencoding::encode(path));
-        self.request_str(Method::GET, &query, None, "content").await
+        self.request_field(Method::GET, &query, None, "content").await
     }
 
     pub async fn search_files(&self, query_str: &str, path: Option<&str>) -> Result<Vec<FileEntry>, String> {
@@ -240,7 +233,7 @@ impl BridgeClient {
         if let Some(p) = path {
             query.push_str(&format!("&path={}", urlencoding::encode(p)));
         }
-        self.request_field(Method::GET, &query, "matches").await
+        self.request_field(Method::GET, &query, None, "matches").await
     }
 
     pub async fn git_status(&self) -> Result<GitStatus, String> {
@@ -264,11 +257,11 @@ impl BridgeClient {
     }
 
     pub async fn copy_entry(&self, from: &str, to_dir: &str) -> Result<String, String> {
-        self.request_str(Method::POST, "/files/copy", Some(serde_json::json!({ "from": from, "to_dir": to_dir })), "path").await
+        self.request_field(Method::POST, "/files/copy", Some(serde_json::json!({ "from": from, "to_dir": to_dir })), "path").await
     }
 
     pub async fn duplicate_entry(&self, path: &str) -> Result<String, String> {
-        self.request_str(Method::POST, "/files/duplicate", Some(serde_json::json!({ "path": path })), "path").await
+        self.request_field(Method::POST, "/files/duplicate", Some(serde_json::json!({ "path": path })), "path").await
     }
 
     // --- Git write operations ---
@@ -282,24 +275,24 @@ impl BridgeClient {
     }
 
     pub async fn git_commit(&self, message: &str) -> Result<String, String> {
-        self.request_str(Method::POST, "/git/commit", Some(serde_json::json!({ "message": message })), "output").await
+        self.request_field(Method::POST, "/git/commit", Some(serde_json::json!({ "message": message })), "output").await
     }
 
     pub async fn git_push(&self) -> Result<String, String> {
-        self.request_str(Method::POST, "/git/push", None, "output").await
+        self.request_field(Method::POST, "/git/push", None, "output").await
     }
 
     pub async fn git_pull(&self) -> Result<String, String> {
-        self.request_str(Method::POST, "/git/pull", None, "output").await
+        self.request_field(Method::POST, "/git/pull", None, "output").await
     }
 
     pub async fn git_fetch(&self) -> Result<String, String> {
-        self.request_str(Method::POST, "/git/fetch", None, "output").await
+        self.request_field(Method::POST, "/git/fetch", None, "output").await
     }
 
     pub async fn git_diff(&self, path: &str, staged: bool) -> Result<String, String> {
         let query = format!("/git/diff?path={}&staged={}", urlencoding::encode(path), staged);
-        self.request_str(Method::GET, &query, None, "diff").await
+        self.request_field(Method::GET, &query, None, "diff").await
     }
 
     pub async fn git_discard(&self, path: &str) -> Result<(), String> {
@@ -315,11 +308,11 @@ impl BridgeClient {
             Some(l) => format!("/git/log?limit={}", l),
             None => "/git/log".to_string(),
         };
-        self.request_field(Method::GET, &query, "entries").await
+        self.request_field(Method::GET, &query, None, "entries").await
     }
 
     pub async fn git_revert(&self, commit_hash: &str) -> Result<String, String> {
-        self.request_str(Method::POST, "/git/revert", Some(serde_json::json!({ "commit_hash": commit_hash })), "output").await
+        self.request_field(Method::POST, "/git/revert", Some(serde_json::json!({ "commit_hash": commit_hash })), "output").await
     }
 
     // --- GitHub (issues / pull requests via the gh CLI) ---
@@ -384,12 +377,12 @@ impl BridgeClient {
 
     pub async fn download_image(&self, url: &str, dest_path: &str) -> Result<String, String> {
         let body = serde_json::json!({ "url": url, "dest_path": dest_path });
-        self.request_str(Method::POST, "/content/download-image", Some(body), "path").await
+        self.request_field(Method::POST, "/content/download-image", Some(body), "path").await
     }
 
     pub async fn fetch_page_title(&self, url: &str) -> Result<String, String> {
         let body = serde_json::json!({ "url": url });
-        self.request_str(Method::POST, "/content/fetch-title", Some(body), "title").await
+        self.request_field(Method::POST, "/content/fetch-title", Some(body), "title").await
     }
 
     // --- Tags ---
@@ -412,16 +405,16 @@ impl BridgeClient {
 
     pub async fn git_show(&self, commit_hash: &str) -> Result<String, String> {
         let query = format!("/git/show?commit_hash={}", urlencoding::encode(commit_hash));
-        self.request_str(Method::GET, &query, None, "output").await
+        self.request_field(Method::GET, &query, None, "output").await
     }
 
     pub async fn git_clone(&self, url: &str, dest: &str) -> Result<String, String> {
         let body = serde_json::json!({ "url": url, "dest": dest });
-        self.request_str(Method::POST, "/git/clone", Some(body), "output").await
+        self.request_field(Method::POST, "/git/clone", Some(body), "output").await
     }
 
     pub async fn git_init(&self, path: &str) -> Result<String, String> {
-        self.request_str(Method::POST, "/git/init", Some(serde_json::json!({ "path": path })), "output").await
+        self.request_field(Method::POST, "/git/init", Some(serde_json::json!({ "path": path })), "output").await
     }
 
     // --- Window management ---

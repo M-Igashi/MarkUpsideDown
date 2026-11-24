@@ -18,9 +18,8 @@
   "r2_buckets": [
     { "binding": "PUBLISH_BUCKET", "bucket_name": "markupsidedown-publish" }
   ],
-  // Set R2_PUBLIC_URL after enabling R2 public access in Cloudflare dashboard.
-  // Example: "https://pub-abc123.r2.dev"
-  // "vars": { "R2_PUBLIC_URL": "" },
+  // R2_PUBLIC_URL (optional, e.g. "https://pub-abc123.r2.dev") is stored as a
+  // secret by the app's Settings. Do not also declare it under "vars".
   // Deletes expired published documents (only kept when the R2 bucket exists).
   "triggers": {
     "crons": ["*/15 * * * *"]

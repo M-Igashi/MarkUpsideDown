@@ -10,6 +10,7 @@ import {
   type GhStatus,
 } from "./github.ts";
 import { KEY_GITHUB_FILTER } from "./storage-keys.ts";
+import { getStorageJson } from "./storage-utils.ts";
 import { icon } from "./icons.ts";
 
 type StateFilter = "open" | "closed" | "all";
@@ -28,14 +29,10 @@ let stateFilter: StateFilter = "open";
 let searchQuery = "";
 
 function restoreFilter() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(KEY_GITHUB_FILTER) || "{}");
-    if (saved.kind === "issue" || saved.kind === "pr") kind = saved.kind;
-    if (saved.state === "open" || saved.state === "closed" || saved.state === "all") {
-      stateFilter = saved.state;
-    }
-  } catch {
-    // ignore
+  const saved = getStorageJson<{ kind?: string; state?: string }>(KEY_GITHUB_FILTER);
+  if (saved?.kind === "issue" || saved?.kind === "pr") kind = saved.kind;
+  if (saved?.state === "open" || saved?.state === "closed" || saved?.state === "all") {
+    stateFilter = saved.state;
   }
 }
 
@@ -155,7 +152,8 @@ function emptyMessage(): string | null {
   if (!status.cli_available) return "GitHub CLI (gh) is not installed";
   if (!status.authenticated) return "Not signed in. Run: gh auth login";
   if (loading) return null;
-  return searchQuery ? "No matches" : `No ${stateFilter === "all" ? "" : stateFilter} items`;
+  if (searchQuery) return "No matches";
+  return stateFilter === "all" ? "No items" : `No ${stateFilter} items`;
 }
 
 // The header is built once and reused: rebuilding it on every render would

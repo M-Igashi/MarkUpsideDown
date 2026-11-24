@@ -1,22 +1,15 @@
 /**
- * Shared document structure parser.
- * Used by markdown-lint.ts (diagnostics) and MCP bridge (get_document_structure).
+ * Shared Markdown structure parsing: code blocks, headings, links, tables,
+ * and the document structure exposed to the MCP bridge.
  */
 
-import { splitTableCells } from "./normalize.ts";
-
+/** True if `pos` is inside a fenced code block or an inline code span. */
 export function isPositionInCode(doc: string, pos: number): boolean {
-  const before = doc.slice(0, pos);
-
-  // Inside fenced code block?
-  const fences = before.split("```").length - 1;
-  if (fences % 2 === 1) return true;
-
-  // Inside inline code? Count backticks on the current line
-  const lineStart = before.lastIndexOf("\n") + 1;
-  const line = before.slice(lineStart);
-  const backticks = line.split("`").length - 1;
-  return backticks % 2 === 1;
+  const lines = doc.slice(0, pos).split("\n");
+  const last = lines.length - 1;
+  if (isInCodeBlock(last, findCodeBlockRanges(lines))) return true;
+  // Inside inline code? Count backticks before `pos` on the current line
+  return (lines[last].split("`").length - 1) % 2 === 1;
 }
 
 export interface Heading {
@@ -85,11 +78,64 @@ export function isValidYamlLine(line: string): boolean {
 }
 
 /** Generate a GitHub-style anchor from heading text. */
-export function headingToAnchor(text: string): string {
+function headingToAnchor(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, "-");
+}
+
+/** Split a table row on unescaped `|` outside of inline code spans. */
+export function splitTableCells(line: string): string[] {
+  // Strip leading/trailing pipes
+  let s = line.replace(/^\s*\|/, "").replace(/\|\s*$/, "");
+
+  const cells: string[] = [];
+  let current = "";
+  let i = 0;
+
+  while (i < s.length) {
+    const ch = s[i];
+
+    // Handle code spans with variable-length backtick delimiters (CommonMark spec)
+    if (ch === "`") {
+      let tickLen = 0;
+      while (i + tickLen < s.length && s[i + tickLen] === "`") tickLen++;
+      current += s.slice(i, i + tickLen);
+      i += tickLen;
+      // Scan for matching closing delimiter of the same length
+      let closed = false;
+      while (i < s.length) {
+        if (s[i] === "`") {
+          let closeLen = 0;
+          while (i + closeLen < s.length && s[i + closeLen] === "`") closeLen++;
+          current += s.slice(i, i + closeLen);
+          i += closeLen;
+          if (closeLen === tickLen) {
+            closed = true;
+            break;
+          }
+        } else {
+          current += s[i];
+          i++;
+        }
+      }
+      if (!closed) continue; // unclosed code span — already consumed
+    } else if (ch === "\\" && i + 1 < s.length && s[i + 1] === "|") {
+      // Escaped pipe — keep as literal \|
+      current += "\\|";
+      i += 2;
+    } else if (ch === "|") {
+      cells.push(current.trim());
+      current = "";
+      i++;
+    } else {
+      current += ch;
+      i++;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
 }
 
 /** Identify fenced code block line ranges (0-based indices). */
@@ -157,11 +203,7 @@ export function parseHeadings(lines: string[], codeRanges: [number, number][]): 
 }
 
 /** Parse all links from lines. */
-export function parseLinks(
-  lines: string[],
-  codeRanges: [number, number][],
-  anchors: Set<string>,
-): Link[] {
+function parseLinks(lines: string[], codeRanges: [number, number][], anchors: Set<string>): Link[] {
   const links: Link[] = [];
   const linkPattern = /\[([^\]]*)\]\(([^)]*)\)/g;
 
@@ -193,7 +235,7 @@ export function parseLinks(
 }
 
 /** Parse tables from lines. */
-export function parseTables(lines: string[], codeRanges: [number, number][]): TableInfo[] {
+function parseTables(lines: string[], codeRanges: [number, number][]): TableInfo[] {
   const tables: TableInfo[] = [];
   let i = 0;
 

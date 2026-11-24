@@ -26,15 +26,6 @@ pub struct CursorSync {
     column: usize,
 }
 
-fn update_window_state(
-    window: &tauri::Window,
-    state: &EditorStates,
-    f: impl FnOnce(&mut super::EditorStateInner),
-) {
-    let mut map = state.map.lock().unwrap_or_else(|e| e.into_inner());
-    f(map.entry(window.label().to_string()).or_default());
-}
-
 fn apply_cursor(s: &mut super::EditorStateInner, cursor: CursorSync) {
     s.cursor_pos = cursor.pos;
     s.cursor_line = cursor.line;
@@ -50,7 +41,7 @@ pub async fn sync_editor_state(
     cursor: CursorSync,
     state: tauri::State<'_, std::sync::Arc<EditorStates>>,
 ) -> Result<()> {
-    update_window_state(&window, &state, |s| {
+    state.update(window.label(), |s| {
         s.content = sync.content;
         s.file_path = sync.file_path;
         s.worker_url = sync.worker_url;
@@ -70,7 +61,7 @@ pub async fn sync_editor_cursor(
     cursor: CursorSync,
     state: tauri::State<'_, std::sync::Arc<EditorStates>>,
 ) -> Result<()> {
-    update_window_state(&window, &state, |s| apply_cursor(s, cursor));
+    state.update(window.label(), |s| apply_cursor(s, cursor));
     Ok(())
 }
 
@@ -122,13 +113,11 @@ pub fn install_mcp_to_claude_desktop(
         .join("Library/Application Support/Claude/claude_desktop_config.json");
 
     // Read existing config or create new one
-    let mut config: serde_json::Value = if config_path.exists() {
-        let content = fs::read_to_string(&config_path)
-            .map_err(|e| AppError::Io(format!("Failed to read config: {e}")))?;
-        serde_json::from_str(&content)
-            .map_err(|e| AppError::Io(format!("Failed to parse config: {e}")))?
-    } else {
-        serde_json::json!({})
+    let mut config: serde_json::Value = match fs::read_to_string(&config_path) {
+        Ok(content) => serde_json::from_str(&content)
+            .map_err(|e| AppError::Io(format!("Failed to parse config: {e}")))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(e) => return Err(AppError::Io(format!("Failed to read config: {e}"))),
     };
 
     // Build MCP server entry
@@ -192,7 +181,7 @@ pub fn create_cowork_workspace(
 This workspace is configured for use with MarkUpsideDown's MCP server.
 MarkUpsideDown must be running for editor/file/git tools to work.
 
-## Available MCP Tools (62)
+## Available MCP Tools
 
 ### Windows
 | Tool | Description |
@@ -359,7 +348,7 @@ pub async fn validate_markdown(content: String) -> Result<Vec<ComrakDiagnostic>>
     check_html_blocks(root, &mut diagnostics);
     check_link_nesting(root, &mut diagnostics);
     check_list_continuation(root, &mut diagnostics);
-    check_blockquote_boundary(root, &content, &mut diagnostics);
+    check_blockquote_boundary(root, &mut diagnostics);
 
     diagnostics.sort_by_key(|d| d.line);
     Ok(diagnostics)
@@ -470,12 +459,9 @@ fn check_list_continuation<'a>(
 /// Detect blockquotes immediately followed by a paragraph with no blank line separation.
 fn check_blockquote_boundary<'a>(
     root: &'a comrak::nodes::AstNode<'a>,
-    content: &str,
     diagnostics: &mut Vec<ComrakDiagnostic>,
 ) {
     use comrak::nodes::NodeValue;
-
-    let lines: Vec<&str> = content.lines().collect();
 
     for node in root.descendants() {
         let is_bq = matches!(node.data.borrow().value, NodeValue::BlockQuote);
@@ -489,13 +475,7 @@ fn check_blockquote_boundary<'a>(
             let next_ast = next.data.borrow();
             if matches!(next_ast.value, NodeValue::Paragraph) {
                 let para_start = next_ast.sourcepos.start.line;
-                // Check if the line between blockquote end and paragraph start is blank
-                let has_blank = (bq_end..para_start.saturating_sub(1)).any(|l| {
-                    lines
-                        .get(l) // 0-indexed: line l+1 in 1-indexed
-                        .is_some_and(|s| s.trim().is_empty())
-                });
-                if !has_blank && para_start == bq_end + 1 {
+                if para_start == bq_end + 1 {
                     diagnostics.push(ComrakDiagnostic {
                         line: para_start,
                         severity: "info".into(),

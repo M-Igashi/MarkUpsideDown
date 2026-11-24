@@ -5,6 +5,7 @@ import {
   IMAGE_EXTENSIONS,
   MD_EXTENSIONS,
   relativeToRoot,
+  stripExtension,
 } from "./path-utils.ts";
 import {
   ensureWorkerUrl,
@@ -14,7 +15,7 @@ import {
 } from "./settings.ts";
 import { getUrlAsMarkdown, fetchUrlAsMarkdown, renderUrlAsMarkdown } from "./fetch-markdown.ts";
 import { normalizeMarkdown } from "./normalize.ts";
-import { getRootPath, refreshTree } from "./sidebar.ts";
+import { getRootPath, handleExternalFileDrop, refreshTree } from "./sidebar.ts";
 import { indexDocument } from "./semantic-search.ts";
 import { getActiveTab, isTabDirty, markTabSaved, setTabContent, updateActiveTab } from "./tabs.ts";
 import type { Tab } from "./tabs.ts";
@@ -26,7 +27,7 @@ import { writeTextFile } from "./html-utils.ts";
 const { invoke } = window.__TAURI__.core;
 const { open, save, confirm, message } = window.__TAURI__.dialog;
 
-export interface ConvertResult {
+interface ConvertResult {
   markdown: string;
   is_image: boolean;
   original_size: number;
@@ -166,12 +167,11 @@ export async function saveFile() {
           updateActiveTab({ path, name: basename(path) });
           markTabSaved(activeTab.id, content);
         }
+        // Only a new file changes the tree
+        if (getRootPath()) refreshTree();
       }
     }
-    if (getRootPath()) {
-      refreshTree();
-      refreshGitAndSync();
-    }
+    if (getRootPath()) refreshGitAndSync();
   } catch (e) {
     statusEl.textContent = `Save failed: ${e}`;
   }
@@ -331,13 +331,13 @@ export async function convertFile(filePath: string) {
     const result = await invoke<ConvertResult>("convert_file_to_markdown", {
       filePath,
       workerUrl,
-      workerKey: getWorkerKey() || null,
+      workerKey: getWorkerKey(),
     });
     const markdown = normalizeMarkdown(result.markdown);
     const fileName = basename(filePath);
     // Open as an untitled tab: binding it to the source path would make
     // auto-save overwrite the PDF/DOCX/image with Markdown.
-    loadContentAsTab(markdown, undefined, fileName.replace(/\.[^.]+$/, ""));
+    loadContentAsTab(markdown, undefined, stripExtension(fileName));
     const tag = result.is_image ? " (image OCR)" : "";
     const mdSize = new Blob([result.markdown]).size;
     const words = result.markdown.split(/\s+/).filter(Boolean).length;
@@ -407,24 +407,8 @@ export function initDragDrop(appEl: HTMLElement) {
 
     const root = getRootPath();
     if (root) {
-      // Save to project root, then open/convert
-      const targetPath = `${root}/${file.name}`;
-      try {
-        const buffer = await file.arrayBuffer();
-        await invoke("write_file_bytes", new Uint8Array(buffer), {
-          headers: { path: encodeURIComponent(targetPath) },
-        });
-        if (MD_EXTENSIONS.has(ext)) {
-          const content = await invoke<string>("read_text_file", { path: targetPath });
-          loadContentAsTab(content, targetPath);
-        } else if (IMPORT_EXTENSIONS.includes(ext)) {
-          await convertFile(targetPath);
-        } else {
-          statusEl.textContent = `Copied: ${file.name}`;
-        }
-      } catch (e) {
-        statusEl.textContent = `Drop failed: ${e}`;
-      }
+      // Copy into the project root, then open or convert it
+      await handleExternalFileDrop([file], root);
     } else {
       // No project open — read content directly for markdown, or convert via temp approach
       if (MD_EXTENSIONS.has(ext)) {

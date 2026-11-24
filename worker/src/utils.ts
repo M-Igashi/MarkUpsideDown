@@ -161,10 +161,3 @@ export function wrapJsonSchema(schema: unknown): unknown {
     },
   };
 }
-
-// --- MIME helpers ---
-
-export function mimeToFilename(mimeType: string, mimeToExt: Record<string, string>): string {
-  const ext = mimeToExt[mimeType] ?? mimeType.split("/").pop() ?? "bin";
-  return `file.${ext}`;
-}

@@ -43,6 +43,11 @@ export function basename(path: string): string {
   return path.split("/").pop() || path;
 }
 
+/** A file name without its last extension (`a.tar.gz` → `a.tar`). */
+export function stripExtension(name: string): string {
+  return name.replace(/\.[^.]+$/, "");
+}
+
 /** Extract the directory portion of a path (everything before the last `/`). */
 export function dirname(path: string): string {
   return path.substring(0, path.lastIndexOf("/"));
@@ -70,6 +75,11 @@ export function getAssetsDir(filePath: string): string {
 /** Sanitize a string for use as a filename (keep only alphanumeric, dot, hyphen, underscore). */
 export function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+/** True if `path` is `dir` itself or anything inside it. */
+export function isWithin(path: string, dir: string): boolean {
+  return path === dir || path.startsWith(`${dir}/`);
 }
 
 /** Path relative to the project root, or the path itself if outside the root. */

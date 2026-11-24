@@ -1,6 +1,6 @@
 import type { Env } from "../types.js";
 import { IMAGE_TYPES, SUPPORTED_TYPES, MIME_TO_EXT } from "../config.js";
-import { jsonResponse, isUnconvertedHtml, mimeToFilename, toMarkdownText, errorMessage } from "../utils.js";
+import { jsonResponse, isUnconvertedHtml, toMarkdownText, errorMessage } from "../utils.js";
 
 export async function handleConvert(request: Request, env: Env): Promise<Response> {
   const contentType = request.headers.get("content-type") || "";
@@ -15,7 +15,7 @@ export async function handleConvert(request: Request, env: Env): Promise<Respons
     const body = await request.arrayBuffer();
     const originalSize = body.byteLength;
     const blob = new Blob([body], { type: mimeType });
-    const fileName = mimeToFilename(mimeType, MIME_TO_EXT);
+    const fileName = `file.${MIME_TO_EXT[mimeType] ?? mimeType.split("/").pop()}`;
     // Skip the PDF "## Metadata" block (PDFFormatVersion, Producer, ...).
     const result = await env.AI.toMarkdown([{ name: fileName, blob }], {
       conversionOptions: { pdf: { metadata: false } },

@@ -1,5 +1,11 @@
 import type { EditorView } from "@codemirror/view";
-import { basename, getAssetsDir, getExtension, sanitizeFilename } from "./path-utils.ts";
+import {
+  basename,
+  getAssetsDir,
+  getExtension,
+  sanitizeFilename,
+  stripExtension,
+} from "./path-utils.ts";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -88,7 +94,7 @@ export async function handleImageDrop(e: DragEvent) {
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const ext = getExtension(file.name) || "png";
-  const stem = sanitizeFilename(basename(file.name).replace(/\.[^.]+$/, "") || "image");
+  const stem = sanitizeFilename(stripExtension(basename(file.name)) || "image");
   const filename = `${stem}-${formatTimestamp()}.${ext}`;
 
   const pos =

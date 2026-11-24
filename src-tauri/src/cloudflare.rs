@@ -442,12 +442,11 @@ pub async fn check_wrangler_status() -> WranglerStatus {
 
 #[tauri::command]
 pub async fn wrangler_login() -> crate::error::Result<()> {
-    tokio::task::spawn_blocking(|| {
-        run_wrangler(&["login"], None, 120, &[])
-            .map_err(crate::error::AppError::Wrangler)?;
+    crate::commands::spawn_blocking(|| {
+        run_wrangler(&["login"], None, 120, &[]).map_err(crate::error::AppError::Wrangler)?;
         Ok(())
     })
-    .await?
+    .await
 }
 
 /// Queue that Workers before v13 consumed for server-side batch conversion.
@@ -466,7 +465,7 @@ pub async fn deploy_worker(
     worker_name: Option<String>,
 ) -> crate::error::Result<String> {
     use crate::error::AppError;
-    let result = tokio::task::spawn_blocking(move || {
+    let output = crate::commands::spawn_blocking(move || {
         let temp_dir = std::env::temp_dir().join("markupsidedown-worker-deploy");
         // Clean up any previous temp dir
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -501,11 +500,10 @@ pub async fn deploy_worker(
 
         // Always clean up temp dir
         let _ = std::fs::remove_dir_all(&temp_dir);
-        result
+        result.map_err(AppError::Wrangler)
     })
     .await?;
 
-    let output = result.map_err(AppError::Wrangler)?;
     parse_worker_url(&output)
         .ok_or_else(|| AppError::Wrangler(format!("Worker deployed but could not parse URL from output:\n{output}")))
 }
@@ -520,24 +518,13 @@ pub async fn setup_worker_secrets_with_token(
     api_token: String,
     worker_name: Option<String>,
 ) -> crate::error::Result<()> {
-    use crate::error::AppError;
     let name = worker_name.unwrap_or_else(|| DEFAULT_WORKER_NAME.to_string());
-    let name1 = name.clone();
-    let name2 = name;
-    let acct_for_r1 = account_id.clone();
-    let acct_for_r2 = account_id.clone();
     let (r1, r2) = tokio::join!(
-        tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_ACCOUNT_ID", &account_id, Some(&acct_for_r1), &name1)
-        }),
-        tokio::task::spawn_blocking(move || {
-            set_wrangler_secret("CLOUDFLARE_API_TOKEN", &api_token, Some(&acct_for_r2), &name2)
-        }),
+        put_secret("CLOUDFLARE_ACCOUNT_ID", account_id.clone(), Some(account_id.clone()), name.clone()),
+        put_secret("CLOUDFLARE_API_TOKEN", api_token, Some(account_id), name),
     );
-    r1?.map_err(AppError::Wrangler)?;
-    r2?.map_err(AppError::Wrangler)?;
-
-    Ok(())
+    r1?;
+    r2
 }
 
 #[tauri::command]
@@ -546,13 +533,7 @@ pub async fn set_r2_public_url(
     worker_name: String,
     url: String,
 ) -> crate::error::Result<()> {
-    use crate::error::AppError;
-    tokio::task::spawn_blocking(move || {
-        set_wrangler_secret("R2_PUBLIC_URL", &url, Some(&account_id), &worker_name)
-    })
-    .await?
-    .map_err(AppError::Wrangler)?;
-    Ok(())
+    put_secret("R2_PUBLIC_URL", url, Some(account_id), worker_name).await
 }
 
 /// Set the API key that the Worker requires on every non-public route.
@@ -562,15 +543,22 @@ pub async fn set_worker_api_key(
     worker_name: String,
     api_key: String,
 ) -> crate::error::Result<()> {
-    use crate::error::AppError;
-    tokio::task::spawn_blocking(move || {
-        set_wrangler_secret("API_KEY", &api_key, account_id.as_deref(), &worker_name)
-    })
-    .await?
-    .map_err(AppError::Wrangler)?;
-    Ok(())
+    put_secret("API_KEY", api_key, account_id, worker_name).await
 }
 
+/// Run `set_wrangler_secret` on the blocking pool.
+async fn put_secret(
+    name: &'static str,
+    value: String,
+    account_id: Option<String>,
+    worker_name: String,
+) -> crate::error::Result<()> {
+    crate::commands::spawn_blocking(move || {
+        set_wrangler_secret(name, &value, account_id.as_deref(), &worker_name)
+            .map_err(crate::error::AppError::Wrangler)
+    })
+    .await
+}
 
 fn set_wrangler_secret(
     name: &str,

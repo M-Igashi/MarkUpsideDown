@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use super::web::{worker_request, HasWorkerError};
+use super::web::{worker_endpoint, worker_request};
 use crate::error::{AppError, Result};
 
 // --- Website Crawl via Browser Rendering /crawl API ---
@@ -9,11 +9,6 @@ use crate::error::{AppError, Result};
 #[derive(Deserialize)]
 struct CrawlStartWorkerResponse {
     job_id: Option<String>,
-    error: Option<String>,
-}
-
-impl HasWorkerError for CrawlStartWorkerResponse {
-    fn take_error(&mut self) -> Option<String> { self.error.take() }
 }
 
 #[derive(Serialize)]
@@ -34,7 +29,7 @@ pub async fn crawl_website(
     exclude_patterns: Option<Vec<String>>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<CrawlStartResult> {
-    let crawl_url = format!("{}/crawl", worker_url.trim_end_matches('/'));
+    let crawl_url = worker_endpoint(&worker_url, "/crawl");
 
     let mut body = serde_json::json!({
         "url": url,
@@ -88,11 +83,6 @@ struct CrawlResultInner {
 #[derive(Deserialize)]
 struct CrawlStatusWorkerResponse {
     result: Option<CrawlResultInner>,
-    error: Option<String>,
-}
-
-impl HasWorkerError for CrawlStatusWorkerResponse {
-    fn take_error(&mut self) -> Option<String> { self.error.take() }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -119,11 +109,9 @@ pub async fn crawl_status(
     limit: Option<u32>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<CrawlStatusResult> {
-    let mut status_url = format!(
-        "{}/crawl/{}?limit={}&status=completed",
-        worker_url.trim_end_matches('/'),
-        job_id,
-        limit.unwrap_or(100)
+    let mut status_url = worker_endpoint(
+        &worker_url,
+        &format!("/crawl/{job_id}?limit={}&status=completed", limit.unwrap_or(100)),
     );
     if let Some(ref c) = cursor {
         status_url.push_str(&format!("&cursor={}", urlencoding::encode(c)));

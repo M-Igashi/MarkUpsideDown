@@ -3,6 +3,8 @@ import {
   isInCodeBlock,
   isValidYamlLine,
   mapOutsideInlineCode,
+  parseHeadings,
+  splitTableCells,
 } from "./document-structure.ts";
 import { fixCjkEmphasisWith } from "./cjk-emphasis.ts";
 
@@ -69,17 +71,7 @@ function stripMalformedFrontmatter(text: string): string {
 
 function fixHeadingHierarchy(text: string): string {
   const lines = text.split("\n");
-  const headings: { idx: number; level: number; rest: string }[] = [];
-  const codeRanges = findCodeBlockRanges(lines);
-
-  for (let i = 0; i < lines.length; i++) {
-    if (isInCodeBlock(i, codeRanges)) continue;
-    const match = lines[i].match(/^(#{1,6})\s+(.*)/);
-    if (match) {
-      headings.push({ idx: i, level: match[1].length, rest: match[2] });
-    }
-  }
-
+  const headings = parseHeadings(lines, findCodeBlockRanges(lines));
   if (headings.length < 2) return text;
 
   // Build a mapping to close gaps in the heading sequence
@@ -105,7 +97,7 @@ function fixHeadingHierarchy(text: string): string {
   for (const h of headings) {
     const newLevel = levelMap.get(h.level)!;
     if (newLevel !== h.level) {
-      lines[h.idx] = "#".repeat(newLevel) + " " + h.rest;
+      lines[h.line - 1] = "#".repeat(newLevel) + " " + h.text;
     }
   }
 
@@ -178,59 +170,6 @@ function normalizeListMarkers(text: string): string {
 }
 
 // --- Table reformatting ---
-
-/** Split a table row on unescaped `|` outside of inline code spans. */
-export function splitTableCells(line: string): string[] {
-  // Strip leading/trailing pipes
-  let s = line.replace(/^\s*\|/, "").replace(/\|\s*$/, "");
-
-  const cells: string[] = [];
-  let current = "";
-  let i = 0;
-
-  while (i < s.length) {
-    const ch = s[i];
-
-    // Handle code spans with variable-length backtick delimiters (CommonMark spec)
-    if (ch === "`") {
-      let tickLen = 0;
-      while (i + tickLen < s.length && s[i + tickLen] === "`") tickLen++;
-      current += s.slice(i, i + tickLen);
-      i += tickLen;
-      // Scan for matching closing delimiter of the same length
-      let closed = false;
-      while (i < s.length) {
-        if (s[i] === "`") {
-          let closeLen = 0;
-          while (i + closeLen < s.length && s[i + closeLen] === "`") closeLen++;
-          current += s.slice(i, i + closeLen);
-          i += closeLen;
-          if (closeLen === tickLen) {
-            closed = true;
-            break;
-          }
-        } else {
-          current += s[i];
-          i++;
-        }
-      }
-      if (!closed) continue; // unclosed code span — already consumed
-    } else if (ch === "\\" && i + 1 < s.length && s[i + 1] === "|") {
-      // Escaped pipe — keep as literal \|
-      current += "\\|";
-      i += 2;
-    } else if (ch === "|") {
-      cells.push(current.trim());
-      current = "";
-      i++;
-    } else {
-      current += ch;
-      i++;
-    }
-  }
-  cells.push(current.trim());
-  return cells;
-}
 
 /** Extract alignment from a separator cell (e.g. `:---:` → "center"). */
 function cellAlignment(cell: string): "left" | "right" | "center" | "none" {

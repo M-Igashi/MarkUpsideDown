@@ -1,4 +1,5 @@
 import { linter, type Diagnostic } from "@codemirror/lint";
+import { Text } from "@codemirror/state";
 import { marked } from "marked";
 import {
   getDocumentStructure,
@@ -39,7 +40,7 @@ export interface LintDiagnostic {
 // same text; offsets are identical for both callers. Returns a copy because
 // the linter appends comrak diagnostics to the result.
 let lastCheckText: string | null = null;
-type LineDoc = { line: (n: number) => { from: number; to: number; text: string } };
+type LineDoc = Pick<Text, "line">;
 
 /** Add a diagnostic spanning the whole of 1-based line `lineNo`. */
 function pushLine(
@@ -79,33 +80,9 @@ function runAllChecks(text: string, doc: LineDoc): Diagnostic[] {
 }
 
 export function getLintDiagnostics(text: string): LintDiagnostic[] {
-  const lines = text.split("\n");
-
-  // Build line offset table for byte offset → line number conversion
-  const lineStarts: number[] = [0];
-  for (let i = 0; i < lines.length; i++) {
-    lineStarts.push(lineStarts[i] + lines[i].length + 1);
-  }
-
-  const doc = {
-    line: (n: number) => ({
-      from: lineStarts[n - 1] ?? 0,
-      to: (lineStarts[n - 1] ?? 0) + (lines[n - 1]?.length ?? 0),
-      text: lines[n - 1] ?? "",
-    }),
-  };
-
-  const diagnostics = runAllChecks(text, doc);
-
-  function offsetToLine(offset: number): number {
-    for (let i = 0; i < lineStarts.length - 1; i++) {
-      if (offset < lineStarts[i + 1]) return i + 1;
-    }
-    return lines.length;
-  }
-
-  return diagnostics.map((d) => ({
-    line: offsetToLine(d.from),
+  const doc = Text.of(text.split("\n"));
+  return runAllChecks(text, doc).map((d) => ({
+    line: doc.lineAt(d.from).number,
     severity: d.severity as LintDiagnostic["severity"],
     message: d.message,
   }));

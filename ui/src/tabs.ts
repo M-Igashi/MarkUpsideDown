@@ -1,5 +1,6 @@
 import { KEY_TABS, windowKey } from "./storage-keys.ts";
-import { basename, buildRelativePath } from "./path-utils.ts";
+import { getStorageJson } from "./storage-utils.ts";
+import { basename, isWithin } from "./path-utils.ts";
 import { icon } from "./icons.ts";
 
 // --- Types ---
@@ -34,8 +35,6 @@ let activeTabId: string | null = null;
 let tabBarEl: HTMLElement | null = null;
 let onTabSwitch: ((tab: Tab) => void) | null = null;
 let onTabEmpty: (() => void) | null = null;
-let onTabOpen: ((tab: Tab) => void) | null = null;
-let onTabClose: ((tab: Tab) => void) | null = null;
 let onTabLeave: ((tab: Tab) => void) | null = null;
 let beforeTabClose: ((tab: Tab) => Promise<boolean>) | null = null;
 
@@ -85,6 +84,11 @@ function adoptStoredTabs(stored: Tab[]): Tab[] {
   });
 }
 
+interface SavedTabs {
+  tabs?: Tab[];
+  activeTabId?: string | null;
+}
+
 /** Storage key for a given project root. Falls back to the global key. */
 function tabsKey(root: string | null): string {
   return root ? `${KEY_TABS}:${root}` : KEY_TABS;
@@ -95,18 +99,12 @@ export function initTabs(
   {
     onSwitch,
     onEmpty,
-    onReload,
-    onOpen,
-    onClose,
     onLeave,
     beforeClose,
     skipRestore,
   }: {
     onSwitch: (tab: Tab) => void;
     onEmpty: () => void;
-    onReload?: (tab: Tab) => void;
-    onOpen?: (tab: Tab) => void;
-    onClose?: (tab: Tab) => void;
     /** Called with the outgoing tab (content already flushed) before another tab becomes active. */
     onLeave?: (tab: Tab) => void;
     /** Called before a user-initiated close; resolve false to keep the tab open. */
@@ -119,37 +117,21 @@ export function initTabs(
   el.addEventListener("drop", handleBarDrop);
   onTabSwitch = onSwitch;
   onTabEmpty = onEmpty;
-  onTabOpen = onOpen || null;
-  onTabClose = onClose || null;
   onTabLeave = onLeave || null;
   beforeTabClose = beforeClose || null;
 
   // Restore state (per-window scoped key)
-  if (!skipRestore) {
-    const saved = localStorage.getItem(windowKey(KEY_TABS));
-    if (saved) {
-      try {
-        const state = JSON.parse(saved);
-        tabs = adoptStoredTabs(state.tabs || []);
-        activeTabId = state.activeTabId || null;
-      } catch {
-        // ignore
-      }
-    }
+  const saved = skipRestore ? null : getStorageJson<SavedTabs>(windowKey(KEY_TABS));
+  if (saved) {
+    tabs = adoptStoredTabs(saved.tabs || []);
+    activeTabId = saved.activeTabId || null;
   }
 
   renderTabs();
 
-  // If we have tabs, activate the active one
+  // Activate the restored tab; onSwitch loads the content of file and remote tabs
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  if (activeTab) {
-    // Tabs backed by a file or a remote item need their content reloaded
-    if ((activeTab.path || activeTab.remote) && !activeTab.content && onReload) {
-      onReload(activeTab);
-    } else {
-      onTabSwitch?.(activeTab);
-    }
-  }
+  if (activeTab) onTabSwitch?.(activeTab);
 }
 
 function saveState(exclude?: Set<Tab>): void {
@@ -185,9 +167,8 @@ export function setTabsProjectRoot(root: string | null): void {
 /**
  * Switch tabs to a different project.
  * Saves current tabs under the old project key, then restores tabs for the new project.
- * Calls onReload for the active tab if it has a file path (content needs to be loaded from disk).
  */
-export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void): void {
+export function switchProjectTabs(newRoot: string): void {
   // Carry over untitled tabs to the new project. Remote tabs belong to the
   // old project's repository, so they stay behind with it. Untitled tabs are
   // not saved under the old project, or switching back would duplicate them.
@@ -199,18 +180,9 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
   currentProjectRoot = newRoot;
 
   // Try to restore tabs for the new project (per-window scoped)
-  const saved = localStorage.getItem(windowKey(tabsKey(newRoot)));
-  let restoredTabs: Tab[] = [];
-  let restoredActiveId: string | null = null;
-  if (saved) {
-    try {
-      const state = JSON.parse(saved);
-      restoredTabs = state.tabs || [];
-      restoredActiveId = state.activeTabId || null;
-    } catch {
-      // ignore
-    }
-  }
+  const saved = getStorageJson<SavedTabs>(windowKey(tabsKey(newRoot)));
+  let restoredTabs = saved?.tabs || [];
+  const restoredActiveId = saved?.activeTabId || null;
 
   // Drop stale copies of carried-over untitled tabs saved by older versions
   const untitledIds = new Set(untitled.map((t) => t.id));
@@ -228,15 +200,8 @@ export function switchProjectTabs(newRoot: string, onReload?: (tab: Tab) => void
   saveState();
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  if (activeTab) {
-    if ((activeTab.path || activeTab.remote) && !activeTab.content && onReload) {
-      onReload(activeTab);
-    } else {
-      onTabSwitch?.(activeTab);
-    }
-  } else {
-    onTabEmpty?.();
-  }
+  if (activeTab) onTabSwitch?.(activeTab);
+  else onTabEmpty?.();
 }
 
 export function openTab(
@@ -279,7 +244,6 @@ export function openTab(
     remote: remote ?? null,
   };
   tabs.push(tab);
-  onTabOpen?.(tab);
   switchTab(tab.id);
   return tab;
 }
@@ -300,7 +264,7 @@ export function switchTab(id: string): void {
 }
 
 /** Close a tab on user request, giving `beforeClose` a chance to save or cancel. */
-export async function requestCloseTab(id: string): Promise<void> {
+async function requestCloseTab(id: string): Promise<void> {
   contentFlusher?.();
   const tab = tabs.find((t) => t.id === id);
   if (!tab) return;
@@ -308,16 +272,14 @@ export async function requestCloseTab(id: string): Promise<void> {
   closeTab(id);
 }
 
-export function closeTab(id: string): void {
+function closeTab(id: string): void {
   const idx = tabs.findIndex((t) => t.id === id);
   if (idx === -1) return;
   // The editor still holds the closing tab's document; flush it now so the
   // pending sync cannot land in the tab that becomes active below.
   if (id === activeTabId) contentFlusher?.();
 
-  const closedTab = tabs[idx];
   tabs.splice(idx, 1);
-  onTabClose?.(closedTab);
 
   if (activeTabId === id) {
     if (tabs.length > 0) {
@@ -398,10 +360,6 @@ export function getTabByPath(path: string): Tab | null {
   return tabs.find((t) => t.path === path) || null;
 }
 
-export function getTabByRemote(remote: RemoteRef): Tab | null {
-  return tabs.find((t) => t.remote && sameRemote(t.remote, remote)) || null;
-}
-
 export function getTabs(): Tab[] {
   return tabs;
 }
@@ -447,23 +405,9 @@ export function updateTabPath(oldPath: string, newPath: string): void {
   }
 }
 
-/** Close any tab whose file was deleted. Returns closed paths. */
-export function closeTabsByPath(paths: string[]): string[] {
-  const closed: string[] = [];
-  for (const p of paths) {
-    const tab = tabs.find((t) => t.path === p);
-    if (tab) {
-      closed.push(p);
-      closeTab(tab.id);
-    }
-  }
-  return closed;
-}
-
-/** Close tabs whose paths are under a deleted directory. */
+/** Close tabs for a deleted file, or for anything under a deleted directory. */
 export function closeTabsUnderDir(dirPath: string): void {
-  const prefix = dirPath + "/";
-  const toClose = tabs.filter((t) => t.path && (t.path === dirPath || t.path.startsWith(prefix)));
+  const toClose = tabs.filter((t) => t.path && isWithin(t.path, dirPath));
   for (const tab of toClose) {
     closeTab(tab.id);
   }
@@ -607,20 +551,12 @@ function renderTabs(): void {
 
     const nameEl = document.createElement("span");
     nameEl.className = "tab-name";
-    const isExternal =
-      tab.path !== null &&
-      currentProjectRoot !== null &&
-      !tab.path.startsWith(currentProjectRoot + "/");
-    if (isExternal) {
+    // Files outside the project are marked; the tooltip shows the full path
+    if (tab.path && currentProjectRoot && !isWithin(tab.path, currentProjectRoot)) {
       el.classList.add("external");
-      // Show parent dir name to distinguish external files
-      const rel = buildRelativePath(currentProjectRoot!, tab.path!);
-      nameEl.textContent = tab.name;
-      nameEl.title = rel || tab.path!;
-    } else {
-      nameEl.textContent = tab.name;
-      nameEl.title = tab.path || tab.name;
     }
+    nameEl.textContent = tab.name;
+    nameEl.title = tab.path || tab.name;
     el.appendChild(nameEl);
 
     el.addEventListener("click", () => {

@@ -1,6 +1,7 @@
 // Reading and editor appearance (Settings > Appearance), shared by all windows.
 
 import { KEY_APPEARANCE } from "./storage-keys.ts";
+import { getStorageJson } from "./storage-utils.ts";
 
 export type ReadingFont = "sans" | "serif";
 export type ReadingSize = "small" | "medium" | "large";
@@ -16,11 +17,7 @@ const SIZES: Record<ReadingSize, string> = { small: "16px", medium: "18px", larg
 const CHANGE_EVENT = "appearance-change";
 
 export function getAppearance(): Appearance {
-  try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY_APPEARANCE) ?? "{}") };
-  } catch {
-    return { ...DEFAULTS };
-  }
+  return { ...DEFAULTS, ...getStorageJson<Partial<Appearance>>(KEY_APPEARANCE) };
 }
 
 export function setAppearance(change: Partial<Appearance>) {

@@ -24,7 +24,6 @@ let editor: EditorView;
 let statusEl: HTMLElement;
 let getCurrentFilePath: () => string | null;
 let loadContentAsTab: (content: string, filePath?: string) => void;
-let renderPreview: (source: string) => Promise<void>;
 let updateStatus: () => void;
 let refreshGitAndSync: () => void;
 
@@ -42,7 +41,6 @@ export function initMcpSync(deps: {
   statusEl: HTMLElement;
   getCurrentFilePath: () => string | null;
   loadContentAsTab: (content: string, filePath?: string) => void;
-  renderPreview: (source: string) => Promise<void>;
   updateStatus: () => void;
   refreshGitAndSync: () => void;
   refreshTree: () => void;
@@ -51,7 +49,6 @@ export function initMcpSync(deps: {
   statusEl = deps.statusEl;
   getCurrentFilePath = deps.getCurrentFilePath;
   loadContentAsTab = deps.loadContentAsTab;
-  renderPreview = deps.renderPreview;
   updateStatus = deps.updateStatus;
   refreshGitAndSync = deps.refreshGitAndSync;
   refreshTree = deps.refreshTree;
@@ -128,7 +125,6 @@ export function initBridgeListeners() {
   unlistenFns = [];
 
   const listen = listenToWindow;
-  const { invoke } = window.__TAURI__.core;
 
   const track = (p: Promise<() => void>) => {
     p.then((fn) => unlistenFns.push(fn));
@@ -152,8 +148,6 @@ export function initBridgeListeners() {
         pos = editor.state.selection.main.head;
       }
       editor.dispatch({ changes: { from: pos, insert: text } });
-      renderPreview(editor.state.doc.toString());
-      updateStatus();
     }),
   );
 
@@ -190,7 +184,8 @@ export function initBridgeListeners() {
         }
         if (getRootPath()) {
           refreshGitAndSync();
-          refreshTree();
+          // Saving the open file in place does not change the tree
+          if (path !== currentFilePath) refreshTree();
         }
       } catch (e) {
         statusEl.textContent = `Save failed: ${e}`;
@@ -204,7 +199,6 @@ export function initBridgeListeners() {
       const cleaned = normalizeMarkdown(content);
       if (cleaned !== content) {
         editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: cleaned } });
-        renderPreview(cleaned);
       }
       syncEditorState(cleaned);
     }),

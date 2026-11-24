@@ -5,11 +5,6 @@
 
 let _windowLabel = "main";
 
-/** Get the current window's label (e.g. "main", "main-1712345678901"). */
-export function getWindowLabel(): string {
-  return _windowLabel;
-}
-
 /** Initialize window label from Tauri. Call once at startup before any state restore. */
 export function initWindowLabel(): void {
   try {

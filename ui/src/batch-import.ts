@@ -2,7 +2,8 @@
 // /convert endpoint and saves each result as a .md file next to its source.
 
 import { normalizeMarkdown } from "./normalize.ts";
-import { basename, dirname } from "./path-utils.ts";
+import { writeFileBytes } from "./html-utils.ts";
+import { basename, dirname, stripExtension } from "./path-utils.ts";
 import { ensureWorkerUrl, getWorkerKey } from "./settings.ts";
 
 const { invoke } = window.__TAURI__.core;
@@ -24,7 +25,7 @@ async function writeNewMarkdownFile(dir: string, stem: string, content: string):
   for (let n = 0; ; n++) {
     const path = `${dir}/${stem}${n ? `-${n}` : ""}.md`;
     try {
-      await invoke("write_file_bytes", bytes, { headers: { path: encodeURIComponent(path) } });
+      await writeFileBytes(path, bytes);
       return path;
     } catch (e) {
       if (!String(e).includes("already exists") || n >= 99) throw e;
@@ -36,7 +37,7 @@ async function writeNewMarkdownFile(dir: string, stem: string, content: string):
 export async function convertFiles(filePaths: string[]): Promise<BatchResult | null> {
   const workerUrl = await ensureWorkerUrl();
   if (!workerUrl) return null;
-  const workerKey = getWorkerKey() || null;
+  const workerKey = getWorkerKey();
 
   const result: BatchResult = { saved: [], failed: [] };
   const queue = [...filePaths];
@@ -49,10 +50,9 @@ export async function convertFiles(filePaths: string[]): Promise<BatchResult | n
           workerUrl,
           workerKey,
         });
-        const stem = name.replace(/\.[^.]+$/, "");
         const outPath = await writeNewMarkdownFile(
           dirname(filePath),
-          stem,
+          stripExtension(name),
           normalizeMarkdown(markdown),
         );
         result.saved.push(outPath);

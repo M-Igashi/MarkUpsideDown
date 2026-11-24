@@ -1,3 +1,5 @@
+import { errorMessage } from "./utils.js";
+
 const PRIVATE_IP_RANGES: Array<{ prefix: number[]; bits: number }> = [
   { prefix: [10], bits: 8 },           // 10.0.0.0/8
   { prefix: [172, 16], bits: 12 },     // 172.16.0.0/12
@@ -108,6 +110,8 @@ const VERDICT_TTL_MS = 60_000;
 const VERDICT_CACHE_MAX = 256;
 const verdictCache = new Map<string, { verdict: string | null; expires: number }>();
 
+const BLOCKED_PRIVATE = "Blocked: URL resolves to a private/reserved IP address";
+
 export async function validateUrlForSsrf(input: string): Promise<string | null> {
   let parsed: URL;
   try {
@@ -123,11 +127,11 @@ export async function validateUrlForSsrf(input: string): Promise<string | null> 
   // WHATWG URL keeps the brackets on IPv6 literals ("[::1]")
   const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
   if (isPrivateIp(hostname)) {
-    return "Blocked: URL resolves to a private/reserved IP address";
+    return BLOCKED_PRIVATE;
   }
   const lowerHost = hostname.toLowerCase().replace(/\.$/, "");
   if (lowerHost === "localhost" || lowerHost.endsWith(".localhost")) {
-    return "Blocked: URL resolves to a private/reserved IP address";
+    return BLOCKED_PRIVATE;
   }
 
   const cached = verdictCache.get(hostname);
@@ -140,12 +144,12 @@ export async function validateUrlForSsrf(input: string): Promise<string | null> 
     ips = await resolveHostname(hostname);
   } catch (e) {
     // Not cached, so a transient resolver failure does not stick
-    return `Blocked: could not verify the address of ${hostname} (${e instanceof Error ? e.message : String(e)})`;
+    return `Blocked: could not verify the address of ${hostname} (${errorMessage(e)})`;
   }
   let verdict: string | null = null;
   for (const ip of ips) {
     if (isPrivateIp(ip)) {
-      verdict = "Blocked: URL resolves to a private/reserved IP address";
+      verdict = BLOCKED_PRIVATE;
       break;
     }
   }

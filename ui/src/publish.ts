@@ -3,7 +3,7 @@
 
 import { basename } from "./path-utils.ts";
 import { workerFetch } from "./worker-fetch.ts";
-import { writeTextFile } from "./html-utils.ts";
+import { copyText, writeTextFile } from "./html-utils.ts";
 import type { MenuItem } from "./context-menu.ts";
 
 const { invoke } = window.__TAURI__.core;
@@ -127,7 +127,7 @@ async function upload(
   return entry;
 }
 
-export function publishFile(
+function publishFile(
   relativePath: string,
   content: string,
   expiry: ExpiryOption = "permanent",
@@ -139,10 +139,7 @@ export function publishFile(
 }
 
 /** Replace the published content at the same URL, keeping the original expiry time. */
-export async function updatePublishedFile(
-  relativePath: string,
-  content: string,
-): Promise<PublishEntry> {
+async function updatePublishedFile(relativePath: string, content: string): Promise<PublishEntry> {
   const entry = state.files[relativePath];
   if (!entry) throw new Error("This file is not published");
   const remaining = entry.expiresAt
@@ -152,7 +149,7 @@ export async function updatePublishedFile(
   return upload(relativePath, entry.key, content, remaining, true);
 }
 
-export async function unpublishFile(relativePath: string): Promise<void> {
+async function unpublishFile(relativePath: string): Promise<void> {
   const entry = state.files[relativePath];
   if (!entry) return;
 
@@ -186,14 +183,6 @@ const PUBLISH_OPTIONS: { label: string; expiry: ExpiryOption }[] = [
   { label: "Publish for 24 Hours", expiry: "24h" },
   { label: "Publish for 7 Days", expiry: "7d" },
 ];
-
-async function copyText(text: string) {
-  try {
-    await invoke("copy_to_clipboard", { text });
-  } catch (e) {
-    message(`Copy failed: ${e}`, { kind: "error" });
-  }
-}
 
 type BeforeRead = () => Promise<void>;
 const noop: BeforeRead = async () => {};

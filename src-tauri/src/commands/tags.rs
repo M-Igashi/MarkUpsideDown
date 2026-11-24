@@ -143,17 +143,22 @@ async fn write(root: &Path, data: &TagsData) -> Result<()> {
 static TAGS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Read, modify, and write `tags.json` as one step. Nothing is written (and
-/// no `.markupsidedown` folder is created) when the ops change nothing.
-async fn apply_at(root: &Path, change: impl FnOnce(&mut TagsData) -> Result<()>) -> Result<TagsData> {
+/// no `.markupsidedown` folder is created) when the ops change nothing; the
+/// returned flag tells whether it was written.
+async fn apply_at(
+    root: &Path,
+    change: impl FnOnce(&mut TagsData) -> Result<()>,
+) -> Result<(TagsData, bool)> {
     let _guard = TAGS_LOCK.lock().await;
     let before = read(root).await;
     let mut data = before.clone();
     change(&mut data)?;
     data.files.retain(|_, tags| !tags.is_empty());
-    if data != before {
+    let changed = data != before;
+    if changed {
         write(root, &data).await?;
     }
-    Ok(data)
+    Ok((data, changed))
 }
 
 /// Tell every window that the tags of the project at `root` changed.
@@ -164,15 +169,11 @@ fn notify_changed(app: &AppHandle, root: &str) {
 /// Drop entries whose file is gone: renamed or deleted in Finder, in a
 /// terminal, or by git, where nothing could update the tags.
 async fn prune_at(root: &Path) -> Result<(TagsData, bool)> {
-    let mut pruned = false;
-    let data = apply_at(root, |data| {
-        let before = data.files.len();
+    apply_at(root, |data| {
         data.files.retain(|path, _| root.join(path).exists());
-        pruned = data.files.len() != before;
         Ok(())
     })
-    .await?;
-    Ok((data, pruned))
+    .await
 }
 
 /// Tags for the sidebar, with stale entries removed.
@@ -191,8 +192,11 @@ pub async fn read_tags(root: &str) -> Result<TagsData> {
 
 pub async fn apply_tag_ops(app: &AppHandle, root: &str, ops: Vec<TagsOp>) -> Result<TagsData> {
     let dir = validate_path(root)?;
-    let data = apply_at(&dir, |data| ops.into_iter().try_for_each(|op| apply(data, op))).await?;
-    notify_changed(app, root);
+    let (data, changed) =
+        apply_at(&dir, |data| ops.into_iter().try_for_each(|op| apply(data, op))).await?;
+    if changed {
+        notify_changed(app, root);
+    }
     Ok(data)
 }
 
@@ -200,12 +204,14 @@ pub async fn apply_tag_ops(app: &AppHandle, root: &str, ops: Vec<TagsOp>) -> Res
 /// which may still be running after an app update.
 pub async fn replace_tags(app: &AppHandle, root: &str, data: TagsData) -> Result<()> {
     let dir = validate_path(root)?;
-    apply_at(&dir, |current| {
+    let (_, changed) = apply_at(&dir, |current| {
         *current = data;
         Ok(())
     })
     .await?;
-    notify_changed(app, root);
+    if changed {
+        notify_changed(app, root);
+    }
     Ok(())
 }
 

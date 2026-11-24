@@ -9,7 +9,7 @@ export const todoAutocomplete = ViewPlugin.fromClass(
       if (!update.docChanged) return;
 
       for (const tr of update.transactions) {
-        if (!tr.isUserEvent("input.type") && !tr.isUserEvent("input")) continue;
+        if (!tr.isUserEvent("input")) continue;
 
         tr.changes.iterChanges((_fromA, _toA, _fromB, toB) => {
           // Check if the just-typed character is `[`

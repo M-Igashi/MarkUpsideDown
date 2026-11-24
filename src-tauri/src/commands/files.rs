@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use super::spawn_blocking;
 use crate::error::{AppError, Result};
 
 // --- Path Validation ---
@@ -111,7 +112,7 @@ pub async fn write_text_file(path: String, content: String) -> Result<()> {
 
 #[tauri::command]
 pub async fn copy_to_clipboard(text: String) -> Result<()> {
-    tokio::task::spawn_blocking(move || {
+    spawn_blocking(move || {
         use std::io::Write;
         use std::process::{Command, Stdio};
         let mut child = Command::new("pbcopy")
@@ -128,7 +129,7 @@ pub async fn copy_to_clipboard(text: String) -> Result<()> {
             .map_err(|e| AppError::Io(format!("pbcopy failed: {e}")))?;
         Ok(())
     })
-    .await?
+    .await
 }
 
 #[derive(Serialize)]
@@ -180,7 +181,7 @@ pub async fn list_directory(path: String, fold_info: Option<bool>) -> Result<Vec
     let fold = fold_info.unwrap_or(false);
     // One thread-pool dispatch for the whole listing instead of one per
     // tokio::fs call — per-entry dispatch overhead dominates on large trees
-    super::spawn_blocking(move || {
+    spawn_blocking(move || {
         let mut entries = read_dir_entries(&path)?;
         if fold {
             for entry in entries.iter_mut().filter(|e| e.is_dir) {
@@ -236,7 +237,7 @@ fn compute_fold_chain(start: &str) -> Option<Vec<String>> {
 /// max 10 000 entries, skips `.git/` and `__pycache__/`.
 pub async fn list_recursive(root: &str) -> Result<Vec<FileEntry>> {
     let root = validate_path(root)?;
-    super::spawn_blocking(move || list_recursive_sync(root)).await
+    spawn_blocking(move || list_recursive_sync(root)).await
 }
 
 fn list_recursive_sync(root: std::path::PathBuf) -> Result<Vec<FileEntry>> {
@@ -431,11 +432,11 @@ pub async fn delete_entries(paths: Vec<String>) -> Result<()> {
         .iter()
         .map(|p| validate_path(p))
         .collect::<Result<Vec<_>>>()?;
-    tokio::task::spawn_blocking(move || {
+    spawn_blocking(move || {
         trash::delete_all(&validated)
             .map_err(|e| AppError::Io(format!("Failed to move to trash: {e}")))
     })
-    .await?
+    .await
 }
 
 #[tauri::command]
@@ -471,7 +472,7 @@ pub async fn copy_entry(from: String, to_dir: String) -> Result<String> {
 pub async fn duplicate_entry(path: String) -> Result<String> {
     let validated = validate_path(&path)?;
     let path_clone = validated.to_string_lossy().to_string();
-    let dest = tokio::task::spawn_blocking(move || {
+    let dest = spawn_blocking(move || {
         let src = std::path::Path::new(&path_clone);
         let parent = src
             .parent()
@@ -493,7 +494,7 @@ pub async fn duplicate_entry(path: String) -> Result<String> {
             };
             let candidate = parent.join(&name);
             if !candidate.exists() {
-                break Ok::<_, AppError>(candidate);
+                break Ok(candidate);
             }
             n += 1;
             if n > 100 {
@@ -501,7 +502,7 @@ pub async fn duplicate_entry(path: String) -> Result<String> {
             }
         }
     })
-    .await??;
+    .await?;
 
     let src = &validated;
     if src.is_dir() {

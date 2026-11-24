@@ -4,7 +4,7 @@ import { escapeHtml } from "./html-utils.ts";
 import { semanticSearch, type SearchResult } from "./semantic-search.ts";
 import { icon } from "./icons.ts";
 
-export interface Command {
+interface Command {
   id: string;
   label: string;
   shortcut?: string;
@@ -22,7 +22,7 @@ export function setSemanticSearchHandler(handler: (filePath: string) => void) {
   semanticSearchHandler = handler;
 }
 
-export function registerCommand(cmd: Command) {
+function registerCommand(cmd: Command) {
   if (!commands.some((c) => c.id === cmd.id)) {
     commands.push(cmd);
   }
@@ -242,7 +242,7 @@ export function open(initialQuery = "") {
   }
 }
 
-export function close() {
+function close() {
   if (overlay) {
     overlay.remove();
     overlay = null;

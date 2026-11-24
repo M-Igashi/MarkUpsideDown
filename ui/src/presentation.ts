@@ -23,7 +23,7 @@ export function startPresentation(content: string) {
   document.addEventListener("keydown", handleKey);
 }
 
-export function stopPresentation() {
+function stopPresentation() {
   if (overlay) {
     overlay.remove();
     overlay = null;

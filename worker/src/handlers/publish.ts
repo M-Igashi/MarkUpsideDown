@@ -15,22 +15,29 @@ function isExpired(expiresAt: string | undefined, now = Date.now()): boolean {
   return expiresAt !== undefined && Date.parse(expiresAt) <= now;
 }
 
+/** Every object in the bucket with its custom metadata, one page at a time. */
+async function* listPages(bucket: R2Bucket): AsyncGenerator<R2Object[]> {
+  let cursor: string | undefined;
+  do {
+    const listed = await bucket.list({ cursor, include: ["customMetadata"] });
+    yield listed.objects;
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+}
+
 /** Cron job: delete expired documents. Needed because R2 public URLs
  *  (R2_PUBLIC_URL) bypass the expiry check in handleServePublished. */
 export async function deleteExpiredPublished(env: Env): Promise<void> {
   if (!env.PUBLISH_BUCKET) return;
   const now = Date.now();
-  let cursor: string | undefined;
-  do {
-    const listed = await env.PUBLISH_BUCKET.list({ cursor, include: ["customMetadata"] });
-    const expired = listed.objects
+  for await (const objects of listPages(env.PUBLISH_BUCKET)) {
+    const expired = objects
       .filter((obj) => isExpired(obj.customMetadata?.expiresAt, now))
       .map((obj) => obj.key);
     if (expired.length > 0) {
       await env.PUBLISH_BUCKET.delete(expired);
     }
-    cursor = listed.truncated ? listed.cursor : undefined;
-  } while (cursor);
+  }
 }
 
 export async function handlePublish(request: Request, env: Env): Promise<Response> {
@@ -138,10 +145,8 @@ export async function handlePublishedList(env: Env): Promise<Response> {
 
   const now = Date.now();
   const files: { key: string; size: number; uploaded: string; expiresAt: string | null }[] = [];
-  let cursor: string | undefined;
-  do {
-    const listed = await env.PUBLISH_BUCKET.list({ cursor, include: ["customMetadata"] });
-    for (const obj of listed.objects) {
+  for await (const objects of listPages(env.PUBLISH_BUCKET)) {
+    for (const obj of objects) {
       const expiresAt = obj.customMetadata?.expiresAt;
       // Expired documents stay in the bucket until the cron purges them
       if (isExpired(expiresAt, now)) continue;
@@ -152,8 +157,7 @@ export async function handlePublishedList(env: Env): Promise<Response> {
         expiresAt: expiresAt ?? null,
       });
     }
-    cursor = listed.truncated ? listed.cursor : undefined;
-  } while (cursor);
+  }
 
   return jsonResponse({ files });
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bridge::BridgeClient;
 
-/// MIME map (sync with commands.rs and worker SUPPORTED_TYPES)
+/// MIME map (sync with src-tauri/src/commands/web.rs and worker SUPPORTED_TYPES)
 fn mime_from_extension(ext: &str) -> Option<&'static str> {
     match ext.to_lowercase().as_str() {
         "pdf" => Some("application/pdf"),

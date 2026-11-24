@@ -8,7 +8,7 @@
 
 import { findCodeBlockRanges, isInCodeBlock, mapOutsideInlineCode } from "./document-structure.ts";
 
-export const CJK_RE = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
+const CJK_RE = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
 
 // Emphasis span matchers — shared with markdown-lint.ts so a fix to the
 // flanking logic in one place cannot silently miss the other.

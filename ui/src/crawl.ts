@@ -86,7 +86,7 @@ export async function crawlUrl(urlInput: HTMLInputElement, urlBar: HTMLElement) 
     const { job_id } = await invoke<CrawlStartResult>("crawl_website", {
       url,
       workerUrl,
-      workerKey: getWorkerKey() || null,
+      workerKey: getWorkerKey(),
       depth: options.depth,
       limit: options.limit,
       render: options.render,
@@ -177,7 +177,7 @@ async function pollCrawl(
     invoke<CrawlStatusResult>("crawl_status", {
       jobId,
       workerUrl,
-      workerKey: getWorkerKey() || null,
+      workerKey: getWorkerKey(),
       cursor,
       limit,
     });

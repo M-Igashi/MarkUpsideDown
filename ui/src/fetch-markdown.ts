@@ -6,12 +6,12 @@ import { getWorkerKey, isRenderAvailable } from "./settings.ts";
 
 const { invoke } = window.__TAURI__.core;
 
-export interface FetchResult {
+interface FetchResult {
   body: string;
   is_markdown: boolean;
 }
 
-export interface WorkerFetchResult {
+interface WorkerFetchResult {
   markdown: string;
   source: string;
   spa_detected: boolean;
@@ -30,7 +30,7 @@ async function fetchPipeline(
       const fetchResult = await invoke<WorkerFetchResult>("fetch_url_via_worker", {
         url,
         workerUrl,
-        workerKey: getWorkerKey() || null,
+        workerKey: getWorkerKey(),
       });
       if (fetchResult.source === "markdown-for-agents") {
         return { content: normalizeMarkdown(fetchResult.markdown), method: "Markdown for Agents" };
@@ -40,12 +40,8 @@ async function fetchPipeline(
       if (autoRender && fetchResult.spa_detected && isRenderAvailable()) {
         try {
           onStatus?.("JS detected, rendering…");
-          const rendered = await invoke<string>("fetch_rendered_url_as_markdown", {
-            url,
-            workerUrl,
-            workerKey: getWorkerKey() || null,
-          });
-          return { content: normalizeMarkdown(rendered), method: "Browser Run (auto)" };
+          const content = await renderUrlAsMarkdown(url, workerUrl);
+          return { content, method: "Browser Run (auto)" };
         } catch {
           // Render failed — use fetch result as best effort
         }
@@ -95,7 +91,7 @@ export async function renderUrlAsMarkdown(url: string, workerUrl: string): Promi
   const markdown = await invoke<string>("fetch_rendered_url_as_markdown", {
     url,
     workerUrl,
-    workerKey: getWorkerKey() || null,
+    workerKey: getWorkerKey(),
   });
   return normalizeMarkdown(markdown);
 }

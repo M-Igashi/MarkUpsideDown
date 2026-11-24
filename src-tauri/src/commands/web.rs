@@ -48,9 +48,9 @@ async fn read_body_limited(
 
 // --- Shared Worker Request Helper ---
 
-/// Trait for Worker API responses that carry an optional error field.
-pub(crate) trait HasWorkerError {
-    fn take_error(&mut self) -> Option<String>;
+/// Join a Worker base URL (with or without a trailing slash) and a path.
+pub(crate) fn worker_endpoint(worker_url: &str, path: &str) -> String {
+    format!("{}{path}", worker_url.trim_end_matches('/'))
 }
 
 /// Attach the Worker API key, if configured, as a bearer token.
@@ -61,30 +61,39 @@ fn with_worker_key(request: reqwest::RequestBuilder, worker_key: Option<&str>) -
     }
 }
 
-/// Send a request to the Worker, parse the JSON response, and check for errors.
-pub(crate) async fn worker_request<T: DeserializeOwned + HasWorkerError>(
+/// Send a request to the Worker and parse the JSON response. A failed
+/// response is reported through its `error` field.
+pub(crate) async fn worker_request<T: DeserializeOwned>(
     request: reqwest::RequestBuilder,
     worker_key: Option<&str>,
 ) -> Result<T> {
+    #[derive(Deserialize)]
+    struct WorkerError {
+        error: Option<String>,
+    }
+
     let response = with_worker_key(request, worker_key)
         .send()
         .await
         .map_err(|e| AppError::Network(format!("Request failed: {e}")))?;
 
     let status = response.status();
-    let mut body: T = response
-        .json()
+    let bytes = response
+        .bytes()
         .await
-        .map_err(|e| AppError::Network(format!("Failed to parse response: {e}")))?;
+        .map_err(|e| AppError::Network(format!("Failed to read response: {e}")))?;
 
     if !status.is_success() {
+        let error = serde_json::from_slice::<WorkerError>(&bytes)
+            .ok()
+            .and_then(|b| b.error);
         return Err(AppError::Worker(
-            body.take_error()
-                .unwrap_or_else(|| format!("Worker returned {status}")),
+            error.unwrap_or_else(|| format!("Worker returned {status}")),
         ));
     }
 
-    Ok(body)
+    serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Network(format!("Failed to parse response: {e}")))
 }
 
 // --- Worker Health Check ---
@@ -141,7 +150,7 @@ pub async fn test_worker_url(
     worker_key: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<WorkerStatus> {
-    let health_url = format!("{}/health", worker_url.trim_end_matches('/'));
+    let health_url = worker_endpoint(&worker_url, "/health");
     let request = with_worker_key(client.get(&health_url), worker_key.as_deref());
 
     Ok(match request.timeout(Duration::from_secs(10)).send().await {
@@ -231,11 +240,6 @@ pub async fn fetch_url_as_markdown(
 #[derive(Deserialize)]
 struct RenderWorkerResponse {
     markdown: Option<String>,
-    error: Option<String>,
-}
-
-impl HasWorkerError for RenderWorkerResponse {
-    fn take_error(&mut self) -> Option<String> { self.error.take() }
 }
 
 #[tauri::command]
@@ -245,7 +249,10 @@ pub async fn fetch_rendered_url_as_markdown(
     worker_key: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String> {
-    let render_url = format!("{worker_url}/render?url={}", urlencoding::encode(&url));
+    let render_url = worker_endpoint(
+        &worker_url,
+        &format!("/render?url={}", urlencoding::encode(&url)),
+    );
 
     let body: RenderWorkerResponse = worker_request(
         client.get(&render_url).timeout(Duration::from_secs(60)),
@@ -271,11 +278,6 @@ struct FetchWorkerResponse {
     markdown: Option<String>,
     source: Option<String>,
     spa_detected: Option<bool>,
-    error: Option<String>,
-}
-
-impl HasWorkerError for FetchWorkerResponse {
-    fn take_error(&mut self) -> Option<String> { self.error.take() }
 }
 
 #[tauri::command]
@@ -285,7 +287,7 @@ pub async fn fetch_url_via_worker(
     worker_key: Option<String>,
     client: tauri::State<'_, reqwest::Client>,
 ) -> Result<WorkerFetchResult> {
-    let fetch_url = format!("{}/fetch", worker_url.trim_end_matches('/'));
+    let fetch_url = worker_endpoint(&worker_url, "/fetch");
 
     let body: FetchWorkerResponse = worker_request(
         client
@@ -309,13 +311,14 @@ pub async fn fetch_url_via_worker(
 
 const MAX_TITLE_FETCH_SIZE: usize = 65_536; // 64 KB
 
-pub async fn fetch_page_title_with(
-    app: &AppHandle,
-    client: &reqwest::Client,
-    url: &str,
+#[tauri::command]
+pub async fn fetch_page_title(
+    url: String,
+    app: AppHandle,
+    client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String> {
-    let validated_url = validate_url(url)?;
-    confirm_private_fetch(app, &validated_url).await?;
+    let validated_url = validate_url(&url)?;
+    confirm_private_fetch(&app, &validated_url).await?;
     let response = client
         .get(validated_url)
         .timeout(Duration::from_secs(10))
@@ -334,28 +337,20 @@ pub async fn fetch_page_title_with(
     crate::util::extract_html_title(&text)
 }
 
-#[tauri::command]
-pub async fn fetch_page_title(
-    url: String,
-    app: AppHandle,
-    client: tauri::State<'_, reqwest::Client>,
-) -> Result<String> {
-    fetch_page_title_with(&app, &client, &url).await
-}
-
 // --- Download Image to Local File ---
 
 const MAX_IMAGE_SIZE: usize = 50 * 1_024 * 1_024; // 50 MB
 
-pub async fn download_image_with(
-    app: &AppHandle,
-    client: &reqwest::Client,
-    url: &str,
-    dest_path: &str,
+#[tauri::command]
+pub async fn download_image(
+    url: String,
+    dest_path: String,
+    app: AppHandle,
+    client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String> {
-    let validated_url = validate_url(url)?;
-    let validated_path = validate_new_path(dest_path)?;
-    confirm_private_fetch(app, &validated_url).await?;
+    let validated_url = validate_url(&url)?;
+    let validated_path = validate_new_path(&dest_path)?;
+    confirm_private_fetch(&app, &validated_url).await?;
     let response = client
         .get(validated_url)
         .timeout(Duration::from_secs(30))
@@ -382,28 +377,13 @@ pub async fn download_image_with(
     Ok(validated_path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
-pub async fn download_image(
-    url: String,
-    dest_path: String,
-    app: AppHandle,
-    client: tauri::State<'_, reqwest::Client>,
-) -> Result<String> {
-    download_image_with(&app, &client, &url, &dest_path).await
-}
-
 // --- Document to Markdown via Workers AI ---
 
 #[derive(Deserialize)]
 struct ConvertWorkerResponse {
     markdown: Option<String>,
     is_image: Option<bool>,
-    error: Option<String>,
     warning: Option<String>,
-}
-
-impl HasWorkerError for ConvertWorkerResponse {
-    fn take_error(&mut self) -> Option<String> { self.error.take() }
 }
 
 #[derive(Serialize)]
@@ -436,7 +416,7 @@ pub async fn convert_file_to_markdown(
 
     let body: ConvertWorkerResponse = worker_request(
         client
-            .post(format!("{worker_url}/convert"))
+            .post(worker_endpoint(&worker_url, "/convert"))
             .timeout(Duration::from_secs(120))
             .header("Content-Type", mime_type)
             .body(bytes),
@@ -682,12 +662,10 @@ pub fn build_http_client() -> reqwest::Client {
         .expect("Failed to create HTTP client")
 }
 
-#[tauri::command]
-pub async fn fetch_svg(url: String) -> Result<String> {
-    let url = validate_url(&url)?;
-    ensure_public_url(&url).await?;
-    // Own client so redirects can be checked too
-    let client = reqwest::Client::builder()
+/// Client for preview SVGs: never reaches local or private hosts, even ones
+/// the user allowed for page fetches, and checks every redirect.
+static SVG_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
         .dns_resolver(Arc::new(PublicOnlyResolver { honor_allowed: false }))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= 5 || is_local_url(attempt.url()) {
@@ -697,8 +675,14 @@ pub async fn fetch_svg(url: String) -> Result<String> {
             }
         }))
         .build()
-        .map_err(|e| AppError::Network(e.to_string()))?;
-    let response = client
+        .expect("Failed to create HTTP client")
+});
+
+#[tauri::command]
+pub async fn fetch_svg(url: String) -> Result<String> {
+    let url = validate_url(&url)?;
+    ensure_public_url(&url).await?;
+    let response = SVG_CLIENT
         .get(url)
         .timeout(Duration::from_secs(15))
         .send()

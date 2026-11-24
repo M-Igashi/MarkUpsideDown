@@ -8,7 +8,7 @@ import {
   markProgrammaticScroll,
   syncPreviewToCursor,
 } from "./scroll-sync.ts";
-import { escapeHtml, copySvgAsPng } from "./html-utils.ts";
+import { escapeHtml, copySvgAsPng, flashCopied } from "./html-utils.ts";
 import { open as openMermaidViewer } from "./mermaid-viewer.ts";
 import { dirname } from "./path-utils.ts";
 import { blankFrontmatter } from "./document-structure.ts";
@@ -188,10 +188,8 @@ const figureExtension = {
         }
       },
       renderer(token: { alt: string; src: string; caption: string }) {
-        const altAttr = escapeHtml(token.alt);
-        const srcAttr = escapeHtml(resolveLocalImageSrc(token.src));
-        const captionHtml = escapeHtml(token.caption);
-        return `<figure><img src="${srcAttr}" alt="${altAttr}" loading="lazy"><figcaption>${captionHtml}</figcaption></figure>\n`;
+        const img = imgHtml(resolveLocalImageSrc(token.src), token.alt, ' loading="lazy"');
+        return `<figure>${img}<figcaption>${escapeHtml(token.caption)}</figcaption></figure>\n`;
       },
     },
   ],
@@ -347,11 +345,8 @@ marked.use({
       return _sourceLine ? text.replace(/^<(\w+)/, `<$1${slAttr(_sourceLine)}`) : text;
     },
     image({ href, title, text }: any) {
-      const resolved = resolveLocalImageSrc(href ?? "");
-      const srcAttr = escapeHtml(resolved);
-      const altAttr = escapeHtml(text ?? "");
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-      return `<img src="${srcAttr}" alt="${altAttr}"${titleAttr}>`;
+      return imgHtml(resolveLocalImageSrc(href ?? ""), text ?? "", titleAttr);
     },
   },
 });
@@ -364,50 +359,61 @@ marked.use({
 // other resources, or apply its <style> to the app.
 
 const SVG_CACHE_MAX = 50;
-const svgCache = new Map<string, string>(); // remote URL -> data: URL
-// Wrappers created here; a document's own class="inline-svg" must not be kept
-const svgWrappers = new WeakSet<HTMLElement>();
+// Remote URL -> data: URL, null when the fetch failed, or the fetch in flight.
+// Failures stay cached so a broken image is not re-fetched on every render.
+const svgCache = new Map<string, string | null | Promise<string | null>>();
+
+function fetchSvgDataUrl(url: string): Promise<string | null> {
+  const cached = svgCache.get(url);
+  if (cached !== undefined) return Promise.resolve(cached);
+  const pending = invoke<string>("fetch_svg", { url }).then(
+    (svg) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    () => null,
+  );
+  if (svgCache.size >= SVG_CACHE_MAX) svgCache.delete(svgCache.keys().next().value!);
+  svgCache.set(url, pending);
+  pending.then((dataUrl) => {
+    if (svgCache.get(url) === pending) svgCache.set(url, dataUrl);
+  });
+  return pending;
+}
+
+/**
+ * `<img>` markup for the renderer. A remote SVG that was already fetched is
+ * emitted in the inlined form `inlineSvgImages` produces, so a re-render
+ * matches the DOM instead of swapping the image back and forth.
+ */
+function imgHtml(src: string, alt: string, extraAttrs = ""): string {
+  const dataUrl = svgCache.get(src);
+  const altAttr = escapeHtml(alt);
+  if (typeof dataUrl === "string") {
+    return `<span class="inline-svg"><img src="${dataUrl}" alt="${altAttr}"${extraAttrs}></span>`;
+  }
+  return `<img src="${escapeHtml(src)}" alt="${altAttr}"${extraAttrs}>`;
+}
 
 async function inlineSvgImages(container: HTMLElement) {
-  const imgs = container.querySelectorAll('img[src$=".svg"]');
-  if (imgs.length === 0) return false;
+  const imgs = container.querySelectorAll<HTMLImageElement>('img[src$=".svg"]');
   let changed = false;
-  const tasks = Array.from(imgs).map(async (img) => {
-    const url = (img as HTMLImageElement).src;
-    if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return;
-    if (url.startsWith("https://asset.localhost/") || url.startsWith("http://asset.localhost/"))
-      return;
+  const tasks = Array.from(imgs, async (img) => {
+    // The attribute, not img.src: it is the cache key imgHtml() looks up
+    const url = img.getAttribute("src")!;
+    if (!/^https?:\/\//.test(url) || /^https?:\/\/asset\.localhost\//.test(url)) return;
+    const dataUrl = await fetchSvgDataUrl(url);
+    if (!dataUrl) return; // Leave as <img> on failure
 
-    try {
-      let dataUrl = svgCache.get(url);
-      if (dataUrl) {
-        // Move to end for LRU eviction
-        svgCache.delete(url);
-      } else {
-        const svgText = await invoke<string>("fetch_svg", { url });
-        dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
-        if (svgCache.size >= SVG_CACHE_MAX) {
-          svgCache.delete(svgCache.keys().next().value!);
-        }
-      }
-      svgCache.set(url, dataUrl);
+    const wrapper = document.createElement("span");
+    wrapper.className = "inline-svg";
+    const svgImg = document.createElement("img");
+    svgImg.src = dataUrl;
+    svgImg.alt = img.alt;
+    if (img.title) svgImg.title = img.title;
+    svgImg.loading = "lazy";
+    svgImg.decoding = "async";
+    wrapper.appendChild(svgImg);
 
-      const wrapper = document.createElement("span");
-      wrapper.className = "inline-svg";
-      svgWrappers.add(wrapper);
-      const svgImg = document.createElement("img");
-      svgImg.src = dataUrl;
-      svgImg.alt = (img as HTMLImageElement).alt;
-      if ((img as HTMLImageElement).title) svgImg.title = (img as HTMLImageElement).title;
-      svgImg.loading = "lazy";
-      svgImg.decoding = "async";
-      wrapper.appendChild(svgImg);
-
-      img.replaceWith(wrapper);
-      changed = true;
-    } catch {
-      // Leave as <img> on failure
-    }
+    img.replaceWith(wrapper);
+    changed = true;
   });
   await Promise.all(tasks);
   return changed;
@@ -518,10 +524,6 @@ export async function renderPreview(source: string) {
         ) {
           return false;
         }
-        // Preserve inlined SVGs
-        if (svgWrappers.has(oldNode)) {
-          return false;
-        }
         // Keep the copy-btn marker so the post-render pass skips already-done PREs
         if (oldNode.tagName === "PRE" && oldNode.dataset.copyBtn) {
           newNode.dataset.copyBtn = "true";
@@ -626,12 +628,7 @@ async function enhanceRendered(root: HTMLElement, interactive: boolean) {
     btn.addEventListener("click", () => {
       const code = pre.querySelector("code");
       const text = code ? code.textContent! : pre.textContent!;
-      navigator.clipboard.writeText(text).then(() => {
-        btn.textContent = "Copied!";
-        setTimeout(() => {
-          btn.textContent = "Copy";
-        }, 1500);
-      });
+      navigator.clipboard.writeText(text).then(() => flashCopied(btn));
     });
     pre.appendChild(btn);
   }

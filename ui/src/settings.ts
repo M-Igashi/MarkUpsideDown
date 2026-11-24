@@ -11,7 +11,7 @@ import {
   KEY_AUTOSAVE,
   KEY_RENDER_AVAILABLE,
 } from "./storage-keys.ts";
-import { escapeHtml } from "./html-utils.ts";
+import { escapeHtml, flashCopied } from "./html-utils.ts";
 import { icon } from "./icons.ts";
 import { getAppearance, setAppearance, type ReadingFont, type ReadingSize } from "./appearance.ts";
 
@@ -65,7 +65,7 @@ export function getWorkerUrl() {
   return localStorage.getItem(KEY_WORKER_URL) || "";
 }
 
-export function setWorkerUrl(url: string) {
+function setWorkerUrl(url: string) {
   if (url) {
     localStorage.setItem(KEY_WORKER_URL, url.replace(/\/+$/, ""));
   } else {
@@ -75,8 +75,8 @@ export function setWorkerUrl(url: string) {
 }
 
 /** API key the Worker requires on every non-public route (Worker v12+). */
-export function getWorkerKey() {
-  return localStorage.getItem(KEY_WORKER_KEY) || "";
+export function getWorkerKey(): string | null {
+  return localStorage.getItem(KEY_WORKER_KEY) || null;
 }
 
 function setWorkerKey(key: string) {
@@ -106,7 +106,7 @@ async function protectWorker(
   return apiKey;
 }
 
-export function isSetupDone() {
+function isSetupDone() {
   return getStorageBool(KEY_SETUP_DONE, false);
 }
 
@@ -194,7 +194,7 @@ export async function refreshWorkerHealth() {
   try {
     const status = await invoke<WorkerStatus>("test_worker_url", {
       workerUrl: url,
-      workerKey: getWorkerKey() || null,
+      workerKey: getWorkerKey(),
     });
     cacheTestStatus(status, url);
   } catch {
@@ -471,7 +471,7 @@ async function startAutoSetup(
   }
   update("secrets", secretsOk ? "done" : "skipped");
 
-  // Step 5: Verify
+  // Step 6: Verify
   update("verify", "running");
   urlInput.value = workerUrl;
   try {
@@ -1077,7 +1077,7 @@ export function showSettings({
 
   // Set value via DOM API (avoids HTML injection from localStorage)
   urlInput.value = workerUrl;
-  keyInput.value = getWorkerKey();
+  keyInput.value = getWorkerKey() ?? "";
 
   // Close actions
   const close = () => {
@@ -1093,8 +1093,9 @@ export function showSettings({
     setLintEnabled(lintCheckbox.checked);
     setSmartTypographyEnabled(smartTypoCheckbox.checked);
     markSetupDone();
-    close();
+    // Before close(): onClose would otherwise settle ensureWorkerUrl() with null
     if (onSave) onSave(url);
+    close();
   };
 
   document.getElementById("settings-close")!.addEventListener("click", close);
@@ -1288,7 +1289,7 @@ function renderCoworkTab(container: HTMLElement, binaryPath: string, workerUrl: 
       const configPath = await invoke<string>("install_mcp_to_claude_desktop", {
         mcpBinaryPath: binaryPath,
         workerUrl,
-        workerKey: getWorkerKey() || null,
+        workerKey: getWorkerKey(),
       });
       installResult.className = "settings-mcp-cowork-install-status test-ok";
       installResult.textContent = `Installed \u2014 restart Claude Desktop to activate`;
@@ -1336,11 +1337,7 @@ function attachCopyHandler(container: HTMLElement) {
     btn.addEventListener("click", async () => {
       const text = btn.dataset.copyText || "";
       await navigator.clipboard.writeText(text);
-      const original = btn.textContent;
-      btn.textContent = "Copied!";
-      setTimeout(() => {
-        btn.textContent = original;
-      }, 1500);
+      flashCopied(btn);
     });
   }
 }
@@ -1414,16 +1411,7 @@ export function ensureWorkerUrl(): Promise<string | null> {
   if (url) return Promise.resolve(url);
 
   const { promise, resolve } = Promise.withResolvers<string | null>();
-  let resolved = false;
-  showSettings({
-    onSave: (savedUrl) => {
-      resolved = true;
-      resolve(savedUrl || null);
-    },
-    onClose: () => {
-      if (!resolved) resolve(null);
-    },
-  });
+  showSettings({ onSave: (savedUrl) => resolve(savedUrl || null), onClose: () => resolve(null) });
   return promise;
 }
 

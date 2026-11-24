@@ -107,7 +107,7 @@ export function openPreviewSearch() {
   runSearch(true);
 }
 
-export function closePreviewSearch() {
+function closePreviewSearch() {
   if (bar.hidden) return;
   bar.hidden = true;
   ranges = [];

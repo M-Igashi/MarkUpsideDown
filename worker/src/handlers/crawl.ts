@@ -7,7 +7,7 @@ import {
   CRAWL_STATUS_LIMIT_MAX,
   CRAWL_DEPTH_DEFAULT,
 } from "../config.js";
-import { jsonResponse, parseJsonBody, hasCrawlSecrets, wrapJsonSchema, CORS_HEADERS, errorMessage } from "../utils.js";
+import { jsonResponse, parseJsonBody, hasCrawlSecrets, wrapJsonSchema, CORS_HEADERS, errorMessage, browserRunError } from "../utils.js";
 import { validateUrlForSsrf } from "../ssrf.js";
 
 const SECRETS_MISSING_ERROR =
@@ -27,6 +27,10 @@ async function upstreamError(label: string, response: Response): Promise<Respons
 function crawlApiUrl(env: Env, jobId?: string): string {
   const base = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/browser-run/crawl`;
   return jobId ? `${base}/${jobId}` : base;
+}
+
+function crawlAuth(env: Env): Record<string, string> {
+  return { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` };
 }
 
 export async function handleCrawlStart(request: Request, env: Env): Promise<Response> {
@@ -84,10 +88,7 @@ export async function handleCrawlStart(request: Request, env: Env): Promise<Resp
   try {
     const response = await fetch(crawlApiUrl(env), {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
+      headers: { ...crawlAuth(env), "Content-Type": "application/json" },
       body: JSON.stringify(crawlBody),
     });
 
@@ -97,7 +98,7 @@ export async function handleCrawlStart(request: Request, env: Env): Promise<Resp
 
     const data = await response.json<{ success: boolean; result: string; errors?: unknown[] }>();
     if (!data.success) {
-      return jsonResponse({ error: "Crawl API returned failure", details: data.errors }, 500);
+      return jsonResponse({ error: `Crawl API returned failure: ${browserRunError(data)}` }, 500);
     }
 
     return jsonResponse({ job_id: data.result });
@@ -130,11 +131,7 @@ export async function handleCrawlStatus(jobId: string, url: URL, env: Env): Prom
   if (cursor) crawlStatusUrl.searchParams.set("cursor", cursor);
 
   try {
-    const response = await fetch(crawlStatusUrl, {
-      headers: {
-        "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
-      },
-    });
+    const response = await fetch(crawlStatusUrl, { headers: crawlAuth(env) });
 
     if (!response.ok) {
       return upstreamError("Crawl status API error", response);
@@ -159,7 +156,7 @@ export async function handleCrawlCancel(jobId: string, env: Env): Promise<Respon
   try {
     const response = await fetch(crawlApiUrl(env, jobId), {
       method: "DELETE",
-      headers: { "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
+      headers: crawlAuth(env),
     });
     if (!response.ok) {
       return upstreamError("Crawl cancel API error", response);

@@ -541,8 +541,7 @@ function createSection(title: string, files: GitFile[], isStaged: boolean): HTML
     const statusIcon = document.createElement("span");
     statusIcon.className = `git-file-icon ${statusClass(file.status)}`;
     statusIcon.title = statusLabel(file.status);
-    statusIcon.textContent =
-      file.status === "?" || file.status === "??" ? "U" : file.status.charAt(0);
+    statusIcon.textContent = file.status === "?" ? "U" : file.status.charAt(0);
     row.appendChild(statusIcon);
 
     // File name (just basename)

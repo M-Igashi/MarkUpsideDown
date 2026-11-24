@@ -29,17 +29,6 @@ export const IMAGE_TYPES = new Set([
   "image/bmp",
 ]);
 
-export const SUPPORTED_TYPES = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/html",
-  "text/csv",
-  "application/xml",
-  "text/xml",
-  ...IMAGE_TYPES,
-]);
-
 export const MIME_TO_EXT: Record<string, string> = {
   "application/pdf": "pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
@@ -49,3 +38,5 @@ export const MIME_TO_EXT: Record<string, string> = {
   "application/xml": "xml",
   "text/xml": "xml",
 };
+
+export const SUPPORTED_TYPES = new Set([...Object.keys(MIME_TO_EXT), ...IMAGE_TYPES]);

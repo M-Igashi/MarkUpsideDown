@@ -13,7 +13,7 @@ use crate::error::{AppError, Result};
 const CLI_TIMEOUT: Duration = Duration::from_secs(120);
 const CLONE_TIMEOUT: Duration = Duration::from_secs(600);
 
-pub(super) fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
+pub(crate) fn run_cli(cmd: &str, args: &[&str]) -> Result<String> {
     run_cli_with_timeout(cmd, args, CLI_TIMEOUT)
 }
 
@@ -162,29 +162,14 @@ pub async fn git_status(repo_path: String, include_stats: Option<bool>) -> Resul
         // Hold lock for all commands to avoid racing with multi-step
         // operations like git_revert (stash -> revert -> pop).
         let _guard = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let status_result = run_git_unlocked(&repo_path, &["status", "-b", "--porcelain=v1"]).ok();
-        // The per-file line counts are only shown in the git panel, so
-        // callers can skip the two diff processes when it is hidden.
-        let (unstaged_raw, staged_raw) = if include_stats {
-            (
-                run_git_unlocked(&repo_path, &["diff", "--numstat"]).ok(),
-                run_git_unlocked(&repo_path, &["diff", "--cached", "--numstat"]).ok(),
-            )
-        } else {
-            (None, None)
-        };
-
-        let output = match status_result {
-            Some(o) => o,
-            None => {
-                return Ok(GitStatus {
-                    branch: String::new(),
-                    files: Vec::new(),
-                    is_repo: false,
-                    ahead: 0,
-                    behind: 0,
-                });
-            }
+        let Ok(output) = run_git_unlocked(&repo_path, &["status", "-b", "--porcelain=v1"]) else {
+            return Ok(GitStatus {
+                branch: String::new(),
+                files: Vec::new(),
+                is_repo: false,
+                ahead: 0,
+                behind: 0,
+            });
         };
 
         let mut lines = output.lines();
@@ -194,45 +179,34 @@ pub async fn git_status(repo_path: String, include_stats: Option<bool>) -> Resul
             .and_then(|line| line.strip_prefix("## "))
             .unwrap_or("");
         let branch = first_line.split("...").next().unwrap_or(first_line).to_string();
-        let mut ahead: u32 = 0;
-        let mut behind: u32 = 0;
-        if let Some(bracket) = first_line.find('[') {
-            let info = &first_line[bracket..];
-            if let Some(n) = info
-                .find("ahead ")
-                .and_then(|i| info[i + 6..].split(|c: char| !c.is_ascii_digit()).next())
+        // The bracket holds "ahead N", "behind M", or both
+        let info = first_line.find('[').map_or("", |i| &first_line[i..]);
+        let count = |label: &str| -> u32 {
+            info.find(label)
+                .and_then(|i| info[i + label.len()..].split(|c: char| !c.is_ascii_digit()).next())
                 .and_then(|s| s.parse().ok())
-            {
-                ahead = n;
-            }
-            if let Some(n) = info
-                .find("behind ")
-                .and_then(|i| info[i + 7..].split(|c: char| !c.is_ascii_digit()).next())
-                .and_then(|s| s.parse().ok())
-            {
-                behind = n;
-            }
-        }
+                .unwrap_or(0)
+        };
+        let ahead = count("ahead ");
+        let behind = count("behind ");
 
-        let mut unstaged_stats: std::collections::HashMap<String, (u32, u32)> =
-            std::collections::HashMap::new();
-        let mut staged_stats: std::collections::HashMap<String, (u32, u32)> =
-            std::collections::HashMap::new();
-
-        if let Some(numstat) = unstaged_raw {
-            for line in numstat.lines() {
-                if let Some((added, removed, path)) = parse_numstat_line(line) {
-                    unstaged_stats.insert(path, (added, removed));
-                }
+        // The per-file line counts are only shown in the git panel, so
+        // callers can skip the two diff processes when it is hidden.
+        let numstat = |args: &[&str]| -> std::collections::HashMap<String, (u32, u32)> {
+            if !include_stats {
+                return Default::default();
             }
-        }
-        if let Some(numstat) = staged_raw {
-            for line in numstat.lines() {
-                if let Some((added, removed, path)) = parse_numstat_line(line) {
-                    staged_stats.insert(path, (added, removed));
-                }
-            }
-        }
+            run_git_unlocked(&repo_path, args)
+                .map(|out| {
+                    out.lines()
+                        .filter_map(parse_numstat_line)
+                        .map(|(added, removed, path)| (path, (added, removed)))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let unstaged_stats = numstat(&["diff", "--numstat"]);
+        let staged_stats = numstat(&["diff", "--cached", "--numstat"]);
 
         let mut files = Vec::new();
         for line in lines {

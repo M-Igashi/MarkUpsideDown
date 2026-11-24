@@ -1,7 +1,7 @@
 import type { Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { escapeHtml } from "./html-utils.ts";
-import { splitTableCells } from "./normalize.ts";
+import { splitTableCells } from "./document-structure.ts";
 
 // --- Markdown Table Parser ---
 
@@ -123,7 +123,7 @@ function findTableAtCursor(doc: Text, pos: number): TableRange | null {
 
 // --- Spreadsheet UI ---
 
-export function showTableEditor(editor: EditorView, existingTable: TableRange | null): void {
+function showTableEditor(editor: EditorView, existingTable: TableRange | null): void {
   document.getElementById("table-editor-dialog")?.remove();
 
   let table: TableData;

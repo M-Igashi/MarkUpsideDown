@@ -54,21 +54,28 @@ pub struct EditorStateInner {
 
 /// Per-window editor state, keyed by window label.
 /// Also tracks which window is currently focused for bridge routing.
+#[derive(Default)]
 pub struct EditorStates {
-    pub map: std::sync::Mutex<std::collections::HashMap<String, EditorStateInner>>,
-    pub focused: std::sync::Mutex<Option<String>>,
-}
-
-impl Default for EditorStates {
-    fn default() -> Self {
-        Self {
-            map: std::sync::Mutex::new(std::collections::HashMap::new()),
-            focused: std::sync::Mutex::new(None),
-        }
-    }
+    map: std::sync::Mutex<std::collections::HashMap<String, EditorStateInner>>,
+    focused: std::sync::Mutex<Option<String>>,
 }
 
 impl EditorStates {
+    /// Modify the state for `label`, creating it if the window has none yet.
+    pub fn update(&self, label: &str, f: impl FnOnce(&mut EditorStateInner)) {
+        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        f(map.entry(label.to_string()).or_default());
+    }
+
+    /// Replace the content of a window that has synced its state. Unknown
+    /// labels (for example a mistyped `window` from an MCP client) are ignored.
+    pub fn set_content(&self, label: &str, content: &str) {
+        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = map.get_mut(label) {
+            s.content = content.to_string();
+        }
+    }
+
     /// Run `f` against the state for `label` (when given and present),
     /// falling back to the focused window, then any window. Lets callers
     /// extract just the fields they need without cloning the entire
@@ -133,7 +140,7 @@ impl EditorStates {
 const WINDOW_REGISTRY_STORE: &str = "window-registry.json";
 const WINDOW_REGISTRY_KEY: &str = "windows";
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowRegistryEntry {
     pub label: String,
     pub x: Option<f64>,
@@ -187,6 +194,10 @@ pub fn save_window_registry(window: tauri::WebviewWindow) -> Result<()> {
     }
     let handle = window.app_handle();
     let mut entries = load_window_registry(handle)?;
+    // Called every 30 s; skip the store write when nothing moved
+    if entries.contains(&entry) {
+        return Ok(());
+    }
     entries.retain(|e| e.label != entry.label);
     entries.push(entry);
     write_window_registry(handle, entries)

@@ -184,21 +184,8 @@ pub struct GhItem {
 
 #[derive(Serialize, Deserialize)]
 pub struct GhItemDetail {
-    pub number: u64,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub state: String,
-    #[serde(alias = "updatedAt", default)]
-    pub updated_at: String,
-    #[serde(default)]
-    pub author: Option<GhUser>,
-    #[serde(default)]
-    pub labels: Vec<GhLabel>,
-    #[serde(default)]
-    pub url: String,
-    #[serde(alias = "isDraft", default)]
-    pub is_draft: bool,
+    #[serde(flatten)]
+    pub item: GhItem,
     #[serde(default)]
     pub body: String,
     #[serde(default)]
@@ -294,7 +281,7 @@ fn fetch_detail(repo: &str, kind: &str, number: u64) -> Result<GhItemDetail> {
     let output = run_gh(&[kind, "view", number.as_str(), "--repo", repo, "--json", fields])?;
     let mut detail: GhItemDetail = serde_json::from_str(&output)
         .map_err(|e| AppError::GitHub(format!("Failed to parse gh output: {e}")))?;
-    detail.title = normalize_newlines(&detail.title);
+    detail.item.title = normalize_newlines(&detail.item.title);
     detail.body = normalize_newlines(&detail.body);
     for comment in &mut detail.comments {
         comment.body = normalize_newlines(&comment.body);
